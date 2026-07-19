@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
+  <title id="title">Pitot system boundary</title>
+  <desc id="desc">Coding agent hosts feed Pitot events to passive consumers and requests to one controller; Pitot carries correlated responses back to the host.</desc>
+  <rect width="1200" height="500" fill="#F8F5EC"/>
+  <rect x="1" y="1" width="1198" height="498" fill="none" stroke="#182224" stroke-width="2"/>
+  <text x="40" y="43" fill="#182224" font-family="monospace" font-size="12" font-weight="700" letter-spacing="2">SYSTEM BOUNDARY / OBSERVE → DECIDE → ACTUATE</text>
+
+  <g font-family="Trebuchet MS, Segoe UI, sans-serif">
+    <rect x="54" y="96" width="212" height="276" fill="#EEE9DC" stroke="#182224" stroke-width="2"/>
+    <text x="82" y="130" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">HOSTS</text>
+    <text x="82" y="182" fill="#182224" font-size="24" font-weight="700">Claude Code</text>
+    <path d="M82 200h156" stroke="#A9AAA2"/>
+    <text x="82" y="246" fill="#182224" font-size="24" font-weight="700">Cursor</text>
+    <path d="M82 264h156" stroke="#A9AAA2"/>
+    <text x="82" y="310" fill="#182224" font-size="24" font-weight="700">Codex</text>
+    <text x="82" y="346" fill="#394446" font-size="14">native hooks + events</text>
+
+    <rect x="362" y="96" width="294" height="276" fill="#182224"/>
+    <g transform="translate(394 126) scale(1.15)">
+      <rect x="7" y="14" width="35" height="9" fill="#FFFDF7"/>
+      <rect x="15" y="33" width="27" height="9" fill="#FFFDF7"/>
+      <rect x="42" y="14" width="9" height="37" fill="#FFFDF7"/>
+      <rect x="7" y="14" width="8" height="9" fill="#E4572E"/>
+      <rect x="15" y="33" width="8" height="9" fill="#E4572E"/>
+    </g>
+    <text x="480" y="174" fill="#FFFDF7" font-size="38" font-weight="700">Pitot</text>
+    <text x="394" y="222" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="1.4">NORMALIZE + PROJECT</text>
+    <text x="394" y="258" fill="#FFFDF7" font-size="17">host adapters</text>
+    <text x="394" y="288" fill="#FFFDF7" font-size="17">canonical protocol</text>
+    <text x="394" y="318" fill="#FFFDF7" font-size="17">correlated bridge</text>
+    <text x="394" y="348" fill="#A9AAA2" font-size="13">no product policy</text>
+
+    <rect x="752" y="96" width="394" height="118" fill="#EEE9DC" stroke="#182224" stroke-width="2"/>
+    <text x="782" y="128" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">CONSUMERS / 0..N</text>
+    <text x="782" y="166" fill="#182224" font-size="21" font-weight="700">Token meter · reports · telemetry</text>
+    <text x="782" y="192" fill="#394446" font-size="14">receive projected events · cannot reply</text>
+
+    <rect x="752" y="254" width="394" height="118" fill="#EEE9DC" stroke="#182224" stroke-width="2"/>
+    <text x="782" y="286" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">CONTROLLER / 0..1 PER KIND</text>
+    <text x="782" y="324" fill="#182224" font-size="21" font-weight="700">Your verifier or approval service</text>
+    <text x="782" y="350" fill="#394446" font-size="14">receives requests · returns one correlated response</text>
+  </g>
+
+  <path d="M266 156h96" stroke="#E4572E" stroke-width="4"/>
+  <path d="m350 148 12 8-12 8" fill="none" stroke="#E4572E" stroke-width="4"/>
+  <text x="292" y="140" fill="#394446" font-family="monospace" font-size="10">NATIVE</text>
+
+  <path d="M656 156h96" stroke="#E4572E" stroke-width="4"/>
+  <path d="m740 148 12 8-12 8" fill="none" stroke="#E4572E" stroke-width="4"/>
+  <text x="678" y="140" fill="#394446" font-family="monospace" font-size="10">EVENTS</text>
+
+  <path d="M656 312h96" stroke="#E4572E" stroke-width="4"/>
+  <path d="m740 304 12 8-12 8" fill="none" stroke="#E4572E" stroke-width="4"/>
+  <path d="M752 350H656" stroke="#182224" stroke-width="3" stroke-dasharray="7 6"/>
+  <path d="m668 342-12 8 12 8" fill="none" stroke="#182224" stroke-width="3"/>
+  <text x="678" y="296" fill="#394446" font-family="monospace" font-size="10">REQUEST</text>
+  <text x="674" y="374" fill="#394446" font-family="monospace" font-size="10">RESPONSE</text>
+
+  <text x="54" y="438" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="22" font-weight="700">Pitot owns the host boundary. Controllers own the decision.</text>
+  <text x="54" y="467" fill="#394446" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="15">Passive consumers are structurally unable to answer a synchronous host request.</text>
+</svg>

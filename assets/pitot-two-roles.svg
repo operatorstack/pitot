@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-labelledby="title desc">
+  <title id="title">Pitot consumers and controllers</title>
+  <desc id="desc">A token meter consumes usage events without replying, while an approval controller receives a request and returns a correlated allow or deny response.</desc>
+  <rect width="1200" height="470" fill="#EEE9DC"/>
+  <path d="M600 0v470M0 70h1200" stroke="#182224" stroke-width="2"/>
+  <text x="40" y="43" fill="#182224" font-family="monospace" font-size="12" font-weight="700" letter-spacing="2">TWO SMALL PROGRAMS / TWO DIFFERENT CAPABILITIES</text>
+
+  <g font-family="Trebuchet MS, Segoe UI, sans-serif">
+    <text x="48" y="114" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">01 / CONSUMER</text>
+    <text x="48" y="158" fill="#182224" font-size="34" font-weight="700">Token meter</text>
+    <text x="48" y="190" fill="#394446" font-size="15">Counts usage. Receives no prompt or reply channel.</text>
+    <rect x="48" y="228" width="504" height="142" fill="#182224"/>
+    <text x="72" y="262" fill="#E4572E" font-family="monospace" font-size="12">model.usage</text>
+    <text x="72" y="296" fill="#FFFDF7" font-family="monospace" font-size="14">input_tokens   1,240</text>
+    <text x="72" y="326" fill="#FFFDF7" font-family="monospace" font-size="14">output_tokens    380</text>
+    <text x="72" y="356" fill="#A9AAA2" font-family="monospace" font-size="12">content_mode    omit</text>
+    <path d="M400 294h112" stroke="#E4572E" stroke-width="4"/>
+    <path d="m500 286 12 8-12 8" fill="none" stroke="#E4572E" stroke-width="4"/>
+    <text x="405" y="279" fill="#A9AAA2" font-family="monospace" font-size="10">OBSERVE</text>
+
+    <text x="648" y="114" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">02 / CONTROLLER</text>
+    <text x="648" y="158" fill="#182224" font-size="34" font-weight="700">Approval check</text>
+    <text x="648" y="190" fill="#394446" font-size="15">Answers one request using your own local rule.</text>
+    <rect x="648" y="228" width="504" height="142" fill="#182224"/>
+    <text x="672" y="262" fill="#E4572E" font-family="monospace" font-size="12">release.approval</text>
+    <text x="672" y="296" fill="#FFFDF7" font-family="monospace" font-size="14">action_id      act_7f2</text>
+    <text x="672" y="326" fill="#FFFDF7" font-family="monospace" font-size="14">outcome        allow</text>
+    <text x="672" y="356" fill="#A9AAA2" font-family="monospace" font-size="12">source         approvals.json</text>
+    <path d="M1000 280h112" stroke="#E4572E" stroke-width="4"/>
+    <path d="m1100 272 12 8-12 8" fill="none" stroke="#E4572E" stroke-width="4"/>
+    <path d="M1112 320h-112" stroke="#FFFDF7" stroke-width="3" stroke-dasharray="7 6"/>
+    <path d="m1012 312-12 8 12 8" fill="none" stroke="#FFFDF7" stroke-width="3"/>
+  </g>
+
+  <text x="48" y="420" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="20" font-weight="700">Consumer: Event → observe</text>
+  <text x="648" y="420" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="20" font-weight="700">Controller: Request → Response</text>
+</svg>
+

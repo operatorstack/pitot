@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Pitot differential mark</title>
+  <desc id="desc">Two orange measurement inlets feed separate dark channels that meet one downstream datum.</desc>
+  <rect width="64" height="64" rx="4" fill="#EEE9DC"/>
+  <rect x="7" y="14" width="35" height="9" fill="#182224"/>
+  <rect x="15" y="33" width="27" height="9" fill="#182224"/>
+  <rect x="42" y="14" width="9" height="37" fill="#182224"/>
+  <rect x="7" y="14" width="8" height="9" fill="#E4572E"/>
+  <rect x="15" y="33" width="8" height="9" fill="#E4572E"/>
+</svg>
+
