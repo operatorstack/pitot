@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Pitot — reports for coding-agent tooling</title>
+  <desc id="desc">A technical instrument-style banner showing the Pitot differential mark and the line Pitot reports. Your controller decides.</desc>
+  <rect width="1200" height="420" fill="#EEE9DC"/>
+  <path d="M48 0v420M0 70h1200M0 350h1200M724 70v280" fill="none" stroke="#182224" stroke-width="2"/>
+  <path d="M74 106h594M74 314h594" fill="none" stroke="#A9AAA2"/>
+  <g transform="translate(96 130) scale(2.65)">
+    <rect x="7" y="14" width="35" height="9" fill="#182224"/>
+    <rect x="15" y="33" width="27" height="9" fill="#182224"/>
+    <rect x="42" y="14" width="9" height="37" fill="#182224"/>
+    <rect x="7" y="14" width="8" height="9" fill="#E4572E"/>
+    <rect x="15" y="33" width="8" height="9" fill="#E4572E"/>
+  </g>
+  <text x="300" y="232" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="92" font-weight="700" letter-spacing="-6">pitot</text>
+  <text x="76" y="42" fill="#182224" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">OPEN SENSOR + CONTROL TRANSPORT</text>
+  <text x="1124" y="42" text-anchor="end" fill="#394446" font-family="monospace" font-size="11" font-weight="700">PIT–ID / 01</text>
+  <text x="770" y="150" fill="#E4572E" font-family="monospace" font-size="11" font-weight="700" letter-spacing="2">MEASUREMENT / DECISION</text>
+  <text x="770" y="208" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="38" font-weight="700">Pitot reports.</text>
+  <text x="770" y="252" fill="#182224" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="38" font-weight="700">Your controller decides.</text>
+  <text x="770" y="300" fill="#394446" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="16">One language-neutral boundary for coding-agent tooling.</text>
+  <text x="76" y="388" fill="#394446" font-family="monospace" font-size="10" font-weight="700" letter-spacing="1.4">TWO READINGS / ONE MEASURED SIGNAL</text>
+  <text x="1124" y="388" text-anchor="end" fill="#394446" font-family="monospace" font-size="10" font-weight="700" letter-spacing="1.4">OPERATORSTACK / PITOT</text>
+</svg>
+
