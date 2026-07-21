@@ -1,0 +1,5 @@
+{"name":"cursor-before-shell","host":"cursor","mode":"sha256","input":{"hook_event_name":"beforeShellExecution","command":"git status --short"},"expect_kind":"shell"}
+{"name":"cursor-before-mcp","host":"cursor","mode":"omit","input":{"hook_event_name":"beforeMCPExecution","command":"list-tools"},"expect_kind":"mcp"}
+{"name":"claude-pre-tool","host":"claude","mode":"sha256","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}},"expect_kind":"shell"}
+{"name":"codex-pre-tool","host":"codex","mode":"full","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}},"expect_kind":"shell"}
+{"name":"claude-missing-event-name-tolerated","host":"claude","mode":"omit","input":{"tool_name":"Bash","tool_input":{"command":"pwd"}},"expect_kind":"shell"}

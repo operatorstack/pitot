@@ -12,5 +12,20 @@ Before proposing an adapter or protocol change:
 5. prove passive Consumers cannot reach the response channel; and
 6. document any change to request correlation or timeout behavior.
 
-Implementation instructions will be added with the first buildable release.
+## Development
+
+The reference implementation is a Go module (`go 1.26`). From the repository
+root:
+
+```bash
+go test ./...                          # unit and conformance suites
+go build ./cmd/pitot                   # the reference executable
+go test -tags windtunnel ./windtunnel/ # integrated sensor + bridge check
+go test -run x -fuzz=FuzzDecode ./sensor
+```
+
+Conformance fixtures live under `conformance/fixtures/` as JSON Lines: add a
+positive vector for every new adapter behavior and a negative control for every
+boundary fault. The sensor package must never import the bridge package —
+measurement stays innocent of control.
 
