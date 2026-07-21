@@ -45,6 +45,20 @@ A passive Consumer cannot reach the response channel. A Controller is
 statically registered for one request kind and returns at most one response for
 the pending action.
 
+## Use-case gallery
+
+### Operational patterns (grid)
+
+If you want to see concrete integration ideas, start with the **Use-Cases Grid**:
+
+- [04 Use-Cases Editorial Grid](./brand-exploration/design-demos/04-use-cases-editorial-grid.html)
+
+This gallery shows practical ways teams can compose Consumers and Controllers
+without forcing each workflow into the host or into a single monolithic runtime.
+It includes both engineering patterns (token metering, approvals, audit hooks) and
+non-coding workflows (email triage, file movement, and local automation),
+so you can quickly evaluate where Pitot helps before building.
+
 ## Two small programs
 
 <p align="center">
@@ -326,4 +340,3 @@ requirements.
 ## License
 
 Apache-2.0
-

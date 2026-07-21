@@ -1,0 +1,7 @@
+{"name":"empty-input","host":"cursor","mode":"omit","input_raw":"","reason":"malformed-event"}
+{"name":"invalid-json","host":"cursor","mode":"omit","input_raw":"{not json","reason":"malformed-event"}
+{"name":"cursor-empty-command","host":"cursor","mode":"omit","input":{"hook_event_name":"beforeShellExecution","command":""},"reason":"empty-command"}
+{"name":"claude-missing-command","host":"claude","mode":"omit","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{}},"reason":"empty-command"}
+{"name":"claude-null-tool-input","host":"claude","mode":"omit","input":{"hook_event_name":"PreToolUse","tool_name":"Bash"},"reason":"empty-command"}
+{"name":"mismatched-event-name","host":"claude","mode":"omit","input":{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"}},"reason":"malformed-event"}
+{"name":"unsupported-host","host":"aider","mode":"omit","input":{"hook_event_name":"PreToolUse"},"reason":"unsupported-host"}

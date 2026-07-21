@@ -1,0 +1,24 @@
+{
+  "name": "@operatorstack/pitot",
+  "version": "0.1.0",
+  "description": "Pitot: The passive, protocol-first measurement boundary for coding agents.",
+  "main": "types/ts/index.js",
+  "types": "types/ts/index.d.ts",
+  "files": [
+    "types/ts/**/*.ts",
+    "types/ts/**/*.js",
+    "types/ts/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/operatorstack/pitot.git"
+  },
+  "author": "Operator Stack",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
