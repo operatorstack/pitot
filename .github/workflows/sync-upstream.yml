@@ -30,9 +30,7 @@ jobs:
           client-id: ${{ vars.OPERATOR_STACK_PUBLISHER_APP_CLIENT_ID || vars.BOATSTACK_APP_CLIENT_ID }}
           private-key: ${{ secrets.OPERATOR_STACK_PUBLISHER_APP_PRIVATE_KEY || secrets.BOATSTACK_APP_PRIVATE_KEY }}
           owner: operatorstack
-          repositories: |
-            intelligence-flow
-            pitot
+          repositories: pitot
           permission-contents: write
           permission-pull-requests: write
       - name: Check out Pitot
@@ -47,7 +45,6 @@ jobs:
           ref: ${{ inputs.source_commit || 'main' }}
           fetch-depth: 0
           path: intelligence-flow
-          token: ${{ steps.app-token.outputs.token }}
       - name: Generate projection
         id: generate
         shell: bash
