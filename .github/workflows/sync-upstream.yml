@@ -67,11 +67,9 @@ jobs:
           rsync -av --delete intelligence-flow/labs/15-pitot/public-readme-preview/assets/ pitot-repo/assets/
           
           # The distribution package files
-          if [[ -f intelligence-flow/labs/15-pitot/pitot-distribution/package.json ]]; then
-            cp intelligence-flow/labs/15-pitot/pitot-distribution/package.json pitot-repo/
-            cp intelligence-flow/labs/15-pitot/pitot-distribution/tsconfig.json pitot-repo/
-            mkdir -p pitot-repo/types
-            rsync -av --delete intelligence-flow/labs/15-pitot/pitot-distribution/types/ pitot-repo/types/
+          if [[ -d intelligence-flow/labs/15-pitot/pitot-distribution/sdk ]]; then
+            mkdir -p pitot-repo/sdk
+            rsync -av --delete intelligence-flow/labs/15-pitot/pitot-distribution/sdk/ pitot-repo/sdk/
           fi
           
           # Copy UPSTREAM.json
