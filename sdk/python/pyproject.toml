@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pitot"
+version = "0.1.0"
+description = "Pitot: The passive, protocol-first measurement boundary for coding agents."
+authors = [
+    { name = "Operator Stack" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/operatorstack/pitot"
+Repository = "https://github.com/operatorstack/pitot"
