@@ -26,6 +26,7 @@ const (
 	Cursor Host = "cursor"
 	Claude Host = "claude"
 	Codex  Host = "codex"
+	Gemini Host = "gemini"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
@@ -120,6 +121,26 @@ var (
 			Partition: ControlPartition{
 				// In Codex, the PreToolUse hook is synchronous (blocking).
 				Controllable: []string{"PreToolUse"},
+			},
+		},
+		Gemini: {
+			MainEventName: "BeforeTool",
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`),
+				CommandFor: func(raw RawHookEvent) (string, bool) {
+					if raw.ToolInput == nil {
+						return "", false
+					}
+					value, present := raw.ToolInput["command"].(string)
+					return value, present && value != ""
+				},
+				ActionKinds: map[string]string{
+					"BeforeTool": "shell",
+				},
+			},
+			Partition: ControlPartition{
+				// In Gemini, the BeforeTool hook is synchronous (blocking).
+				Controllable: []string{"BeforeTool"},
 			},
 		},
 	}
