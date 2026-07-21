@@ -53,10 +53,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 // from stdin, normalizes it, and exits with 0 (allow) or 2 (block/deny).
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pitot: hook requires a host identifier (cursor, claude, codex)")
+		return fmt.Errorf("pitot: hook requires a host identifier (cursor, claude, codex, gemini)")
 	}
 	host := adapters.Host(args[0])
-	if host != adapters.Cursor && host != adapters.Claude && host != adapters.Codex {
+	if host != adapters.Cursor && host != adapters.Claude && host != adapters.Codex && host != adapters.Gemini {
 		return fmt.Errorf("pitot: unsupported hook host %q", host)
 	}
 
