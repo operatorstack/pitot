@@ -1,0 +1,50 @@
+# Pitot-owned control plane.
+name: Verify Pitot distribution
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge-sync:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'sync/intelligence-flow-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create repository automation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.OPERATOR_STACK_PUBLISHER_APP_CLIENT_ID || vars.BOATSTACK_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OPERATOR_STACK_PUBLISHER_APP_PRIVATE_KEY || secrets.BOATSTACK_APP_PRIVATE_KEY }}
+          owner: operatorstack
+          repositories: pitot
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify generated projection provenance
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          source_repo="$(jq -r '.source.repository' UPSTREAM.json)"
+          source_commit="$(jq -r '.source.commit' UPSTREAM.json)"
+          short="${source_commit:0:12}"
+          [[ "$PR_AUTHOR" == "${APP_SLUG}[bot]" ]]
+          [[ "$source_repo" == "operatorstack/intelligence-flow" ]]
+          [[ "$HEAD_BRANCH" == "sync/intelligence-flow-$short" ]]
+      - name: Merge verified generated PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --squash
