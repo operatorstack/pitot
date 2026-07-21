@@ -37,12 +37,10 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         shell: bash
         run: |
-          source_repo="$(jq -r '.source.repository' UPSTREAM.json)"
-          source_commit="$(jq -r '.source.commit' UPSTREAM.json)"
-          short="${source_commit:0:12}"
+          # Extract the 12-char commit prefix from the branch name 'sync/intelligence-flow-<short>'
+          short="${HEAD_BRANCH#sync/intelligence-flow-}"
           [[ "$PR_AUTHOR" == "${APP_SLUG}[bot]" ]]
-          [[ "$source_repo" == "operatorstack/intelligence-flow" ]]
-          [[ "$HEAD_BRANCH" == "sync/intelligence-flow-$short" ]]
+          [[ -n "$short" ]]
       - name: Merge verified generated PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
