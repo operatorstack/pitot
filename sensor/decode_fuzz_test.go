@@ -22,6 +22,7 @@ func FuzzDecode(f *testing.F) {
 		[]byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`),
 		[]byte(`{"hook_event_name":"PreToolUse","tool_input":null}`),
 		[]byte(`{"hook_event_name":123}`),
+		[]byte(`{"hookName":"PreToolUse","preToolUse":{"tool":"execute_command","parameters":{"command":"ls"}}}`),
 		[]byte(`[]`),
 	}
 	for _, seed := range seeds {

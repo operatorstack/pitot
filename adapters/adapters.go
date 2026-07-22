@@ -29,6 +29,10 @@ const (
 	Gemini   Host = "gemini"
 	Opencode Host = "opencode"
 	Kimi     Host = "kimi"
+	Copilot  Host = "copilot"
+	Qwen     Host = "qwen"
+	Pi       Host = "pi"
+	Cline    Host = "cline"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
@@ -39,6 +43,7 @@ const AdapterVersion = "0.1.0"
 // into normalized action types and command strings.
 type ParserConfig struct {
 	CanonicalEvent []byte
+	EventNameFor   func(raw RawHookEvent) string
 	CommandFor     func(raw RawHookEvent) (string, bool)
 	ActionKinds    map[string]string // hook event name -> normalized action kind ("shell", "mcp")
 }
@@ -68,6 +73,33 @@ type HostConfig struct {
 var (
 	registryMu sync.RWMutex
 	registry   = map[Host]HostConfig{
+		Copilot: preToolUseHost(),
+		Qwen:    preToolUseHost(),
+		Pi: {
+			MainEventName: "tool_call",
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"tool_call","tool_name":"bash","tool_input":{"command":"git status --short"}}`),
+				CommandFor:     toolInputCommand,
+				ActionKinds:    map[string]string{"tool_call": "shell"},
+			},
+			Partition: ControlPartition{Controllable: []string{"tool_call"}},
+		},
+		Cline: {
+			MainEventName: "PreToolUse",
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hookName":"PreToolUse","preToolUse":{"tool":"execute_command","parameters":{"command":"git status --short"}}}`),
+				EventNameFor:   func(raw RawHookEvent) string { return raw.HookName },
+				CommandFor: func(raw RawHookEvent) (string, bool) {
+					if raw.PreToolUse.Tool != "execute_command" {
+						return "", false
+					}
+					value, present := raw.PreToolUse.Parameters["command"].(string)
+					return value, present && value != ""
+				},
+				ActionKinds: map[string]string{"PreToolUse": "shell"},
+			},
+			Partition: ControlPartition{Controllable: []string{"PreToolUse"}},
+		},
 		Cursor: {
 			MainEventName: "beforeShellExecution",
 			Parser: ParserConfig{
@@ -188,6 +220,28 @@ var (
 	}
 )
 
+func toolInputCommand(raw RawHookEvent) (string, bool) {
+	value, present := raw.ToolInput["command"].(string)
+	return value, present && value != ""
+}
+
+func preToolUseHost() HostConfig {
+	return HostConfig{
+		MainEventName: "PreToolUse",
+		Parser: ParserConfig{
+			CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
+			CommandFor: func(raw RawHookEvent) (string, bool) {
+				if raw.ToolName != "Bash" {
+					return "", false
+				}
+				return toolInputCommand(raw)
+			},
+			ActionKinds: map[string]string{"PreToolUse": "shell"},
+		},
+		Partition: ControlPartition{Controllable: []string{"PreToolUse"}},
+	}
+}
+
 // RegisterHost registers a custom host with its configuration, enforcing
 // that it complies with the required supervisory control laws.
 func RegisterHost(h Host, config HostConfig) error {
@@ -306,6 +360,22 @@ type RawHookEvent struct {
 	// ToolName / ToolInput are populated by PreToolUse-style hosts and Gemini.
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
+	// HookName / PreToolUse preserve Cline's native nested hook shape.
+	HookName   string `json:"hookName"`
+	PreToolUse struct {
+		Tool       string         `json:"tool"`
+		Parameters map[string]any `json:"parameters"`
+	} `json:"preToolUse"`
+}
+
+// EventNameFor extracts the host-specific event discriminator.
+func (h Host) EventNameFor(raw RawHookEvent) string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	if config, exists := registry[h]; exists && config.Parser.EventNameFor != nil {
+		return config.Parser.EventNameFor(raw)
+	}
+	return raw.HookEventName
 }
 
 // CommandFor extracts the shell command a raw hook event describes, per host

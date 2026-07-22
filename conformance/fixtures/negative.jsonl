@@ -5,3 +5,6 @@
 {"name":"claude-null-tool-input","host":"claude","mode":"omit","input":{"hook_event_name":"PreToolUse","tool_name":"Bash"},"reason":"empty-command"}
 {"name":"mismatched-event-name","host":"claude","mode":"omit","input":{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"}},"reason":"malformed-event"}
 {"name":"unsupported-host","host":"aider","mode":"omit","input":{"hook_event_name":"PreToolUse"},"reason":"unsupported-host"}
+{"name":"cline-mismatched-event","host":"cline","mode":"omit","input":{"hookName":"PostToolUse","preToolUse":{"tool":"execute_command","parameters":{"command":"ls"}}},"reason":"malformed-event"}
+{"name":"cline-non-shell-tool","host":"cline","mode":"omit","input":{"hookName":"PreToolUse","preToolUse":{"tool":"read_file","parameters":{"command":"ls"}}},"reason":"empty-command"}
+{"name":"qwen-non-shell-tool","host":"qwen","mode":"omit","input":{"hook_event_name":"PreToolUse","tool_name":"ReadFile","tool_input":{"command":"ls"}},"reason":"empty-command"}

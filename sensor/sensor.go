@@ -57,7 +57,8 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 	}
 
 	// An empty or mismatched event name is a malformed boundary, not a decision.
-	if event.HookEventName != "" && !host.HasHookEvent(event.HookEventName) {
+	eventName := host.EventNameFor(event)
+	if eventName != "" && !host.HasHookEvent(eventName) {
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
 	}
 
@@ -78,7 +79,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 			Name:           string(host),
 			AdapterVersion: adapters.AdapterVersion,
 		},
-		Action:  &schema.Action{Kind: host.ActionKind(event.HookEventName)},
+		Action:  &schema.Action{Kind: host.ActionKind(eventName)},
 		Content: &content,
 		Observation: schema.Observation{
 			Source:   schema.SourceHostHook,
