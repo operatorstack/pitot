@@ -6,15 +6,15 @@
   <strong>The open sensor and control transport for coding-agent tooling.</strong>
 </p>
 
+<!-- pitot-adapter-supervisor:start -->
 <p align="center">
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-claude.yml"><img alt="Claude E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-claude.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-cursor.yml"><img alt="Cursor E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-cursor.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-codex.yml"><img alt="Codex E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-codex.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-gemini.yml"><img alt="Gemini E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-gemini.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml"><img alt="OpenCode E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>The badged hosts are verified upstream in <a href="https://github.com/operatorstack/intelligence-flow">Intelligence Flow</a> on Ubuntu, macOS, and Windows.</sub></p>
+<p align="center"><sub>Every supervised adapter is required on Ubuntu, macOS, and Windows.</sub></p>
+
+<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · Gemini · Kimi Code · OpenCode</sub></p>
+<!-- pitot-adapter-supervisor:end -->
 
 <p align="center">
   One language-neutral boundary for Claude Code, Cursor, Codex, Gemini, Kimi Code, OpenCode, and compatible runtimes.
