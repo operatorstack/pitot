@@ -86,7 +86,7 @@ func TestDecodeFullProjectionCarriesCommand(t *testing.T) {
 }
 
 func TestRegisterCustomHostAndDecode(t *testing.T) {
-	customHost := adapters.Host("copilot")
+	customHost := adapters.Host("custom-copilot")
 	config := adapters.HostConfig{
 		MainEventName: "preShellExec",
 		Parser: adapters.ParserConfig{
@@ -118,8 +118,8 @@ func TestRegisterCustomHostAndDecode(t *testing.T) {
 		t.Fatalf("decode custom host: %v", err)
 	}
 
-	if event.Host.Name != "copilot" {
-		t.Errorf("host name = %q, want copilot", event.Host.Name)
+	if event.Host.Name != "custom-copilot" {
+		t.Errorf("host name = %q, want custom-copilot", event.Host.Name)
 	}
 	if event.Action.Kind != "shell" {
 		t.Errorf("action kind = %q, want shell", event.Action.Kind)

@@ -53,7 +53,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 // from stdin, normalizes it, and exits with 0 (allow) or 2 (block/deny).
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pitot: hook requires a host identifier (cursor, claude, codex, gemini, kimi, opencode)")
+		return fmt.Errorf("pitot: hook requires a host identifier (claude, cline, codex, copilot, cursor, gemini, kimi, opencode, pi, qwen)")
 	}
 	host := adapters.Host(args[0])
 	if !adapters.IsSupported(host) {

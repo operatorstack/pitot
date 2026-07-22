@@ -21,23 +21,17 @@ func TestE2ESensorsConformityAcrossAllAdapters(t *testing.T) {
 	h.Write([]byte(cmdToVerify))
 	expectedHash := fmt.Sprintf("%x", h.Sum(nil))
 
-	rawHostPayloads := map[adapters.Host]string{
-		adapters.Claude:   `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-		adapters.Cursor:   `{"hook_event_name":"beforeShellExecution","command":"git status --short"}`,
-		adapters.Codex:    `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-		adapters.Gemini:   `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
-		adapters.Kimi:     `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-		adapters.Opencode: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-	}
-
 	hosts := adapters.Supported()
 	for _, host := range hosts {
-		payload := rawHostPayloads[host]
+		payload, err := adapters.CanonicalHookEvent(host)
+		if err != nil {
+			t.Fatalf("canonical payload for %s: %v", host, err)
+		}
 
 		for _, mode := range []projection.Mode{projection.Full, projection.SHA256} {
 			testName := fmt.Sprintf("%s/%s", host, mode)
 			t.Run(testName, func(t *testing.T) {
-				event, err := sensor.Decode(host, []byte(payload), mode)
+				event, err := sensor.Decode(host, payload, mode)
 				if err != nil {
 					t.Fatalf("sensor decoding failed: %v", err)
 				}

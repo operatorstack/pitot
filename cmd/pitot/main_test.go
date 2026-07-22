@@ -14,7 +14,7 @@ func TestDoctorReportsBoundary(t *testing.T) {
 		t.Fatalf("doctor: %v", err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"local boundary", "cursor", "claude", "codex", "gemini", "kimi", "opencode", "decoder=PASS", "unauthenticated local socket: none"} {
+	for _, want := range []string{"local boundary", "claude", "cline", "codex", "copilot", "cursor", "gemini", "kimi", "opencode", "pi", "qwen", "decoder=PASS", "unauthenticated local socket: none"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor output missing %q\n%s", want, out)
 		}

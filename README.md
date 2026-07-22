@@ -13,11 +13,11 @@
 
 <p align="center"><sub>Every supervised adapter is required on Ubuntu, macOS, and Windows.</sub></p>
 
-<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · Gemini · Kimi Code · OpenCode</sub></p>
+<p align="center"><sub>Supervised adapters: Claude · Cline · Cursor · Codex · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
 <!-- pitot-adapter-supervisor:end -->
 
 <p align="center">
-  One language-neutral boundary for Claude Code, Cursor, Codex, Gemini, Kimi Code, OpenCode, and compatible runtimes.
+  One language-neutral boundary for the coding agents your team already uses.
 </p>
 
 Pitot lets you build above coding agents without rebuilding every host
@@ -205,9 +205,63 @@ kimi -p "Show the repository status"
 ```
 
 See the [Kimi Code documentation](https://www.kimi.com/code/docs/en/) for CLI
-authentication, configuration, and hook behavior. The adapter has deterministic
-local hook-conformance coverage; a dedicated live-Kimi platform E2E workflow is
-not yet claimed by the badges above.
+authentication, configuration, and hook behavior.
+
+### GitHub Copilot CLI
+
+Add the following Claude-compatible hook to `~/.copilot/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{"type": "command", "command": "pitot hook copilot"}]
+    }]
+  }
+}
+```
+
+The PascalCase event keeps the blocking payload on Pitot's standard
+`hook_event_name` and `tool_input.command` boundary. See the official
+[Copilot CLI hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+### Qwen Code
+
+Add this command hook to `~/.qwen/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "^Bash$",
+      "hooks": [{"type": "command", "command": "pitot hook qwen"}]
+    }]
+  }
+}
+```
+
+Qwen sends the native JSON payload on standard input and honors Pitot's
+blocking exit status. See the official
+[Qwen Code hooks guide](https://qwenlm.github.io/qwen-code-docs/en/users/features/hooks/).
+
+### Pi
+
+Copy `integrations/pi/pitot.ts` into `~/.pi/agent/extensions/pitot.ts` (or the
+repository-local `.pi/extensions/` directory). The extension converts Pi's
+blocking `tool_call` event into Pitot's stable envelope and returns Pi's native
+`block` response when Pitot rejects the request. See the official
+[Pi extensions documentation](https://pi.dev/docs/latest/extensions).
+
+### Cline
+
+Copy `integrations/cline/PreToolUse` to `~/Documents/Cline/Hooks/PreToolUse` on
+macOS or Linux and make it executable. On Windows, copy `PreToolUse.ps1` into
+that directory instead. Enable hooks in Cline's Hooks tab or run
+`cline config set hooks-enabled=true`. These
+bridges pass Cline's native nested payload to `pitot hook cline` and translate
+the result into Cline's `cancel` response. See the official
+[Cline hooks documentation](https://docs.cline.bot/customization/hooks).
 
 Pitot uses supervised local processes in v1. It starts declared Consumers and
 Controllers itself, applies each projection before bytes enter the child pipe,
