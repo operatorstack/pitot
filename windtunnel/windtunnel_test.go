@@ -30,6 +30,7 @@ var boatstackCanonicalEvents = map[adapters.Host]string{
 	adapters.Claude: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 	adapters.Codex:  `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 	adapters.Gemini: `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
+	adapters.Opencode: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 }
 
 func TestSensorConsumesBoatstackCanonicalEvents(t *testing.T) {

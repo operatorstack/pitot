@@ -9,7 +9,7 @@
 //
 //	schema/       public event and response types + versioned constants
 //	protocol/     newline-delimited JSON framing and state-machine helpers
-//	adapters/     Claude Code, Cursor, Codex, and Gemini CLI host boundaries
+//	adapters/     Claude Code, Cursor, Codex, Gemini CLI, and Opencode host boundaries
 //	sensor/       normalization and observation pipeline (decoder)
 //	bridge/       controller routing and single-response transport
 //	projection/   full, sha256, and omit content policies
