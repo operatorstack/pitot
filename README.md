@@ -14,7 +14,7 @@
   <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml"><img alt="OpenCode E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>Verified upstream in <a href="https://github.com/operatorstack/intelligence-flow">Intelligence Flow</a> on Ubuntu and macOS.</sub></p>
+<p align="center"><sub>Verified upstream in <a href="https://github.com/operatorstack/intelligence-flow">Intelligence Flow</a> on Ubuntu, macOS, and Windows.</sub></p>
 
 <p align="center">
   One language-neutral boundary for Claude Code, Cursor, Codex, Gemini, OpenCode, and compatible runtimes.
