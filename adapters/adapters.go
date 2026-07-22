@@ -12,6 +12,7 @@
 package adapters
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -74,7 +75,20 @@ var (
 	registryMu sync.RWMutex
 	registry   = map[Host]HostConfig{
 		Copilot: preToolUseHost(),
-		Qwen:    preToolUseHost(),
+		Qwen: {
+			MainEventName: "PreToolUse",
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`),
+				CommandFor: func(raw RawHookEvent) (string, bool) {
+					if raw.ToolName != "Bash" && raw.ToolName != "run_shell_command" {
+						return "", false
+					}
+					return toolInputCommand(raw)
+				},
+				ActionKinds: map[string]string{"PreToolUse": "shell"},
+			},
+			Partition: ControlPartition{Controllable: []string{"PreToolUse"}},
+		},
 		Pi: {
 			MainEventName: "tool_call",
 			Parser: ParserConfig{
@@ -85,20 +99,43 @@ var (
 			Partition: ControlPartition{Controllable: []string{"tool_call"}},
 		},
 		Cline: {
-			MainEventName: "PreToolUse",
+			MainEventName: "tool_call",
 			Parser: ParserConfig{
-				CanonicalEvent: []byte(`{"hookName":"PreToolUse","preToolUse":{"tool":"execute_command","parameters":{"command":"git status --short"}}}`),
+				CanonicalEvent: []byte(`{"hookName":"tool_call","preToolUse":{"toolName":"run_commands","parameters":{"commands":"[\"git status --short\"]"}}}`),
 				EventNameFor:   func(raw RawHookEvent) string { return raw.HookName },
 				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.PreToolUse.Tool != "execute_command" {
+					tool := raw.PreToolUse.ToolName
+					if tool == "" {
+						tool = raw.PreToolUse.Tool
+					}
+					if tool == "execute_command" {
+						value, present := raw.PreToolUse.Parameters["command"].(string)
+						return value, present && value != ""
+					}
+					if tool != "run_commands" {
 						return "", false
 					}
-					value, present := raw.PreToolUse.Parameters["command"].(string)
-					return value, present && value != ""
+					encoded, present := raw.PreToolUse.Parameters["commands"].(string)
+					if !present || encoded == "" {
+						return "", false
+					}
+					var commands []any
+					if json.Unmarshal([]byte(encoded), &commands) != nil || len(commands) == 0 {
+						return "", false
+					}
+					switch command := commands[0].(type) {
+					case string:
+						return command, command != ""
+					case map[string]any:
+						value, ok := command["command"].(string)
+						return value, ok && value != ""
+					default:
+						return "", false
+					}
 				},
-				ActionKinds: map[string]string{"PreToolUse": "shell"},
+				ActionKinds: map[string]string{"tool_call": "shell", "PreToolUse": "shell"},
 			},
-			Partition: ControlPartition{Controllable: []string{"PreToolUse"}},
+			Partition: ControlPartition{Controllable: []string{"tool_call", "PreToolUse"}},
 		},
 		Cursor: {
 			MainEventName: "beforeShellExecution",
@@ -364,6 +401,7 @@ type RawHookEvent struct {
 	HookName   string `json:"hookName"`
 	PreToolUse struct {
 		Tool       string         `json:"tool"`
+		ToolName   string         `json:"toolName"`
 		Parameters map[string]any `json:"parameters"`
 	} `json:"preToolUse"`
 }
