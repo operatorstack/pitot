@@ -14,10 +14,10 @@
   <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml"><img alt="OpenCode E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e-opencode.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>Verified upstream in <a href="https://github.com/operatorstack/intelligence-flow">Intelligence Flow</a> on Ubuntu, macOS, and Windows.</sub></p>
+<p align="center"><sub>The badged hosts are verified upstream in <a href="https://github.com/operatorstack/intelligence-flow">Intelligence Flow</a> on Ubuntu, macOS, and Windows.</sub></p>
 
 <p align="center">
-  One language-neutral boundary for Claude Code, Cursor, Codex, Gemini, OpenCode, and compatible runtimes.
+  One language-neutral boundary for Claude Code, Cursor, Codex, Gemini, Kimi Code, OpenCode, and compatible runtimes.
 </p>
 
 Pitot lets you build above coding agents without rebuilding every host
@@ -169,6 +169,45 @@ Start Pitot with repository-owned configuration:
 ```bash
 pitot run --config .pitot.yaml
 ```
+
+### Kimi Code
+
+Install Kimi Code on macOS or Linux using its official installer:
+
+```bash
+curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
+kimi --version
+```
+
+On Windows, use the official PowerShell installer:
+
+```powershell
+irm https://code.kimi.com/kimi-code/install.ps1 | iex
+kimi --version
+```
+
+Connect Kimi Code's blocking shell boundary to Pitot in
+`~/.kimi-code/config.toml`:
+
+```toml
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = "pitot hook kimi"
+```
+
+Kimi sends the hook payload to Pitot on standard input. Pitot exits `0` when
+the request is accepted and `2` when a malformed request must be blocked. Check
+the non-interactive Kimi CLI after configuration with:
+
+```bash
+kimi -p "Show the repository status"
+```
+
+See the [Kimi Code documentation](https://www.kimi.com/code/docs/en/) for CLI
+authentication, configuration, and hook behavior. The adapter has deterministic
+local hook-conformance coverage; a dedicated live-Kimi platform E2E workflow is
+not yet claimed by the badges above.
 
 Pitot uses supervised local processes in v1. It starts declared Consumers and
 Controllers itself, applies each projection before bytes enter the child pipe,

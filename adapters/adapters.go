@@ -23,11 +23,12 @@ type Host string
 
 // Supported hosts.
 const (
-	Cursor Host = "cursor"
-	Claude Host = "claude"
-	Codex  Host = "codex"
-	Gemini Host = "gemini"
+	Cursor   Host = "cursor"
+	Claude   Host = "claude"
+	Codex    Host = "codex"
+	Gemini   Host = "gemini"
 	Opencode Host = "opencode"
+	Kimi     Host = "kimi"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
@@ -164,6 +165,26 @@ var (
 				Controllable: []string{"PreToolUse"},
 			},
 		},
+		Kimi: {
+			MainEventName: "PreToolUse",
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
+				CommandFor: func(raw RawHookEvent) (string, bool) {
+					if raw.ToolInput == nil {
+						return "", false
+					}
+					value, present := raw.ToolInput["command"].(string)
+					return value, present && value != ""
+				},
+				ActionKinds: map[string]string{
+					"PreToolUse": "shell",
+				},
+			},
+			Partition: ControlPartition{
+				// Kimi Code's PreToolUse hook is synchronous and blocking.
+				Controllable: []string{"PreToolUse"},
+			},
+		},
 	}
 )
 
@@ -282,7 +303,7 @@ type RawHookEvent struct {
 	HookEventName string `json:"hook_event_name"`
 	// Command is populated by Cursor's beforeShellExecution.
 	Command string `json:"command"`
-	// ToolName / ToolInput are populated by Claude/Codex PreToolUse.
+	// ToolName / ToolInput are populated by PreToolUse-style hosts and Gemini.
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
 }

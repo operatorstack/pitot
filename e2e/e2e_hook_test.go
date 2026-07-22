@@ -22,10 +22,11 @@ func TestE2ESensorsConformityAcrossAllAdapters(t *testing.T) {
 	expectedHash := fmt.Sprintf("%x", h.Sum(nil))
 
 	rawHostPayloads := map[adapters.Host]string{
-		adapters.Claude: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-		adapters.Cursor: `{"hook_event_name":"beforeShellExecution","command":"git status --short"}`,
-		adapters.Codex:  `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-		adapters.Gemini: `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
+		adapters.Claude:   `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
+		adapters.Cursor:   `{"hook_event_name":"beforeShellExecution","command":"git status --short"}`,
+		adapters.Codex:    `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
+		adapters.Gemini:   `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
+		adapters.Kimi:     `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 		adapters.Opencode: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 	}
 

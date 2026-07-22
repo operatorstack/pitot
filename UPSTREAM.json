@@ -1,8 +1,8 @@
 {
   "files": {
     "CONTRIBUTING.md": "0613b71aa497f8ca7d7296bf34ade87bfc7237a664d2e812d9b77b3b6befb0ad",
-    "README.md": "20cacdc35bd17d34c8451f8eb87b8bb7a788ca3d3c6c1283e36bfc901f0a4479",
-    "adapters/adapters.go": "0d5b03d3e8fd1f302a7b92781038500c8df9a3e3b6eb9e08b243169cda1d81c4",
+    "README.md": "16ba79860542e5e9c6fc704e6f853a017b16db0a3a8f5ea50d1908d922489d1f",
+    "adapters/adapters.go": "b516fdd0fdd805a08cb1467f78ee367d5f280d0084a55169d09c6f3d0b795fc0",
     "assets/pitot-boundary.png": "8a0ddb7d81831d94e14813f50ea4ca8670d77417f339ed2f91f0c653bf52f41d",
     "assets/pitot-boundary.svg": "0c3871d70c84748573f231842091deb38a6def2862403ca34e8cc4493b9c9ebf",
     "assets/pitot-hero.png": "a73532252b1e66c06273abbf5a4fe6261e98de3133b09e8d550edacfeeab92f8",
@@ -13,15 +13,15 @@
     "bridge/bridge.go": "79ac2e025e16782f3c283b43cbea5b9ba4f837446583864df8f57d6346cae816",
     "bridge/bridge_test.go": "23a19b7580d4b1e826224ec8322208ccca44ddd9a97b150efe15cafecc53e47f",
     "cmd/generate-schema/main.go": "6e9d0030290d99e36967433f96e38385a122974f899ad9421aac1ef7e50d8fcb",
-    "cmd/pitot/main.go": "5acf7942fa308c6f4a88ff2bc39693fb43dfb62a6c71afad3a5d8bacf0c26b11",
-    "cmd/pitot/main_test.go": "74e63b1c3d918b1c6d8c60a6d81c05f82d257091d5ea6a956dd82b83729a2290",
+    "cmd/pitot/main.go": "20542d225d3676edd7d4129db0b7009ef2c93a76b5dbd633ff2fcf1eef611775",
+    "cmd/pitot/main_test.go": "203ce391b9996e81a697f37c913157da1dff8db7ec5e2d7f80d4729c1841239c",
     "conformance/conformance.go": "43b692114f45c8b52958e34b35aee1cee339d8321c90f92ab4f5b963e79935bb",
     "conformance/conformance_test.go": "83ab0bcc15371265a954d177e4e97d81ad3ea734bbf736a29a54628ef64b52cd",
     "conformance/fixtures/negative.jsonl": "383dd001910699886bb1074d9225c91d8a6201e9fb3267d1a1f6e1c2753b0ba6",
     "conformance/fixtures/positive.jsonl": "d3af0f2529dac9b33fa4900f5938e36fd0b17383088dd4f0de7e6eca269441d1",
-    "doc.go": "a01e900d5a298d292cdcdcd0a1590ef8fd481db4e5ca41122df00c8996042f1e",
+    "doc.go": "9ef34dc37b30363272dbc870482154aed92187f1bdeb4d3683f871dde2c3e4b5",
     "e2e/e2e_coverage_test.go": "28a6c27408338fdc51cf1241e1bf42a7f0ea17d3fb1305fbcd15901c21e21de8",
-    "e2e/e2e_hook_test.go": "c469c7bd6a6f7c953140c2d127bf436bef5e507b22bc30b453e6a20a83b22a6f",
+    "e2e/e2e_hook_test.go": "6092f9a383657345587723cdfeebfcf8bbe87b6e441d595ad9d11ae06b95edb0",
     "examples/doc.go": "58f3f9eb7d272d7b6eecdb05f43e1613d5e3ef92d15d97c5440bd4b6990c26f9",
     "examples/local-approval/main.go": "51386af324cd7d3bb07fe3ace53503884b02714b96b83073342fde81ce3b83a5",
     "examples/token-meter/main.go": "4b1b9c1a43c3cf48b09dba6f607776caced9d2b5b562373496b31ed184582dd1",
@@ -41,8 +41,16 @@
     "sensor/decode_fuzz_test.go": "6f3412865c16e3314980a369c36f1f26ba36a991c8b4a8a9d3b776ad9c0de2b0",
     "sensor/sensor.go": "939e146eaa51906972f98cf4615747eb75811b0c54d467a938825750336abeae",
     "sensor/sensor_test.go": "ea9a58d45ad56d29214a40fb2cfa935e769f85334afcb1856a20fb938d486245",
+    "tests/e2e_claude_cli_test.sh": "70711580004b6f77be58f036f42669ae90e2883b62535ab70719f265168ce66e",
+    "tests/e2e_codex_cli_test.sh": "f5d49b83bb2f9f49a7e0005f4bd7a7bdd0f4130e68ba75a0cd4457d3e9beb175",
+    "tests/e2e_cursor_cli_test.sh": "091a334a5008b88b94a9a2dafdeaf1388071bd436ef1a9b3376d0f0b28ed60a0",
+    "tests/e2e_gemini_cli_test.sh": "1559c6b50c5c043bb7a2a901e726986eec87d97dcdda026158d2f138365b8a4f",
+    "tests/e2e_kimi_cli_test.sh": "591b796ea88f1353ede0663f641044fe2e00a01528c26097b63a5d75ec350040",
+    "tests/e2e_opencode_cli_test.sh": "bfa4854fc6309fdbdb7a45fbb017ffadb7cb193604efc86ae0bcdfc55c4034f8",
+    "tests/e2e_unified_runner.sh": "7592f1ac6a5a1da0fb2ba4e0d1bbf8bdfa20c4d5b614069d77773dd8a1a58c20",
+    "tests/mock_anthropic_server.js": "ecebea62f9e93791a79f1ae3dd3c67b8fa42490e9805b23b662b877edfdb0f0e",
     "windtunnel/doc.go": "44e0bcde632da73e1f8b98beade3a34ca8e0d0ea79cdfb91d131de290b164fc4",
-    "windtunnel/windtunnel_test.go": "fdf8955651ef2ed4bbb2024843b3c6cfef292538c0f1abd5aa2bbf59e2316fbe"
+    "windtunnel/windtunnel_test.go": "e18a1f0d8afbb32d45f16c6f081b1a6b2f1b82aa5262f70d8b51e6db3e8e87d7"
   },
   "schema_version": 1
 }
