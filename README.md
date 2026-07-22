@@ -11,7 +11,7 @@
   <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>Every supervised adapter is required on Ubuntu, macOS, and Windows.</sub></p>
+<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → model reply → hook → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
 
 <p align="center"><sub>Supervised adapters: Claude · Cline · Cursor · Codex · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
 <!-- pitot-adapter-supervisor:end -->

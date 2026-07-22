@@ -29,3 +29,20 @@ positive vector for every new adapter behavior and a negative control for every
 boundary fault. The sensor package must never import the bridge package —
 measurement stays innocent of control.
 
+## Refreshing agent endpoint provenance
+
+Protocol documentation is not a verification authority. When a pinned agent
+version changes, dispatch the existing **Pitot E2E** workflow with
+`capture_provenance=true`. Download all `pitot-endpoint-capture-*` artifacts,
+then merge the complete set locally:
+
+```bash
+python3 scripts/pitot_adapter_supervisor.py capture-merge \
+  --captures /path/to/downloaded-artifacts \
+  --output tests/endpoint-provenance.json
+python3 scripts/pitot_adapter_supervisor.py check
+```
+
+The merge refuses partial, duplicate, mixed-version, unsuccessful, or
+fabricated captures. Review the redacted 30-cell wire diff before committing
+it; ordinary CI verifies the committed fixtures and never rewrites them.
