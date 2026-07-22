@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"fmt"
@@ -9,22 +9,18 @@ import (
 	"github.com/operatorstack/pitot/adapters"
 )
 
-// TestE2ECoverageSupervisoryControl implements the supervisory control gate
-// ensuring that EVERY host adapter registered in the system is proven by an
-// end-to-end real CLI integration test. The controller fails the build if
-// any host lacks a live CLI verification script.
-func TestE2ECoverageSupervisoryControl(t *testing.T) {
-	hosts := adapters.Supported()
+func TestAllAdaptersHaveE2EScripts(t *testing.T) {
+	// The e2e package lives in labs/15-pitot/pitot/e2e
+	// The test scripts live in labs/15-pitot/tests
+	testsDir := filepath.Join("..", "..", "tests")
 
-	for _, host := range hosts {
+	for _, host := range adapters.Supported() {
 		t.Run(string(host), func(t *testing.T) {
-			// Construct the expected integration script name
 			scriptName := fmt.Sprintf("e2e_%s_cli_test.sh", host)
-			// e2e tests run from within labs/15-pitot/pitot/e2e, so we walk up to the tests/ dir
-			scriptPath := filepath.Join("..", "..", "tests", scriptName)
+			scriptPath := filepath.Join(testsDir, scriptName)
 
 			if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-				t.Fatalf("Supervisory Control Failure: Missing end-to-end integration test for host %q. Expected script %q to exist to prove live CLI integration.", host, scriptPath)
+				t.Errorf("Missing E2E test script for adapter %q: expected to find %s", host, scriptPath)
 			}
 		})
 	}
