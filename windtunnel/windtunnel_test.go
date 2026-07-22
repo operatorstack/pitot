@@ -26,10 +26,11 @@ import (
 // byte. If Boatstack changes its host boundary, this fixture must change with it
 // — that is exactly the drift the wind-tunnel exists to catch.
 var boatstackCanonicalEvents = map[adapters.Host]string{
-	adapters.Cursor: `{"hook_event_name":"beforeShellExecution","command":"git status --short"}`,
-	adapters.Claude: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-	adapters.Codex:  `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
-	adapters.Gemini: `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
+	adapters.Cursor:   `{"hook_event_name":"beforeShellExecution","command":"git status --short"}`,
+	adapters.Claude:   `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
+	adapters.Codex:    `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
+	adapters.Gemini:   `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`,
+	adapters.Kimi:     `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 	adapters.Opencode: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`,
 }
 
