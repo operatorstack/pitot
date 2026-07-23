@@ -44,5 +44,5 @@ python3 scripts/pitot_adapter_supervisor.py check
 ```
 
 The merge refuses partial, duplicate, mixed-version, unsuccessful, or
-fabricated captures. Review the redacted 30-cell wire diff before committing
+fabricated captures. Review the redacted 27-cell wire diff before committing
 it; ordinary CI verifies the committed fixtures and never rewrites them.

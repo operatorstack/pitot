@@ -1,27 +1,30 @@
-// Command pitot is the reference Go executable for the Pitot sensor and control
-// transport. In v1 Pitot supervises local processes: it starts declared
-// Consumers and Controllers itself, projects content before bytes enter a child
-// pipe, and exposes no unauthenticated local socket.
-//
-// This skeleton implements the `doctor` boundary inspection and the `run`
-// configuration boundary; supervised delivery lands with the first buildable
-// release.
+// Command pitot is the reference executable for Pitot's sensor and control transport.
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/operatorstack/pitot/adapters"
+	"github.com/operatorstack/pitot/config"
+	"github.com/operatorstack/pitot/runtime"
 	"github.com/operatorstack/pitot/schema"
 	"github.com/operatorstack/pitot/sensor"
 )
 
+var errBlocked = errors.New("pitot: block")
+
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		if err.Error() == "pitot: block" {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runWithIO(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+		if errors.Is(err, errBlocked) {
 			os.Exit(2)
 		}
 		fmt.Fprintln(os.Stderr, err)
@@ -30,6 +33,10 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
+	return runWithIO(context.Background(), args, os.Stdin, stdout, stderr)
+}
+
+func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return usageError()
 	}
@@ -37,9 +44,11 @@ func run(args []string, stdout, stderr io.Writer) error {
 	case "doctor":
 		return doctor(stdout)
 	case "run":
-		return runSupervisor(args[1:], stdout)
+		return runRuntime(ctx, args[1:], stdout, stderr)
 	case "hook":
-		return runHook(args[1:], stdout, stderr)
+		return runHook(ctx, args[1:], stdin, stdout, stderr)
+	case "request":
+		return runRequest(ctx, args[1:], stdout)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage())
 		return nil
@@ -49,47 +58,145 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 }
 
-// runHook implements the direct host CLI hook interface. It reads the raw hook payload
-// from stdin, normalizes it, and exits with 0 (allow) or 2 (block/deny).
-func runHook(args []string, stdout, stderr io.Writer) error {
+// runHook preserves observation-only behavior unless an authenticated runtime is selected.
+func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pitot: hook requires a host identifier (claude, cline, codex, copilot, cursor, gemini, kimi, opencode, pi, qwen)")
+		return fmt.Errorf("pitot: hook requires a host identifier (claude, codex, copilot, cursor, gemini, kimi, opencode, pi, qwen)")
 	}
 	host := adapters.Host(args[0])
 	if !adapters.IsSupported(host) {
 		return fmt.Errorf("pitot: unsupported hook host %q", host)
 	}
-
-	// Read raw payload from stdin
-	payload, err := io.ReadAll(os.Stdin)
+	runtimePath, err := parseRuntimeFlag(args[1:], false)
+	if err != nil {
+		return err
+	}
+	payload, err := io.ReadAll(io.LimitReader(stdin, 4<<20+1))
 	if err != nil {
 		return fmt.Errorf("pitot: read stdin: %w", err)
 	}
-
-	// In this reference hook implementation, we decode with "full" projection
+	if len(payload) > 4<<20 {
+		fmt.Fprintln(stderr, "pitot: hook payload exceeds 4 MiB")
+		return errBlocked
+	}
 	event, err := sensor.Decode(host, payload, "full")
 	if err != nil {
-		// Serialize content-safe boundary fault to stderr
-		if fault, ok := sensor.AsFault(err, "act_hook"); ok {
+		actionID, idErr := runtime.NewActionID()
+		if idErr != nil {
+			actionID = "act_hook"
+		}
+		if fault, ok := sensor.AsFault(err, actionID); ok {
 			_ = json.NewEncoder(stderr).Encode(fault)
 		} else {
 			fmt.Fprintln(stderr, err.Error())
 		}
-		// Return specific error to trigger exit code 2 in main()
-		return fmt.Errorf("pitot: block")
+		return errBlocked
 	}
+	actionID, err := runtime.NewActionID()
+	if err != nil {
+		return err
+	}
+	event.Action.ID = actionID
+	if err := json.NewEncoder(stdout).Encode(event); err != nil {
+		return fmt.Errorf("pitot: emit normalized event: %w", err)
+	}
+	if runtimePath == "" {
+		return nil
+	}
+	client, err := runtime.OpenClient(runtimePath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return errBlocked
+	}
+	response, err := client.DeliverEvent(ctx, event)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return errBlocked
+	}
+	if response == nil || response.Outcome == schema.OutcomeAllow {
+		return nil
+	}
+	if response.Outcome != schema.OutcomeDeny || response.ActionID != actionID {
+		fmt.Fprintln(stderr, "pitot: invalid controller resolution")
+		return errBlocked
+	}
+	if response.Message != "" {
+		fmt.Fprintln(stderr, response.Message)
+	} else {
+		fmt.Fprintln(stderr, "Pitot Controller denied the shell request")
+	}
+	return errBlocked
+}
 
-	// Print the normalized event to stdout (useful for logging/consumers)
-	_ = json.NewEncoder(stdout).Encode(event)
+func runRequest(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("pitot: request requires a kind")
+	}
+	kind := args[0]
+	runtimePath := ""
+	data := json.RawMessage(`{}`)
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--runtime":
+			if i+1 >= len(args) {
+				return errors.New("pitot: --runtime requires a path")
+			}
+			runtimePath = args[i+1]
+			i++
+		case "--data":
+			if i+1 >= len(args) {
+				return errors.New("pitot: --data requires JSON")
+			}
+			data = json.RawMessage(args[i+1])
+			i++
+		default:
+			return fmt.Errorf("pitot: unexpected request argument %q", args[i])
+		}
+	}
+	if runtimePath == "" {
+		runtimePath = os.Getenv("PITOT_RUNTIME")
+	}
+	if runtimePath == "" {
+		return errors.New("pitot: request requires --runtime PATH or PITOT_RUNTIME")
+	}
+	if !json.Valid(data) {
+		return errors.New("pitot: --data must be valid JSON")
+	}
+	actionID, err := runtime.NewActionID()
+	if err != nil {
+		return err
+	}
+	client, err := runtime.OpenClient(runtimePath)
+	if err != nil {
+		return err
+	}
+	response, err := client.Request(ctx, schema.ControlRequested{
+		PitotVersion: schema.Version,
+		Type:         schema.TypeControlRequested,
+		Kind:         kind,
+		ActionID:     actionID,
+		Data:         data,
+	})
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(stdout).Encode(response); err != nil {
+		return err
+	}
+	if response.Outcome == schema.OutcomeDeny {
+		return errBlocked
+	}
+	if response.Outcome != schema.OutcomeAllow {
+		return errors.New("pitot: invalid controller outcome")
+	}
 	return nil
 }
 
-// doctor inspects the effective local boundary and proves the decoder against
-// each host's canonical read-only probe, mirroring Boatstack's DiagnoseHook.
 func doctor(stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Pitot %s — local boundary\n", schema.Version)
 	fmt.Fprintf(stdout, "adapter version: %s\n", adapters.AdapterVersion)
 	fmt.Fprintln(stdout, "unauthenticated local socket: none")
+	fmt.Fprintln(stdout, "runtime capabilities: hook_control consumer_delivery explicit_request")
 	fmt.Fprintln(stdout, "hosts:")
 	for _, host := range adapters.Supported() {
 		probe, err := adapters.CanonicalHookEvent(host)
@@ -105,44 +212,78 @@ func doctor(stdout io.Writer) error {
 	return nil
 }
 
-// runSupervisor validates the configuration boundary. Actual supervised delivery
-// is not enabled in this skeleton; it never opens a socket.
-func runSupervisor(args []string, stdout io.Writer) error {
-	config := ""
+func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	configPath := ""
+	runtimePath := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
 			if i+1 >= len(args) {
-				return fmt.Errorf("pitot: --config requires a path")
+				return errors.New("pitot: --config requires a path")
 			}
-			config = args[i+1]
+			configPath = args[i+1]
+			i++
+		case "--runtime":
+			if i+1 >= len(args) {
+				return errors.New("pitot: --runtime requires a path")
+			}
+			runtimePath = args[i+1]
 			i++
 		default:
 			return fmt.Errorf("pitot: unexpected argument %q", args[i])
 		}
 	}
-	if config == "" {
-		return fmt.Errorf("pitot: run requires --config <path>")
+	if configPath == "" {
+		return errors.New("pitot: run requires --config PATH")
 	}
-	if _, err := os.Stat(config); err != nil {
-		return fmt.Errorf("pitot: cannot read config %q: %w", config, err)
+	if runtimePath == "" {
+		runtimePath = os.Getenv("PITOT_RUNTIME")
 	}
-	fmt.Fprintf(stdout, "Pitot %s — configuration boundary\n", schema.Version)
-	fmt.Fprintf(stdout, "config: %s\n", config)
-	fmt.Fprintln(stdout, "supervised delivery: not enabled in this build")
-	return nil
+	if runtimePath == "" {
+		return errors.New("pitot: run requires --runtime PATH or PITOT_RUNTIME")
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	manager, err := runtime.Start(ctx, loaded.Config, stderr)
+	if err != nil {
+		return err
+	}
+	defer manager.Close()
+	return runtime.NewServer(manager, loaded.SHA256, runtimePath, stdout, stderr).Serve(ctx)
+}
+
+func parseRuntimeFlag(args []string, required bool) (string, error) {
+	runtimePath := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--runtime" {
+			return "", fmt.Errorf("pitot: unexpected hook argument %q", args[i])
+		}
+		if i+1 >= len(args) {
+			return "", errors.New("pitot: --runtime requires a path")
+		}
+		runtimePath = args[i+1]
+		i++
+	}
+	if runtimePath == "" {
+		runtimePath = os.Getenv("PITOT_RUNTIME")
+	}
+	if required && runtimePath == "" {
+		return "", errors.New("pitot: runtime is required")
+	}
+	return runtimePath, nil
 }
 
 func usage() string {
 	return `pitot — the open sensor and control transport for coding-agent tooling
 
 usage:
-  pitot doctor              inspect the effective local boundary
-  pitot run --config PATH   start Pitot with repository-owned configuration
-  pitot hook HOST           direct integration interface for host CLI hook payloads (reads stdin)
+  pitot doctor
+  pitot run --config PATH --runtime PATH
+  pitot hook HOST [--runtime PATH]
+  pitot request KIND [--data JSON] --runtime PATH
 `
 }
 
-func usageError() error {
-	return fmt.Errorf("%s", usage())
-}
+func usageError() error { return errors.New(usage()) }
