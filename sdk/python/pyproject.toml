@@ -2,8 +2,11 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+# The bare name "pitot" is already taken on PyPI by an unrelated aeronautics
+# project, so the distribution is published as operatorstack-pitot. The importable
+# package stays "pitot" (packages below), so `import pitot` is unchanged.
 [project]
-name = "pitot"
+name = "operatorstack-pitot"
 version = "0.1.0"
 description = "Pitot: The passive, protocol-first measurement boundary for coding agents."
 authors = [
@@ -12,6 +15,9 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = []
+
+[tool.setuptools]
+packages = ["pitot"]
 
 [project.urls]
 Homepage = "https://github.com/operatorstack/pitot"
