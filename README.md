@@ -11,9 +11,11 @@
   <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → model reply → hook → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
+<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real hook → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
 
-<p align="center"><sub>Supervised adapters: Claude · Cline · Cursor · Codex · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
+<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
+
+<p align="center"><sub>Supervised runtime capabilities: hook control · Consumer delivery · explicit request</sub></p>
 <!-- pitot-adapter-supervisor:end -->
 
 <p align="center">
@@ -65,25 +67,25 @@ If you want to see concrete integration ideas, start with the **Use-Cases Grid**
 
 This gallery shows practical ways teams can compose Consumers and Controllers
 without forcing each workflow into the host or into a single monolithic runtime.
-It includes both engineering patterns (token metering, approvals, audit hooks) and
+It includes both engineering patterns (action auditing, approvals, audit hooks) and
 non-coding workflows (email triage, file movement, and local automation),
 so you can quickly evaluate where Pitot helps before building.
 
 ## Two small programs
 
 <p align="center">
-  <img src="assets/pitot-two-roles.svg" width="1200" alt="A token meter consumes events while an approval controller receives a request and returns a response">
+  <img src="assets/pitot-two-roles.svg" width="1200" alt="An action auditor consumes events while an approval controller receives a request and returns a response">
 </p>
 
-### 1. Count tokens without recording prompts
+### 1. Audit shell requests without recording commands
 
 Configure a Consumer with an `omit` content projection:
 
 ```yaml
 consumers:
-  - id: token-meter
-    command: ["python3", "./examples/token-meter.py"]
-    events: ["model.usage"]
+  - id: action-audit
+    command: ["python3", "./examples/action-audit.py"]
+    events: ["action.requested"]
     projection:
       content: omit
 ```
@@ -91,7 +93,7 @@ consumers:
 Pitot writes newline-delimited JSON to the program's standard input:
 
 ```json
-{"pitot_version":"1","type":"model.usage","session_id":"sess_42","model":"gpt-5","usage":{"input_tokens":1240,"output_tokens":380},"observation":{"source":"host_event","fidelity":"direct"}}
+{"pitot_version":"1","type":"action.requested","host":{"name":"claude"},"action":{"id":"act_7f2","kind":"shell"},"content":{"mode":"omit"},"observation":{"source":"host_hook","fidelity":"direct"}}
 ```
 
 The Consumer is ordinary Python—no Pitot SDK required:
@@ -100,26 +102,24 @@ The Consumer is ordinary Python—no Pitot SDK required:
 import json
 import sys
 
-total = 0
-
 for line in sys.stdin:
     event = json.loads(line)
-    usage = event.get("usage", {})
-    total += usage.get("input_tokens", 0)
-    total += usage.get("output_tokens", 0)
-    print(json.dumps({"session_tokens": total}), file=sys.stderr)
+    print(json.dumps({
+        "host": event["host"]["name"],
+        "action_id": event["action"]["id"],
+        "kind": event["action"]["kind"],
+    }), file=sys.stderr)
 ```
 
-Pitot preserves the quality of the measurement. Provider-reported usage is
-marked `direct`; tokenizer-derived usage is `estimated`; unavailable usage is
-never silently manufactured.
+The command is projected out before bytes enter the Consumer pipe. Consumer
+failure cannot allow or deny the waiting host action.
 
 ### 2. Let a skill request approval
 
 A coding-agent skill can make a synchronous request:
 
 ```bash
-pitot request release.approval --data '{"release":"v1.4.0"}'
+pitot request release.approval --data '{"release":"v1.4.0"}' --runtime "$PITOT_RUNTIME"
 ```
 
 Register one Controller for that request kind:
@@ -164,10 +164,25 @@ Inspect the effective local boundary:
 pitot doctor
 ```
 
-Start Pitot with repository-owned configuration:
+Start Pitot with repository-owned configuration and an owner-only runtime
+descriptor:
 
 ```bash
-pitot run --config .pitot.yaml
+export PITOT_RUNTIME="${XDG_RUNTIME_DIR:-$TMPDIR}/pitot/project.json"
+pitot run --config .pitot.yaml --runtime "$PITOT_RUNTIME"
+```
+
+Start coding-agent CLIs from the same environment. Their `pitot hook HOST`
+commands discover the authenticated runtime through `PITOT_RUNTIME`. Without
+that variable or `--runtime PATH`, hooks remain observation-only for backwards
+compatibility. Once a runtime is explicitly selected, transport or
+authentication failure blocks the controllable action.
+
+On Windows, set the descriptor in the launching PowerShell session:
+
+```powershell
+$env:PITOT_RUNTIME = Join-Path $env:LOCALAPPDATA "Pitot\project.json"
+pitot run --config .pitot.yaml --runtime $env:PITOT_RUNTIME
 ```
 
 ### Kimi Code
@@ -197,7 +212,8 @@ command = "pitot hook kimi"
 ```
 
 Kimi sends the hook payload to Pitot on standard input. Pitot exits `0` when
-the request is accepted and `2` when a malformed request must be blocked. Check
+the request is accepted and `2` when input is malformed or the configured
+Controller denies the action. Check
 the non-interactive Kimi CLI after configuration with:
 
 ```bash
@@ -209,40 +225,62 @@ authentication, configuration, and hook behavior.
 
 ### GitHub Copilot CLI
 
-Add the following Claude-compatible hook to `~/.copilot/settings.json`:
+Copy `integrations/copilot/PreToolUse` to a stable executable path (or use
+`PreToolUse.ps1` on Windows), then add the following Claude-compatible hook to
+`~/.copilot/settings.json`:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "Bash",
-      "hooks": [{"type": "command", "command": "pitot hook copilot"}]
+      "hooks": [{"type": "command", "command": "/path/to/PreToolUse"}]
     }]
   }
 }
 ```
 
-The PascalCase event keeps the blocking payload on Pitot's standard
-`hook_event_name` and `tool_input.command` boundary. See the official
+The bridge keeps the blocking payload on Pitot's standard `hook_event_name`
+and `tool_input.command` boundary and returns Copilot's structured native deny
+reason when a Controller rejects the command. See the official
 [Copilot CLI hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+### Cursor
+
+Copy `integrations/cursor/beforeShellExecution` into the repository and point
+`.cursor/hooks.json` at it with `failClosed: true`. The bridge returns Cursor's
+native `permission: "deny"` envelope, including the Controller message, while
+the runtime remains available through `PITOT_RUNTIME`. See Cursor's
+[hooks documentation](https://cursor.com/docs/agent/hooks).
+
+### Gemini
+
+Copy `integrations/gemini/BeforeTool` to an executable path (or use
+`BeforeTool.ps1` on Windows) and register it as a `BeforeTool` command hook for
+`run_shell_command`. The bridge translates Pitot rejection into Gemini's
+structured `decision: "deny"` and `reason` response so the model receives the
+blocked tool result. See the [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/).
 
 ### Qwen Code
 
-Add this command hook to `~/.qwen/settings.json`:
+Copy `integrations/qwen/PreToolUse` to a stable executable path (or use the
+Node-based `PreToolUse.cjs` bridge on Windows), then add this command hook to
+`~/.qwen/settings.json`:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "^Bash$",
-      "hooks": [{"type": "command", "command": "pitot hook qwen"}]
+      "hooks": [{"type": "command", "command": "/path/to/PreToolUse"}]
     }]
   }
 }
 ```
 
-Qwen sends the native JSON payload on standard input and honors Pitot's
-blocking exit status. See the official
+Qwen sends the native JSON payload on standard input. The bridge returns its
+native structured allow or deny decision and preserves the Controller reason.
+See the official
 [Qwen Code hooks guide](https://qwenlm.github.io/qwen-code-docs/en/users/features/hooks/).
 
 ### Pi
@@ -253,19 +291,10 @@ blocking `tool_call` event into Pitot's stable envelope and returns Pi's native
 `block` response when Pitot rejects the request. See the official
 [Pi extensions documentation](https://pi.dev/docs/latest/extensions).
 
-### Cline
-
-Copy `integrations/cline/PreToolUse` to `~/Documents/Cline/Hooks/PreToolUse` on
-macOS or Linux and make it executable. On Windows, copy `PreToolUse.ps1` into
-that directory instead. Enable hooks in Cline's Hooks tab or run
-`cline config set hooks-enabled=true`. These
-bridges pass Cline's native nested payload to `pitot hook cline` and translate
-the result into Cline's `cancel` response. See the official
-[Cline hooks documentation](https://docs.cline.bot/customization/hooks).
-
 Pitot uses supervised local processes in v1. It starts declared Consumers and
 Controllers itself, applies each projection before bytes enter the child pipe,
-and exposes no unauthenticated local socket.
+and exposes only a loopback endpoint authenticated by the owner-only runtime
+descriptor. The capability token is never passed to child processes or logs.
 
 ## Language-neutral by design
 
@@ -399,12 +428,14 @@ decides.**
 pitot/
 ├── schema/          public event and response schemas
 ├── protocol/        framing and state-machine specifications
-├── adapters/        Claude Code, Cursor, and Codex boundaries
+├── adapters/        built-in coding-agent hook boundaries
 ├── sensor/          normalization and observation pipeline
 ├── bridge/          controller routing and response transport
 ├── projection/      full, sha256, and omit policies
+├── config/          strict Consumer and Controller declarations
+├── runtime/         authenticated ingress and local process delivery
 ├── conformance/     language-neutral fixtures and negative controls
-├── examples/        token-meter and local-approval
+├── examples/        local approval and Consumer examples
 └── cmd/pitot/        reference Go executable
 ```
 

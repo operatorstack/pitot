@@ -119,3 +119,29 @@ func TestResolveNoControllerFails(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoController", err)
 	}
 }
+
+func TestResolveRejectsDuplicateTerminalResponse(t *testing.T) {
+	r := NewRouter()
+	_ = r.Register(reg())
+	request := request()
+	response := &schema.ControlResponse{
+		PitotVersion: schema.Version, Type: schema.TypeControlResponse,
+		ControllerID: "local-approval", ActionID: request.ActionID, Outcome: schema.OutcomeAllow,
+	}
+	if _, err := r.Resolve(request, response); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Resolve(request, response); err != ErrDuplicate {
+		t.Fatalf("err = %v, want ErrDuplicate", err)
+	}
+}
+
+func TestResolveRejectsMalformedRequest(t *testing.T) {
+	r := NewRouter()
+	_ = r.Register(reg())
+	malformed := request()
+	malformed.PitotVersion = "future"
+	if _, err := r.Resolve(malformed, nil); err == nil {
+		t.Fatal("expected malformed request to fail")
+	}
+}

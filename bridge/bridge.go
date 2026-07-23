@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/operatorstack/pitot/schema"
 )
@@ -49,15 +50,19 @@ func (r Registration) validate() error {
 // Router holds at most one Controller registration per request kind.
 type Router struct {
 	registrations map[string]Registration
+	resolved      map[string]struct{}
+	mu            sync.Mutex
 }
 
 // NewRouter returns an empty Router.
 func NewRouter() *Router {
-	return &Router{registrations: map[string]Registration{}}
+	return &Router{registrations: map[string]Registration{}, resolved: map[string]struct{}{}}
 }
 
 // Register records reg, enforcing the exactly-one-Controller-per-kind rule.
 func (r *Router) Register(reg Registration) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err := reg.validate(); err != nil {
 		return err
 	}
@@ -70,6 +75,8 @@ func (r *Router) Register(reg Registration) error {
 
 // Kinds returns the registered request kinds in stable order, for diagnostics.
 func (r *Router) Kinds() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	kinds := make([]string, 0, len(r.registrations))
 	for kind := range r.registrations {
 		kinds = append(kinds, kind)
@@ -80,6 +87,8 @@ func (r *Router) Kinds() []string {
 
 // Registration returns the registration for kind, if any.
 func (r *Router) Registration(kind string) (Registration, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	reg, ok := r.registrations[kind]
 	return reg, ok
 }
@@ -98,10 +107,19 @@ var (
 // candidate means the Controller was unavailable; a candidate that fails
 // correlation is rejected and the declared default applies.
 func (r *Router) Resolve(req schema.ControlRequested, candidate *schema.ControlResponse) (schema.ControlResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := validateRequest(req); err != nil {
+		return schema.ControlResponse{}, err
+	}
+	if _, resolved := r.resolved[req.ActionID]; resolved {
+		return schema.ControlResponse{}, ErrDuplicate
+	}
 	reg, ok := r.registrations[req.Kind]
 	if !ok {
 		return schema.ControlResponse{}, ErrNoController
 	}
+	r.resolved[req.ActionID] = struct{}{}
 	if candidate == nil {
 		return r.defaultResponse(reg, req, reg.OnUnavailable), nil
 	}
@@ -123,11 +141,33 @@ func (r *Router) Resolve(req schema.ControlRequested, candidate *schema.ControlR
 // TimeoutResponse returns the declared default resolution when the deadline
 // elapsed before the Controller answered.
 func (r *Router) TimeoutResponse(req schema.ControlRequested) (schema.ControlResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := validateRequest(req); err != nil {
+		return schema.ControlResponse{}, err
+	}
+	if _, resolved := r.resolved[req.ActionID]; resolved {
+		return schema.ControlResponse{}, ErrDuplicate
+	}
 	reg, ok := r.registrations[req.Kind]
 	if !ok {
 		return schema.ControlResponse{}, ErrNoController
 	}
+	r.resolved[req.ActionID] = struct{}{}
 	return r.defaultResponse(reg, req, reg.OnTimeout), nil
+}
+
+func validateRequest(req schema.ControlRequested) error {
+	if req.PitotVersion != schema.Version {
+		return fmt.Errorf("pitot: request has unsupported version %q", req.PitotVersion)
+	}
+	if req.Type != schema.TypeControlRequested {
+		return fmt.Errorf("pitot: request has unexpected type %q", req.Type)
+	}
+	if req.Kind == "" || req.ActionID == "" {
+		return errors.New("pitot: request requires kind and action id")
+	}
+	return nil
 }
 
 func (r *Router) defaultResponse(reg Registration, req schema.ControlRequested, outcome string) schema.ControlResponse {

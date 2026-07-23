@@ -12,7 +12,6 @@
 package adapters
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -33,7 +32,6 @@ const (
 	Copilot  Host = "copilot"
 	Qwen     Host = "qwen"
 	Pi       Host = "pi"
-	Cline    Host = "cline"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
@@ -97,45 +95,6 @@ var (
 				ActionKinds:    map[string]string{"tool_call": "shell"},
 			},
 			Partition: ControlPartition{Controllable: []string{"tool_call"}},
-		},
-		Cline: {
-			MainEventName: "tool_call",
-			Parser: ParserConfig{
-				CanonicalEvent: []byte(`{"hookName":"tool_call","preToolUse":{"toolName":"run_commands","parameters":{"commands":"[\"git status --short\"]"}}}`),
-				EventNameFor:   func(raw RawHookEvent) string { return raw.HookName },
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					tool := raw.PreToolUse.ToolName
-					if tool == "" {
-						tool = raw.PreToolUse.Tool
-					}
-					if tool == "execute_command" {
-						value, present := raw.PreToolUse.Parameters["command"].(string)
-						return value, present && value != ""
-					}
-					if tool != "run_commands" {
-						return "", false
-					}
-					encoded, present := raw.PreToolUse.Parameters["commands"].(string)
-					if !present || encoded == "" {
-						return "", false
-					}
-					var commands []any
-					if json.Unmarshal([]byte(encoded), &commands) != nil || len(commands) == 0 {
-						return "", false
-					}
-					switch command := commands[0].(type) {
-					case string:
-						return command, command != ""
-					case map[string]any:
-						value, ok := command["command"].(string)
-						return value, ok && value != ""
-					default:
-						return "", false
-					}
-				},
-				ActionKinds: map[string]string{"tool_call": "shell", "PreToolUse": "shell"},
-			},
-			Partition: ControlPartition{Controllable: []string{"tool_call", "PreToolUse"}},
 		},
 		Cursor: {
 			MainEventName: "beforeShellExecution",
@@ -397,13 +356,6 @@ type RawHookEvent struct {
 	// ToolName / ToolInput are populated by PreToolUse-style hosts and Gemini.
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
-	// HookName / PreToolUse preserve Cline's native nested hook shape.
-	HookName   string `json:"hookName"`
-	PreToolUse struct {
-		Tool       string         `json:"tool"`
-		ToolName   string         `json:"toolName"`
-		Parameters map[string]any `json:"parameters"`
-	} `json:"preToolUse"`
 }
 
 // EventNameFor extracts the host-specific event discriminator.
