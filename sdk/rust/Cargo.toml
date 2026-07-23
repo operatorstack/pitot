@@ -1,0 +1,14 @@
+[package]
+name = "pitot"
+version = "0.1.0"
+edition = "2021"
+description = "Pitot: The passive, protocol-first measurement boundary for coding agents."
+license = "MIT"
+repository = "https://github.com/operatorstack/pitot"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

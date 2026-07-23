@@ -22,6 +22,16 @@ import (
 
 const consumerQueueSize = 128
 
+// Decision is a resolved controller outcome surfaced to an optional observer.
+// It carries no policy meaning; it is a transport receipt for tooling such as
+// `pitot dev` that renders a decision timeline.
+type Decision struct {
+	Kind     string
+	ActionID string
+	Outcome  string
+	Message  string
+}
+
 // Manager starts configured role processes and exposes their shared delivery path.
 type Manager struct {
 	ctx         context.Context
@@ -29,6 +39,26 @@ type Manager struct {
 	stderr      io.Writer
 	controllers map[string]*controllerWorker
 	consumers   []*consumerWorker
+	observer    func(Decision)
+}
+
+// SetDecisionObserver registers a callback invoked for every resolved controller
+// decision. It is optional; a nil observer disables receipts. Not safe to change
+// concurrently with active delivery.
+func (m *Manager) SetDecisionObserver(observer func(Decision)) {
+	m.observer = observer
+}
+
+func (m *Manager) reportDecision(kind string, response *schema.ControlResponse) {
+	if m.observer == nil || response == nil {
+		return
+	}
+	m.observer(Decision{
+		Kind:     kind,
+		ActionID: response.ActionID,
+		Outcome:  response.Outcome,
+		Message:  response.Message,
+	})
 }
 
 // Start creates the complete configured process boundary. A child that cannot
@@ -109,6 +139,7 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 		ActionID:     event.Action.ID,
 		Data:         data,
 	})
+	m.reportDecision(event.Action.Kind, &response)
 	return &response, resolveErr
 }
 
@@ -118,7 +149,9 @@ func (m *Manager) Request(ctx context.Context, request schema.ControlRequested) 
 	if !exists {
 		return schema.ControlResponse{}, bridge.ErrNoController
 	}
-	return worker.resolve(ctx, request)
+	response, err := worker.resolve(ctx, request)
+	m.reportDecision(request.Kind, &response)
+	return response, err
 }
 
 type controllerResult struct {
