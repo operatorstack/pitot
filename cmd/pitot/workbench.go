@@ -21,8 +21,19 @@ import (
 // manifests so a freshly initialized project can resolve its dependency.
 const pitotPackageVersion = "0.1.0"
 
+// pitotPythonDistribution is the PyPI distribution name for the Python SDK. The
+// bare name "pitot" is already taken on PyPI by an unrelated aeronautics
+// project, so the distribution is published as operatorstack-pitot while the
+// importable package remains "pitot".
+const pitotPythonDistribution = "operatorstack-pitot"
+
 var supportedLanguages = []string{"python", "typescript", "go", "rust"}
 var supportedRoles = []string{"consumer", "controller"}
+
+// supportedTemplates enumerates the project scaffolds pitot init can emit.
+// shell-policy is the only one that registers a controller for the shell action
+// kind; the others target the test.approval kind or the consumer role.
+var supportedTemplates = []string{"shell-policy", "release-approval", "blank-controller", "blank-consumer"}
 
 // runInit scaffolds a complete, runnable Pitot project. It validates its inputs,
 // detects or interactively selects the language and role, refuses to overwrite
@@ -31,6 +42,7 @@ var supportedRoles = []string{"consumer", "controller"}
 func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	lang := ""
 	role := ""
+	template := ""
 	dir := "pitot-project"
 	force := false
 
@@ -47,6 +59,12 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 				return errors.New("pitot init: --role requires a value (consumer, controller)")
 			}
 			role = args[i+1]
+			i++
+		case "--template":
+			if i+1 >= len(args) {
+				return fmt.Errorf("pitot init: --template requires a value (%s)", strings.Join(supportedTemplates, ", "))
+			}
+			template = args[i+1]
 			i++
 		case "--dir":
 			if i+1 >= len(args) {
@@ -83,6 +101,12 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return fmt.Errorf("pitot init: unsupported language %q (want python, typescript, go, rust)", lang)
 	}
 
+	// An explicit template implies its role, so we never prompt for a role the
+	// template already dictates.
+	if role == "" && template != "" && contains(supportedTemplates, template) {
+		role = templateRole(template)
+	}
+
 	// Resolve role: explicit flag, then prompt, then default.
 	if role == "" {
 		if interactive {
@@ -99,7 +123,15 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return fmt.Errorf("pitot init: unsupported role %q (want consumer, controller)", role)
 	}
 
-	files, err := projectFiles(lang, role)
+	// Resolve template: explicit flag validated for consistency with the role,
+	// otherwise defaulted from the role so existing (role-only) callers keep the
+	// blank scaffolds they got before templates existed.
+	template, err := resolveTemplate(role, template)
+	if err != nil {
+		return err
+	}
+
+	files, err := projectFiles(lang, template)
 	if err != nil {
 		return err
 	}
@@ -132,61 +164,150 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 	}
 
-	fmt.Fprintf(stdout, "Initialized %s %s in %s\n", lang, role, dir)
+	fmt.Fprintf(stdout, "Initialized %s %s (%s) in %s\n", lang, role, template, dir)
 	fmt.Fprintf(stdout, "Files written: %s\n", strings.Join(sorted(keys(files)), ", "))
-	fmt.Fprintf(stdout, "Next: cd %s && pitot dev --host claude --exec %q\n", dir, runCommandString(lang))
+	// The runtime launches the generated program from .pitot.yaml; the command
+	// after `--` is the coding agent Pitot supervises, never the Controller.
+	fmt.Fprintln(stdout, "Next:")
+	fmt.Fprintf(stdout, "  1. cd %s\n", dir)
+	fmt.Fprintln(stdout, "  2. Configure a supported host hook (see: pitot doctor --host HOST).")
+	fmt.Fprintln(stdout, "  3. Run: pitot dev --host HOST -- AGENT [ARGS...]")
+	fmt.Fprintln(stdout, "     example: pitot dev --host kimi -- kimi -p \"<prompt>\"")
 	return nil
 }
 
-// projectFiles returns the complete file set for a language/role: source,
+// resolveTemplate reconciles the explicit --template value with the resolved
+// role. An empty template defaults from the role (controller -> blank-controller,
+// consumer -> blank-consumer); an explicit template must not contradict an
+// explicit role.
+func resolveTemplate(role, template string) (string, error) {
+	if template == "" {
+		if role == "consumer" {
+			return "blank-consumer", nil
+		}
+		return "blank-controller", nil
+	}
+	if !contains(supportedTemplates, template) {
+		return "", fmt.Errorf("pitot init: unsupported template %q (want %s)", template, strings.Join(supportedTemplates, ", "))
+	}
+	if templateRole(template) != role {
+		return "", fmt.Errorf("pitot init: template %q implies role %q but role %q was requested", template, templateRole(template), role)
+	}
+	return template, nil
+}
+
+// templateRole reports the role a template scaffolds.
+func templateRole(template string) string {
+	if template == "blank-consumer" {
+		return "consumer"
+	}
+	return "controller"
+}
+
+// controllerKind returns the .pitot.yaml request kind a controller template
+// registers under. Only shell-policy governs the shell action kind that host
+// adapters (Kimi, Claude, Codex, ...) normalize Bash/PreToolUse events into.
+func controllerKind(template string) string {
+	if template == "shell-policy" {
+		return "shell"
+	}
+	return "test.approval"
+}
+
+// controllerID returns the controller id embedded in the generated config and
+// source for a template.
+func controllerID(template string) string {
+	if template == "shell-policy" {
+		return "local-shell-policy"
+	}
+	return "local-controller"
+}
+
+// projectFiles returns the complete file set for a language/template: source,
 // package manifest(s), and the .pitot.yaml runtime configuration.
-func projectFiles(lang, role string) (map[string]string, error) {
+func projectFiles(lang, template string) (map[string]string, error) {
 	files := map[string]string{}
 
-	controller := role == "controller"
+	src, err := sourceTemplate(lang, template)
+	if err != nil {
+		return nil, err
+	}
 	switch lang {
 	case "python":
-		if controller {
-			files["main.py"] = pythonControllerTemplate
-		} else {
-			files["main.py"] = pythonConsumerTemplate
-		}
-		files["requirements.txt"] = fmt.Sprintf("pitot>=%s\n", pitotPackageVersion)
+		files["main.py"] = src
+		files["requirements.txt"] = fmt.Sprintf("%s>=%s\n", pitotPythonDistribution, pitotPackageVersion)
 		files["pyproject.toml"] = pythonProjectManifest
 	case "typescript":
-		if controller {
-			files["main.ts"] = tsControllerTemplate
-		} else {
-			files["main.ts"] = tsConsumerTemplate
-		}
+		files["main.ts"] = src
 		files["package.json"] = tsProjectManifest
 		files["tsconfig.json"] = tsProjectTSConfig
 	case "go":
-		if controller {
-			files["main.go"] = goControllerTemplate
-		} else {
-			files["main.go"] = goConsumerTemplate
-		}
+		files["main.go"] = src
 		files["go.mod"] = goProjectManifest
 	case "rust":
-		if controller {
-			files["main.rs"] = rustControllerTemplate
-		} else {
-			files["main.rs"] = rustConsumerTemplate
-		}
+		files["main.rs"] = src
 		files["Cargo.toml"] = rustProjectManifest
 	default:
 		return nil, fmt.Errorf("pitot init: unsupported language %q", lang)
 	}
 
-	files[".pitot.yaml"] = pitotConfig(lang, role)
+	files[".pitot.yaml"] = pitotConfig(lang, template)
 	return files, nil
 }
 
-// pitotConfig renders the .pitot.yaml wiring the generated role to its run command.
-func pitotConfig(lang, role string) string {
+// sourceTemplate selects the program source for a language/template pair.
+func sourceTemplate(lang, template string) (string, error) {
+	shellPolicy := template == "shell-policy"
+	consumer := template == "blank-consumer"
+	switch lang {
+	case "python":
+		switch {
+		case consumer:
+			return pythonConsumerTemplate, nil
+		case shellPolicy:
+			return pythonShellPolicyTemplate, nil
+		default:
+			return pythonControllerTemplate, nil
+		}
+	case "typescript":
+		switch {
+		case consumer:
+			return tsConsumerTemplate, nil
+		case shellPolicy:
+			return tsShellPolicyTemplate, nil
+		default:
+			return tsControllerTemplate, nil
+		}
+	case "go":
+		switch {
+		case consumer:
+			return goConsumerTemplate, nil
+		case shellPolicy:
+			return goShellPolicyTemplate, nil
+		default:
+			return goControllerTemplate, nil
+		}
+	case "rust":
+		switch {
+		case consumer:
+			return rustConsumerTemplate, nil
+		case shellPolicy:
+			return rustShellPolicyTemplate, nil
+		default:
+			return rustControllerTemplate, nil
+		}
+	default:
+		return "", fmt.Errorf("pitot init: unsupported language %q", lang)
+	}
+}
+
+// pitotConfig renders the .pitot.yaml wiring the generated template to its run
+// command. Consumers subscribe to events; controllers register for a request
+// kind — shell-policy under "shell" (the kind host adapters normalize Bash
+// events into), every other controller under "test.approval".
+func pitotConfig(lang, template string) string {
 	cmdList := runCommandList(lang)
-	if role == "consumer" {
+	if templateRole(template) == "consumer" {
 		return `consumers:
   - id: local-consumer
     command: ` + cmdList + `
@@ -196,13 +317,13 @@ func pitotConfig(lang, role string) string {
 `
 	}
 	return fmt.Sprintf(`controllers:
-  test.approval:
-    id: local-controller
+  %s:
+    id: %s
     command: %s
     deadline_ms: 2000
     on_timeout: deny
     on_unavailable: deny
-`, cmdList)
+`, controllerKind(template), controllerID(template), cmdList)
 }
 
 // runCommandList is the JSON array form embedded in .pitot.yaml.
@@ -218,22 +339,6 @@ func runCommandList(lang string) string {
 		return `["cargo", "run", "--quiet"]`
 	default:
 		return `[]`
-	}
-}
-
-// runCommandString is the human-readable command shown in the init next-step hint.
-func runCommandString(lang string) string {
-	switch lang {
-	case "python":
-		return "python3 main.py"
-	case "typescript":
-		return "npx tsx main.ts"
-	case "go":
-		return "go run main.go"
-	case "rust":
-		return "cargo run --quiet"
-	default:
-		return ""
 	}
 }
 
@@ -345,7 +450,8 @@ build-backend = "setuptools.build_meta"
 name = "pitot-project"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["pitot>=0.1.0"]
+# The PyPI distribution is operatorstack-pitot; the import package is "pitot".
+dependencies = ["operatorstack-pitot>=0.1.0"]
 `
 
 const tsControllerTemplate = `import { runController, allow, ControlRequested } from '@operatorstack/pitot';
@@ -463,6 +569,102 @@ path = "main.rs"
 
 [dependencies]
 pitot = "0.1.0"
+serde_json = "1"
+`
+
+// The shell-policy templates below decode the Pitot Event carried in the control
+// request, require full content projection, extract the normalized shell command,
+// and deny only the PITOT_DENY_ME canary. The substring check is a sample
+// tripwire, NOT production-grade shell security.
+
+const goShellPolicyTemplate = `package main
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/operatorstack/pitot/schema"
+	"github.com/operatorstack/pitot/sdk"
+)
+
+func main() {
+	sdk.RunController("local-shell-policy", func(req schema.ControlRequested) sdk.Outcome {
+		var event schema.Event
+		if err := json.Unmarshal(req.Data, &event); err != nil {
+			return sdk.Deny("Pitot sample policy could not decode the event.")
+		}
+		if event.Content == nil || event.Content.Mode != schema.ContentFull {
+			return sdk.Deny("Pitot sample policy requires full content mode.")
+		}
+		var command string
+		if err := json.Unmarshal(event.Content.Full, &command); err != nil {
+			return sdk.Deny("Pitot sample policy could not decode the command.")
+		}
+		// Sample tripwire only — not a general shell-security control.
+		if strings.Contains(command, "PITOT_DENY_ME") {
+			return sdk.Deny("Pitot sample policy blocked the PITOT_DENY_ME canary.")
+		}
+		return sdk.Allow("Pitot sample policy allowed the shell request.")
+	})
+}
+`
+
+const pythonShellPolicyTemplate = `from pitot.runner import run_controller, allow, deny
+from pitot.types import ControlRequested
+
+def handler(req: ControlRequested):
+    event = req.data or {}
+    content = event.get("content") or {}
+    if content.get("mode") != "full":
+        return deny("Pitot sample policy requires full content mode.")
+    command = content.get("full") or ""
+    # Sample tripwire only — not a general shell-security control.
+    if "PITOT_DENY_ME" in command:
+        return deny("Pitot sample policy blocked the PITOT_DENY_ME canary.")
+    return allow("Pitot sample policy allowed the shell request.")
+
+if __name__ == "__main__":
+    run_controller("local-shell-policy", handler)
+`
+
+const tsShellPolicyTemplate = `import { runController, allow, deny, ControlRequested, Event } from '@operatorstack/pitot';
+
+runController("local-shell-policy", async (req: ControlRequested) => {
+    const event = (req.data ?? {}) as Event;
+    if (!event.content || event.content.mode !== "full") {
+        return deny("Pitot sample policy requires full content mode.");
+    }
+    const command = String(event.content.full ?? "");
+    // Sample tripwire only — not a general shell-security control.
+    if (command.includes("PITOT_DENY_ME")) {
+        return deny("Pitot sample policy blocked the PITOT_DENY_ME canary.");
+    }
+    return allow("Pitot sample policy allowed the shell request.");
+});
+`
+
+const rustShellPolicyTemplate = `use pitot::{run_controller, allow, deny, ControlRequested, Event, Outcome};
+
+fn handler(req: ControlRequested) -> Outcome {
+    let event: Event = match req.data.and_then(|d| serde_json::from_value(d).ok()) {
+        Some(e) => e,
+        None => return deny(Some("Pitot sample policy could not decode the event.".to_string())),
+    };
+    let content = match event.content {
+        Some(c) if c.mode == "full" => c,
+        _ => return deny(Some("Pitot sample policy requires full content mode.".to_string())),
+    };
+    let command = content.full.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    // Sample tripwire only — not a general shell-security control.
+    if command.contains("PITOT_DENY_ME") {
+        return deny(Some("Pitot sample policy blocked the PITOT_DENY_ME canary.".to_string()));
+    }
+    allow(Some("Pitot sample policy allowed the shell request.".to_string()))
+}
+
+fn main() {
+    run_controller("local-shell-policy", Box::new(handler));
+}
 `
 
 // runDev launches the runtime and a single agent against a chosen host, waits

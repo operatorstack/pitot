@@ -7,3 +7,5 @@
 {"name":"qwen-pre-tool","host":"qwen","mode":"sha256","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}},"expect_kind":"shell"}
 {"name":"qwen-native-shell-tool","host":"qwen","mode":"sha256","input":{"hook_event_name":"PreToolUse","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}},"expect_kind":"shell"}
 {"name":"pi-tool-call","host":"pi","mode":"sha256","input":{"hook_event_name":"tool_call","tool_name":"bash","tool_input":{"command":"git status --short"}},"expect_kind":"shell"}
+{"name":"kimi-pre-tool-allow","host":"kimi","mode":"full","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"printf allowed > /tmp/pitot-allowed-canary"}},"expect_kind":"shell"}
+{"name":"kimi-pre-tool-deny-canary","host":"kimi","mode":"full","input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"PITOT_DENY_ME=1 sh -c 'printf blocked > /tmp/pitot-denied-canary'"}},"expect_kind":"shell"}

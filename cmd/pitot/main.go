@@ -46,7 +46,7 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 	case "dev":
 		return runDev(ctx, args[1:], stdout, stderr)
 	case "doctor":
-		return doctor(stdout)
+		return doctor(args[1:], stdout, stderr)
 	case "run":
 		return runRuntime(ctx, args[1:], stdout, stderr)
 	case "hook":
@@ -196,7 +196,24 @@ func runRequest(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func doctor(stdout io.Writer) error {
+func doctor(args []string, stdout, stderr io.Writer) error {
+	host := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--host":
+			if i+1 >= len(args) {
+				return errors.New("pitot doctor: --host requires a value")
+			}
+			host = args[i+1]
+			i++
+		default:
+			return fmt.Errorf("pitot doctor: unexpected argument %q", args[i])
+		}
+	}
+	if host != "" {
+		return doctorHost(adapters.Host(host), stdout, stderr)
+	}
+
 	fmt.Fprintf(stdout, "Pitot %s — local boundary\n", schema.Version)
 	fmt.Fprintf(stdout, "adapter version: %s\n", adapters.AdapterVersion)
 	fmt.Fprintln(stdout, "unauthenticated local socket: none")
@@ -283,9 +300,9 @@ func usage() string {
 	return `pitot — the open sensor and control transport for coding-agent tooling
 
 usage:
-  pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--dir PATH] [--force]
-  pitot dev --host HOST --exec "CMD ARGS"
-  pitot doctor
+  pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--template shell-policy|release-approval|blank-controller|blank-consumer] [--dir PATH] [--force]
+  pitot dev --host HOST -- AGENT [ARGS...]
+  pitot doctor [--host HOST]
   pitot run --config PATH --runtime PATH
   pitot hook HOST [--runtime PATH]
   pitot request KIND [--data JSON] --runtime PATH

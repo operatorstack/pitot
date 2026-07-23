@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>The open sensor and control transport for coding-agent tooling.</strong>
+  <strong>Keep your coding agent. Add the behavior it is missing.</strong>
 </p>
 
 <!-- pitot-adapter-supervisor:start -->
@@ -22,12 +22,61 @@
   One language-neutral boundary for the coding agents your team already uses.
 </p>
 
-Pitot lets you build above coding agents without rebuilding every host
-integration or forking an agent runtime. It converts host-specific activity
-into a stable local event stream and carries correlated responses from your
-controller when a host is waiting synchronously.
+Your coding agent runs shell commands, edits files, and calls tools. Pitot lets
+you put your own code in the loop at that boundary — to allow, deny, or record
+each action — without forking the agent or rewriting a host integration for
+every tool.
 
 Pitot reports what happened. Your code decides what it means.
+
+## See it work with Kimi
+
+The fastest way to understand Pitot is to watch one real command get allowed and
+another get denied. This walkthrough is exactly what Pitot's automated test suite
+exercises on every commit, so the behavior below is verified, not aspirational.
+
+**1. Scaffold a sample shell policy.** This writes a runnable Controller that
+allows shell commands by default and denies any command containing the canary
+string `PITOT_DENY_ME`:
+
+```bash
+pitot init --template shell-policy --language go --dir ./kimi-policy
+cd ./kimi-policy
+```
+
+**2. Check your Kimi host wiring** (Pitot does not edit your Kimi config for you):
+
+```bash
+pitot doctor --host kimi
+```
+
+If the `PreToolUse` hook is missing, add it to `~/.kimi-code/config.toml`:
+
+```toml
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = "pitot hook kimi"
+```
+
+**3. Run Kimi behind the Controller.** `pitot dev` starts the runtime, launches
+the agent you name after `--`, and prints each decision:
+
+```bash
+pitot dev --host kimi -- kimi -p "Run: echo hello"
+```
+
+An ordinary command is allowed and runs. Now ask for the canary:
+
+```bash
+pitot dev --host kimi -- kimi -p "Run: PITOT_DENY_ME=1 echo nope"
+```
+
+The Controller denies it. The denied command never executes, and the denial
+reason — `Pitot sample policy blocked the PITOT_DENY_ME canary.` — is returned to
+Kimi as the blocked tool result. The `shell-policy` sample is a demonstration
+tripwire, not a general shell-security control; the point is that *your* code
+made the decision.
 
 ## Why Pitot?
 
@@ -56,20 +105,6 @@ Pitot separates two capabilities that are easy to blur:
 A passive Consumer cannot reach the response channel. A Controller is
 statically registered for one request kind and returns at most one response for
 the pending action.
-
-## Use-case gallery
-
-### Operational patterns (grid)
-
-If you want to see concrete integration ideas, start with the **Use-Cases Grid**:
-
-- [04 Use-Cases Editorial Grid](./brand-exploration/design-demos/04-use-cases-editorial-grid.html)
-
-This gallery shows practical ways teams can compose Consumers and Controllers
-without forcing each workflow into the host or into a single monolithic runtime.
-It includes both engineering patterns (action auditing, approvals, audit hooks) and
-non-coding workflows (email triage, file movement, and local automation),
-so you can quickly evaluate where Pitot helps before building.
 
 ## Two small programs
 
@@ -166,62 +201,61 @@ pitot doctor
 
 ## Quickstart
 
-From a clean repository to one real allow/deny decision in two commands.
-
-**1. Scaffold a project.** `pitot init` detects the language from the files
-already in the directory, or prompts you to choose when it cannot. It writes a
-runnable project — source, package manifest, and `.pitot.yaml` — and never
-overwrites existing files unless you pass `--force`:
+**1. Scaffold a Controller.** `pitot init` writes a runnable project — source, a
+package manifest, and `.pitot.yaml` — and never overwrites existing files unless
+you pass `--force`. Pick a starting template with `--template`:
 
 ```bash
-pitot init
+pitot init --template shell-policy --language go --dir ./kimi-policy
 ```
 
 ```
-Detected python project in .
-Initialized python controller in .
-Files written: .pitot.yaml, main.py, pyproject.toml, requirements.txt
-Next: cd . && pitot dev --host claude --exec "python3 main.py"
+Initialized go controller (shell-policy) in ./kimi-policy
+Files written: .pitot.yaml, go.mod, main.go
+Next:
+  1. cd ./kimi-policy
+  2. Configure a supported host hook (see: pitot doctor --host HOST).
+  3. Run: pitot dev --host HOST -- AGENT [ARGS...]
+     example: pitot dev --host kimi -- kimi -p "<prompt>"
 ```
 
-You can skip detection and prompts with flags — handy for CI:
+Available templates are `shell-policy` (allow/deny shell commands),
+`release-approval` and `blank-controller` (request/response controllers), and
+`blank-consumer` (a passive event reader). Without `--template`, `pitot init`
+detects the language from the current directory or prompts you to choose. The
+four first-class languages (`python`, `typescript`, `go`, `rust`) each generate a
+complete project that builds after installing dependencies.
+
+**2. Run your agent behind it.** `pitot dev` starts the runtime and the
+Controllers declared in `.pitot.yaml`, waits until the runtime is ready, then
+launches the agent you name after `--` with `PITOT_RUNTIME` set so its host hook
+finds the runtime. It prints each decision as the agent makes it:
 
 ```bash
-pitot init --language python --role controller --dir ./approval
-```
-
-The four first-class languages (`python`, `typescript`, `go`, `rust`) each
-generate a complete project: `python3 main.py`, `npx tsx main.ts`,
-`go run main.go`, and `cargo run` all work after installing dependencies.
-
-**2. Run it against an agent.** `pitot dev` starts the runtime on a private
-loopback endpoint, waits until it is ready, launches your Controller, and prints
-each decision as the agent makes it. `--exec` takes the full command line (or use
-`-- CMD ARGS`):
-
-```bash
-pitot dev --host claude --exec "python3 main.py"
+pitot dev --host kimi -- kimi -p "Run: PITOT_DENY_ME=1 echo nope"
 ```
 
 ```
-Starting Pitot dev environment for host claude...
-Runtime ready. Starting agent: python3 main.py
+Starting Pitot dev environment for host kimi...
+Runtime ready. Starting agent: kimi -p Run: PITOT_DENY_ME=1 echo nope
 Decisions:
-  [ALLOW] release.approval (act_7f2) — v1.4.0 is approved for publication.
-  [DENY]  shell.exec (act_1a9) — destructive command blocked
+  [DENY]  shell (act_1a9) — Pitot sample policy blocked the PITOT_DENY_ME canary.
 Agent finished. Runtime stopped.
 ```
 
 `--host` must name a supported agent (`claude`, `codex`, `copilot`, `cursor`,
-`gemini`, `kimi`, `opencode`, `pi`, `qwen`). The runtime descriptor lives in a
-per-invocation temporary path and is removed on exit, so concurrent `pitot dev`
-sessions never collide.
+`gemini`, `kimi`, `opencode`, `pi`, `qwen`), and that agent's host hook must
+already be wired to `pitot hook HOST` (see **Connect your agent** and
+`pitot doctor --host HOST`). The runtime descriptor lives in a per-invocation
+temporary path and is removed on exit, so concurrent `pitot dev` sessions never
+collide.
 
 **3. Swap the agent.** The same project — the same Controller and `.pitot.yaml` —
-works with any other supported host. Change only `--host`:
+works with any other supported host whose hook is wired. Change only `--host` and
+the agent command:
 
 ```bash
-pitot dev --host cursor --exec "python3 main.py"
+pitot dev --host cursor -- cursor-agent -p "Run: PITOT_DENY_ME=1 echo nope"
 ```
 
 The boundary is language- and agent-neutral: one Controller, every agent.
@@ -251,10 +285,37 @@ $env:PITOT_RUNTIME = Join-Path $env:LOCALAPPDATA "Pitot\project.json"
 pitot run --config .pitot.yaml --runtime $env:PITOT_RUNTIME
 ```
 
+## Supported hosts
+
+Every host below normalizes its native blocking boundary to a `shell` action and
+passes Pitot's language-neutral decoder conformance suite. The E2E column marks
+adapters exercised by the cross-platform agent supervisor (the badge at the top)
+on Ubuntu, macOS, and Windows. Kimi additionally has an in-repo, no-model test
+that asserts the full allow **and** deny control path end to end.
+
+| Host | Blocking boundary | Hook wiring | Verified in this repo |
+|---|---|---|---|
+| Kimi Code | `PreToolUse` / Bash | native `config.toml` | decoder + E2E + allow/deny control test |
+| Claude | `PreToolUse` | native settings hook | decoder + E2E |
+| Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | decoder + E2E |
+| Codex | `PreToolUse` | bridge (`integrations/codex`) | decoder + E2E |
+| GitHub Copilot CLI | `PreToolUse` | bridge (`integrations/copilot`) | decoder + E2E |
+| Gemini | `BeforeTool` | bridge (`integrations/gemini`) | decoder + E2E |
+| OpenCode | `PreToolUse` | bridge (`integrations/opencode`) | decoder + E2E |
+| Pi | `tool_call` | extension (`integrations/pi`) | decoder + E2E |
+| Qwen Code | `PreToolUse` | bridge (`integrations/qwen`) | decoder + E2E |
+
+"Decoder" means Pitot correctly normalizes that host's payload into the stable
+event envelope. It does not claim Pitot judges whether any command is safe — that
+decision belongs to your Controller.
+
 ## Connect your agent
 
-The per-host hooks below wire each agent's native blocking boundary to Pitot for
-the manual runtime flow. `pitot dev` configures the selected `--host` for you.
+The per-host hooks below wire each agent's native blocking boundary to Pitot.
+This wiring is a one-time edit to each host's own configuration; Pitot does not
+edit your host config for you. Run `pitot doctor --host HOST` to check whether a
+host's hook is correctly configured. Once wired, both `pitot dev` and the manual
+runtime flow use the same hook.
 
 ### Kimi Code
 
