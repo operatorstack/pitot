@@ -41,6 +41,10 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return usageError()
 	}
 	switch args[0] {
+	case "init":
+		return runInit(args[1:], stdout, stderr)
+	case "dev":
+		return runDev(ctx, args[1:], stdout, stderr)
 	case "doctor":
 		return doctor(stdout)
 	case "run":
@@ -279,6 +283,8 @@ func usage() string {
 	return `pitot — the open sensor and control transport for coding-agent tooling
 
 usage:
+  pitot init --language [python|typescript|go|rust] --role [consumer|controller] --dir PATH
+  pitot dev --host HOST --exec CMD
   pitot doctor
   pitot run --config PATH --runtime PATH
   pitot hook HOST [--runtime PATH]
