@@ -158,13 +158,79 @@ Download a release binary for macOS, Linux, or Windows, or install from source:
 go install github.com/operatorstack/pitot/cmd/pitot@latest
 ```
 
-Inspect the effective local boundary:
+Inspect the effective local boundary at any time:
 
 ```bash
 pitot doctor
 ```
 
-Start Pitot with repository-owned configuration and an owner-only runtime
+## Quickstart
+
+From a clean repository to one real allow/deny decision in two commands.
+
+**1. Scaffold a project.** `pitot init` detects the language from the files
+already in the directory, or prompts you to choose when it cannot. It writes a
+runnable project — source, package manifest, and `.pitot.yaml` — and never
+overwrites existing files unless you pass `--force`:
+
+```bash
+pitot init
+```
+
+```
+Detected python project in .
+Initialized python controller in .
+Files written: .pitot.yaml, main.py, pyproject.toml, requirements.txt
+Next: cd . && pitot dev --host claude --exec "python3 main.py"
+```
+
+You can skip detection and prompts with flags — handy for CI:
+
+```bash
+pitot init --language python --role controller --dir ./approval
+```
+
+The four first-class languages (`python`, `typescript`, `go`, `rust`) each
+generate a complete project: `python3 main.py`, `npx tsx main.ts`,
+`go run main.go`, and `cargo run` all work after installing dependencies.
+
+**2. Run it against an agent.** `pitot dev` starts the runtime on a private
+loopback endpoint, waits until it is ready, launches your Controller, and prints
+each decision as the agent makes it. `--exec` takes the full command line (or use
+`-- CMD ARGS`):
+
+```bash
+pitot dev --host claude --exec "python3 main.py"
+```
+
+```
+Starting Pitot dev environment for host claude...
+Runtime ready. Starting agent: python3 main.py
+Decisions:
+  [ALLOW] release.approval (act_7f2) — v1.4.0 is approved for publication.
+  [DENY]  shell.exec (act_1a9) — destructive command blocked
+Agent finished. Runtime stopped.
+```
+
+`--host` must name a supported agent (`claude`, `codex`, `copilot`, `cursor`,
+`gemini`, `kimi`, `opencode`, `pi`, `qwen`). The runtime descriptor lives in a
+per-invocation temporary path and is removed on exit, so concurrent `pitot dev`
+sessions never collide.
+
+**3. Swap the agent.** The same project — the same Controller and `.pitot.yaml` —
+works with any other supported host. Change only `--host`:
+
+```bash
+pitot dev --host cursor --exec "python3 main.py"
+```
+
+The boundary is language- and agent-neutral: one Controller, every agent.
+
+## Advanced: manual runtime
+
+`pitot dev` is the recommended path. If you need to manage the runtime yourself
+(for example, sharing one runtime across several long-lived agent sessions),
+start it with repository-owned configuration and an owner-only runtime
 descriptor:
 
 ```bash
@@ -184,6 +250,11 @@ On Windows, set the descriptor in the launching PowerShell session:
 $env:PITOT_RUNTIME = Join-Path $env:LOCALAPPDATA "Pitot\project.json"
 pitot run --config .pitot.yaml --runtime $env:PITOT_RUNTIME
 ```
+
+## Connect your agent
+
+The per-host hooks below wire each agent's native blocking boundary to Pitot for
+the manual runtime flow. `pitot dev` configures the selected `--host` for you.
 
 ### Kimi Code
 
