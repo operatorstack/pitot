@@ -206,7 +206,12 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return fmt.Errorf("pitot init: write %s: %w", fragmentPath, err)
 	}
 
-	written := []string{filepath.ToSlash(fragmentPath)}
+	substrate, err := writeSubstrate(stdout, releaseVersion())
+	if err != nil {
+		return err
+	}
+
+	written := append(substrate, filepath.ToSlash(fragmentPath))
 	for _, name := range keys(files) {
 		written = append(written, filepath.ToSlash(filepath.Join(dir, name)))
 	}
@@ -216,8 +221,13 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	// command after `--` is the coding agent Pitot supervises, never the
 	// Controller. Everything runs from the repository root.
 	fmt.Fprintln(stdout, "Next:")
-	fmt.Fprintln(stdout, "  1. Configure a supported host hook (see: pitot doctor --host HOST).")
-	fmt.Fprintln(stdout, "  2. Run: pitot dev --host HOST -- AGENT [ARGS...]")
+	step := 1
+	if lang == "python" || lang == "typescript" {
+		fmt.Fprintf(stdout, "  %d. Install the typed SDK from our registry: pitot install %s\n", step, lang)
+		step++
+	}
+	fmt.Fprintf(stdout, "  %d. Configure a supported host hook (see: pitot doctor --host HOST).\n", step)
+	fmt.Fprintf(stdout, "  %d. Run: pitot dev --host HOST -- AGENT [ARGS...]\n", step+1)
 	fmt.Fprintln(stdout, "     example: pitot dev --host kimi -- kimi -p \"<prompt>\"")
 	return nil
 }
