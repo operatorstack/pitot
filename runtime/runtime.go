@@ -85,7 +85,7 @@ func Start(parent context.Context, cfg config.Config, stderr io.Writer) (*Manage
 			cancel()
 			return nil, err
 		}
-		worker := newControllerWorker(ctx, router, registration, declared.Command, stderr)
+		worker := newControllerWorker(ctx, router, registration, declared, stderr)
 		manager.controllers[kind] = worker
 		if worker.startErr != nil {
 			fmt.Fprintf(stderr, "pitot: controller %q unavailable: %v\n", declared.ID, worker.startErr)
@@ -173,7 +173,7 @@ type controllerWorker struct {
 	closeOnce    sync.Once
 }
 
-func newControllerWorker(ctx context.Context, router *bridge.Router, registration bridge.Registration, command []string, stderr io.Writer) *controllerWorker {
+func newControllerWorker(ctx context.Context, router *bridge.Router, registration bridge.Registration, declared config.ControllerConfig, stderr io.Writer) *controllerWorker {
 	worker := &controllerWorker{
 		ctx:          ctx,
 		router:       router,
@@ -182,7 +182,8 @@ func newControllerWorker(ctx context.Context, router *bridge.Router, registratio
 		done:         make(chan error, 1),
 		resolved:     map[string]struct{}{},
 	}
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd := exec.CommandContext(ctx, declared.Command[0], declared.Command[1:]...)
+	cmd.Dir = declared.Dir
 	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -324,6 +325,7 @@ func newConsumerWorker(ctx context.Context, declared config.ConsumerConfig, stde
 		worker.events[event] = struct{}{}
 	}
 	cmd := exec.CommandContext(ctx, declared.Command[0], declared.Command[1:]...)
+	cmd.Dir = declared.Dir
 	cmd.Stdout = stderr
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()

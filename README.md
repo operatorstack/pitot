@@ -201,21 +201,21 @@ pitot doctor
 
 ## Quickstart
 
-**1. Scaffold a Controller.** `pitot init` writes a runnable project — source, a
-package manifest, and `.pitot.yaml` — and never overwrites existing files unless
-you pass `--force`. Pick a starting template with `--template`:
+**1. Scaffold a Controller.** `pitot init` writes a runnable project — source
+and a package manifest — and registers it as one tenant fragment under
+`.pitot/conf.d/`. It never overwrites existing files unless you pass `--force`.
+Pick a starting template with `--template`:
 
 ```bash
-pitot init --template shell-policy --language go --dir ./kimi-policy
+pitot init --template shell-policy --language go --dir kimi-policy
 ```
 
 ```
-Initialized go controller (shell-policy) in ./kimi-policy
-Files written: .pitot.yaml, go.mod, main.go
+Initialized go controller (shell-policy) in kimi-policy
+Files written: .pitot/conf.d/kimi-policy.yaml, kimi-policy/go.mod, kimi-policy/main.go
 Next:
-  1. cd ./kimi-policy
-  2. Configure a supported host hook (see: pitot doctor --host HOST).
-  3. Run: pitot dev --host HOST -- AGENT [ARGS...]
+  1. Configure a supported host hook (see: pitot doctor --host HOST).
+  2. Run: pitot dev --host HOST -- AGENT [ARGS...]
      example: pitot dev --host kimi -- kimi -p "<prompt>"
 ```
 
@@ -226,10 +226,11 @@ detects the language from the current directory or prompts you to choose. The
 four first-class languages (`python`, `typescript`, `go`, `rust`) each generate a
 complete project that builds after installing dependencies.
 
-**2. Run your agent behind it.** `pitot dev` starts the runtime and the
-Controllers declared in `.pitot.yaml`, waits until the runtime is ready, then
-launches the agent you name after `--` with `PITOT_RUNTIME` set so its host hook
-finds the runtime. It prints each decision as the agent makes it:
+**2. Run your agent behind it.** `pitot dev` discovers every fragment under
+`.pitot/conf.d/`, starts the runtime and the declared Controllers, waits until
+the runtime is ready, then launches the agent you name after `--` with
+`PITOT_RUNTIME` set so its host hook finds the runtime. It prints each decision
+as the agent makes it:
 
 ```bash
 pitot dev --host kimi -- kimi -p "Run: PITOT_DENY_ME=1 echo nope"
@@ -250,15 +251,60 @@ already be wired to `pitot hook HOST` (see **Connect your agent** and
 temporary path and is removed on exit, so concurrent `pitot dev` sessions never
 collide.
 
-**3. Swap the agent.** The same project — the same Controller and `.pitot.yaml` —
-works with any other supported host whose hook is wired. Change only `--host` and
-the agent command:
+**3. Swap the agent.** The same project — the same Controller and the same
+fragment — works with any other supported host whose hook is wired. Change only
+`--host` and the agent command:
 
 ```bash
 pitot dev --host cursor -- cursor-agent -p "Run: PITOT_DENY_ME=1 echo nope"
 ```
 
 The boundary is language- and agent-neutral: one Controller, every agent.
+
+## Multiple tools, one Pitot
+
+Configuration is tenant-partitioned: every tool or person that registers
+processes with Pitot owns exactly one fragment in `.pitot/conf.d/`, and no
+tenant ever edits another tenant's file. The effective configuration is the
+deterministic merge of all fragments in filename order:
+
+```
+.pitot/
+  conf.d/
+    boatstack.yaml    # a tool's controller, written by its installer
+    interlock.yaml    # another tool's controller, different request kind
+    my-policy.yaml    # your own, scaffolded by `pitot init`
+```
+
+Each fragment is a complete, strictly parsed mini-config declaring
+`controllers:` and/or `consumers:`. Merge rules:
+
+- **Consumers always compose.** Any number of tenants can observe
+  `action.requested` events.
+- **A request kind has one owner.** Two fragments claiming the same kind (for
+  example `shell`) fail discovery with an error naming both files — a loud,
+  attributable conflict instead of two tools silently fighting over one
+  blocking hook. Controller and consumer ids must also be unique across
+  fragments.
+- **`requires_protocol: "1"`** optionally pins the protocol version a fragment
+  was written against; a fragment this binary cannot honor fails discovery.
+- **`dir:`** sets a process's working directory (relative to the repository
+  root), so each tenant's command stays project-relative:
+
+```yaml
+controllers:
+  shell:
+    id: local-shell-policy
+    command: ["go", "run", "main.go"]
+    dir: "kimi-policy"
+    deadline_ms: 2000
+    on_timeout: deny
+    on_unavailable: deny
+```
+
+Installing a second Pitot-based tool is therefore additive by construction: it
+drops its own fragment next to yours, `pitot run`/`pitot dev` merge them, and
+uninstalling it is deleting its fragment.
 
 ## Advanced: manual runtime
 
@@ -269,8 +315,12 @@ descriptor:
 
 ```bash
 export PITOT_RUNTIME="${XDG_RUNTIME_DIR:-$TMPDIR}/pitot/project.json"
-pitot run --config .pitot.yaml --runtime "$PITOT_RUNTIME"
+pitot run --runtime "$PITOT_RUNTIME"
 ```
+
+With no `--config`, `pitot run` discovers and merges the repository's
+`.pitot/conf.d/` fragments. Pass `--config PATH` to override discovery with one
+explicit file (useful for tests and ad-hoc runtimes).
 
 Start coding-agent CLIs from the same environment. Their `pitot hook HOST`
 commands discover the authenticated runtime through `PITOT_RUNTIME`. Without
@@ -282,7 +332,7 @@ On Windows, set the descriptor in the launching PowerShell session:
 
 ```powershell
 $env:PITOT_RUNTIME = Join-Path $env:LOCALAPPDATA "Pitot\project.json"
-pitot run --config .pitot.yaml --runtime $env:PITOT_RUNTIME
+pitot run --runtime $env:PITOT_RUNTIME
 ```
 
 ## Supported hosts

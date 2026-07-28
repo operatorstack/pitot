@@ -20,16 +20,29 @@ func labRoot(t *testing.T) string {
 	return p
 }
 
-// initInto scaffolds a shell-policy project for lang into a fresh dir and returns
-// the directory. It fails the test on any init error.
+// initInto scaffolds a shell-policy project for lang inside a scratch
+// repository root (so the tenant fragment lands in a temp .pitot/conf.d) and
+// returns the absolute project directory. It fails the test on any init error.
 func initInto(t *testing.T, lang string) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "proj")
+	root := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	var out, errb bytes.Buffer
-	if err := runInit([]string{"--language", lang, "--template", "shell-policy", "--dir", dir}, strings.NewReader(""), &out, &errb); err != nil {
+	if err := runInit([]string{"--language", lang, "--template", "shell-policy", "--dir", "proj"}, strings.NewReader(""), &out, &errb); err != nil {
 		t.Fatalf("init %s: %v\n%s", lang, err, errb.String())
 	}
-	return dir
+	return filepath.Join(root, "proj")
 }
 
 // TestBuildGeneratedGoShellPolicy makes the Go build a first-class Step-5

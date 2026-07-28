@@ -24,44 +24,47 @@ var shellPolicyExpect = map[string]struct {
 }
 
 // TestInitShellPolicyContract asserts the shell-policy scaffold is coherent per
-// language: expected files exist, the config parses and registers the controller
-// under the shell kind, and the source references the SDK controller API plus
-// the deny canary.
+// language: expected files exist, the tenant fragment discovers and registers
+// the controller under the shell kind with the project working directory, and
+// the source references the SDK controller API plus the deny canary.
 func TestInitShellPolicyContract(t *testing.T) {
 	for lang, wantFiles := range initExpectations {
 		lang, wantFiles := lang, wantFiles
 		t.Run(lang, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "proj")
+			t.Chdir(t.TempDir())
 			var stdout, stderr bytes.Buffer
-			if err := runInit([]string{"--language", lang, "--template", "shell-policy", "--dir", dir}, strings.NewReader(""), &stdout, &stderr); err != nil {
+			if err := runInit([]string{"--language", lang, "--template", "shell-policy", "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr); err != nil {
 				t.Fatalf("init shell-policy %s: %v", lang, err)
 			}
 
 			for _, name := range wantFiles {
-				if _, statErr := readIf(dir, name); statErr != nil {
+				if _, statErr := readIf("proj", name); statErr != nil {
 					t.Errorf("%s: expected generated file %q: %v", lang, name, statErr)
 				}
 			}
 
-			// The generated config must parse and register the controller for shell.
-			loaded, err := config.Load(filepath.Join(dir, ".pitot.yaml"))
+			// The generated fragment must discover and register the controller for shell.
+			loaded, err := config.Discover(".")
 			if err != nil {
-				t.Fatalf("%s: generated .pitot.yaml did not parse: %v", lang, err)
+				t.Fatalf("%s: generated fragment did not discover: %v", lang, err)
 			}
 			ctrl, ok := loaded.Config.Controllers["shell"]
 			if !ok {
 				t.Fatalf("%s: controller not registered under shell kind: %+v", lang, loaded.Config.Controllers)
 			}
-			if ctrl.ID != "local-shell-policy" {
-				t.Errorf("%s: controller id = %q, want local-shell-policy", lang, ctrl.ID)
+			if ctrl.ID != "proj" {
+				t.Errorf("%s: controller id = %q, want the tenant-scoped id proj", lang, ctrl.ID)
 			}
 			if len(ctrl.Command) == 0 {
 				t.Errorf("%s: controller command is empty", lang)
 			}
+			if ctrl.Dir != "proj" {
+				t.Errorf("%s: controller dir = %q, want proj", lang, ctrl.Dir)
+			}
 
 			// The source must use the SDK controller API and the deny canary.
 			want := shellPolicyExpect[lang]
-			src, err := readIf(dir, want.sourceFile)
+			src, err := readIf("proj", want.sourceFile)
 			if err != nil {
 				t.Fatalf("%s: read source: %v", lang, err)
 			}
@@ -71,8 +74,8 @@ func TestInitShellPolicyContract(t *testing.T) {
 			if !strings.Contains(src, "PITOT_DENY_ME") {
 				t.Errorf("%s: source missing PITOT_DENY_ME canary:\n%s", lang, src)
 			}
-			if !strings.Contains(src, "local-shell-policy") {
-				t.Errorf("%s: source missing local-shell-policy id:\n%s", lang, src)
+			if !strings.Contains(src, `"proj"`) {
+				t.Errorf("%s: source missing the tenant-scoped id proj:\n%s", lang, src)
 			}
 		})
 	}
@@ -82,9 +85,9 @@ func TestInitShellPolicyContract(t *testing.T) {
 // hint must point users at `pitot dev --host HOST -- AGENT`, never at `--exec`
 // with the Controller command.
 func TestInitNextStepLaunchesAgentNotController(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "proj")
+	t.Chdir(t.TempDir())
 	var stdout, stderr bytes.Buffer
-	if err := runInit([]string{"--language", "go", "--template", "shell-policy", "--dir", dir}, strings.NewReader(""), &stdout, &stderr); err != nil {
+	if err := runInit([]string{"--language", "go", "--template", "shell-policy", "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	out := stdout.String()
@@ -105,14 +108,14 @@ func TestInitBlankControllerUsesApprovalKind(t *testing.T) {
 	for _, template := range []string{"blank-controller", "release-approval"} {
 		template := template
 		t.Run(template, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "proj")
+			t.Chdir(t.TempDir())
 			var stdout, stderr bytes.Buffer
-			if err := runInit([]string{"--language", "go", "--template", template, "--dir", dir}, strings.NewReader(""), &stdout, &stderr); err != nil {
+			if err := runInit([]string{"--language", "go", "--template", template, "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr); err != nil {
 				t.Fatalf("init %s: %v", template, err)
 			}
-			loaded, err := config.Load(filepath.Join(dir, ".pitot.yaml"))
+			loaded, err := config.Discover(".")
 			if err != nil {
-				t.Fatalf("%s: config did not parse: %v", template, err)
+				t.Fatalf("%s: fragment did not discover: %v", template, err)
 			}
 			if _, ok := loaded.Config.Controllers["test.approval"]; !ok {
 				t.Errorf("%s: expected test.approval controller, got %+v", template, loaded.Config.Controllers)
@@ -127,28 +130,28 @@ func TestInitBlankControllerUsesApprovalKind(t *testing.T) {
 // TestInitTemplateRoleConsistency verifies template/role validation.
 func TestInitTemplateRoleConsistency(t *testing.T) {
 	t.Run("mismatch rejected", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "proj")
+		t.Chdir(t.TempDir())
 		var stdout, stderr bytes.Buffer
-		err := runInit([]string{"--language", "go", "--role", "consumer", "--template", "shell-policy", "--dir", dir}, strings.NewReader(""), &stdout, &stderr)
+		err := runInit([]string{"--language", "go", "--role", "consumer", "--template", "shell-policy", "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr)
 		if err == nil || !strings.Contains(err.Error(), "implies role") {
 			t.Fatalf("expected role/template mismatch error, got %v", err)
 		}
 	})
 	t.Run("unsupported template rejected", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "proj")
+		t.Chdir(t.TempDir())
 		var stdout, stderr bytes.Buffer
-		err := runInit([]string{"--language", "go", "--template", "nonesuch", "--dir", dir}, strings.NewReader(""), &stdout, &stderr)
+		err := runInit([]string{"--language", "go", "--template", "nonesuch", "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr)
 		if err == nil || !strings.Contains(err.Error(), "unsupported template") {
 			t.Fatalf("expected unsupported template error, got %v", err)
 		}
 	})
 	t.Run("blank-consumer infers consumer role", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "proj")
+		t.Chdir(t.TempDir())
 		var stdout, stderr bytes.Buffer
-		if err := runInit([]string{"--language", "go", "--template", "blank-consumer", "--dir", dir}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		if err := runInit([]string{"--language", "go", "--template", "blank-consumer", "--dir", "proj"}, strings.NewReader(""), &stdout, &stderr); err != nil {
 			t.Fatalf("init blank-consumer: %v", err)
 		}
-		loaded, err := config.Load(filepath.Join(dir, ".pitot.yaml"))
+		loaded, err := config.Discover(".")
 		if err != nil {
 			t.Fatal(err)
 		}

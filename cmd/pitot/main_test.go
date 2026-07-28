@@ -45,10 +45,18 @@ func TestDoctorReportsBoundary(t *testing.T) {
 	}
 }
 
-func TestRunRequiresConfig(t *testing.T) {
+func TestRunRequiresConfigOrFragments(t *testing.T) {
+	t.Setenv("PITOT_RUNTIME", "")
 	var stdout, stderr bytes.Buffer
 	if err := run([]string{"run"}, &stdout, &stderr); err == nil {
-		t.Fatal("expected run without --config to fail")
+		t.Fatal("expected run without a runtime path to fail")
+	}
+	// With a runtime path but neither --config nor fragments, run must point
+	// the user at .pitot/conf.d.
+	t.Chdir(t.TempDir())
+	err := run([]string{"run", "--runtime", "runtime.json"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), ".pitot/conf.d") {
+		t.Fatalf("expected no-fragments guidance, got %v", err)
 	}
 }
 
@@ -122,6 +130,98 @@ controllers:
 	if !errors.Is(err, errBlocked) || !strings.Contains(hookErr.String(), "PITOT_CONTROLLER_DENY cli") || !strings.Contains(hookOut.String(), `"type":"action.requested"`) {
 		t.Fatalf("hook err=%v stdout=%s stderr=%s", err, hookOut.String(), hookErr.String())
 	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunDiscoversFragmentsAndHonorsDir proves the tenant model end to end:
+// `pitot run` with no --config merges the .pitot/conf.d fragments in the
+// working directory, a controller from one tenant resolves explicit requests,
+// and a consumer declared with dir: runs in that working directory — its
+// relative receipt path lands inside the tenant's own directory.
+func TestRunDiscoversFragmentsAndHonorsDir(t *testing.T) {
+	t.Setenv("PITOT_RUNTIME", "")
+	helper := buildTestRole(t) // build before chdir: it compiles from the package dir
+	runtimePath := filepath.Join(t.TempDir(), "runtime.json")
+	t.Chdir(t.TempDir())
+
+	controllerFragment := fmt.Sprintf(`controllers:
+  release.approval:
+    id: release-policy
+    command: [%q, "--role", "controller", "--id", "release-policy", "--nonce", "cli"]
+    deadline_ms: 2000
+    on_timeout: deny
+    on_unavailable: deny
+`, helper)
+	consumerFragment := fmt.Sprintf(`consumers:
+  - id: audit
+    command: [%q, "--role", "consumer", "--receipt", "receipt.jsonl"]
+    dir: "tenant-b"
+    events: ["action.requested"]
+    projection: {content: omit}
+`, helper)
+	confDir := filepath.Join(".pitot", "conf.d")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "a.yaml"), []byte(controllerFragment), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "b.yaml"), []byte(consumerFragment), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("tenant-b", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var runtimeOut bytes.Buffer
+	var runtimeErr lockedBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- runWithIO(ctx, []string{"run", "--runtime", runtimePath}, strings.NewReader(""), &runtimeOut, &runtimeErr)
+	}()
+	for i := 0; i < 250; i++ {
+		if _, err := os.Stat(runtimePath); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(runtimePath); err != nil {
+		t.Fatalf("runtime did not become ready: %v\n%s", err, runtimeErr.String())
+	}
+
+	// The controller tenant answers explicit requests through the merged config.
+	var requestOut bytes.Buffer
+	if err := runWithIO(context.Background(), []string{"request", "release.approval", "--data", `{"phase":"ship"}`, "--runtime", runtimePath}, strings.NewReader(""), &requestOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("request through merged config: %v\n%s", err, requestOut.String())
+	}
+	if !strings.Contains(requestOut.String(), `"outcome":"allow"`) {
+		t.Fatalf("request outcome: %s", requestOut.String())
+	}
+
+	// A hook observation fans to the consumer tenant, whose relative receipt
+	// path must resolve inside its declared dir.
+	payload := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}`
+	var hookOut, hookErr bytes.Buffer
+	if err := runWithIO(context.Background(), []string{"hook", "claude", "--runtime", runtimePath}, strings.NewReader(payload), &hookOut, &hookErr); err != nil {
+		t.Fatalf("hook err=%v stderr=%s", err, hookErr.String())
+	}
+	receipt := filepath.Join("tenant-b", "receipt.jsonl")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if data, err := os.ReadFile(receipt); err == nil && strings.Contains(string(data), `"type":"action.requested"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("consumer receipt never appeared in tenant dir %s\n%s", receipt, runtimeErr.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)

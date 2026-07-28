@@ -35,15 +35,19 @@ var supportedRoles = []string{"consumer", "controller"}
 // kind; the others target the test.approval kind or the consumer role.
 var supportedTemplates = []string{"shell-policy", "release-approval", "blank-controller", "blank-consumer"}
 
-// runInit scaffolds a complete, runnable Pitot project. It validates its inputs,
-// detects or interactively selects the language and role, refuses to overwrite
-// existing files unless --force is set, and writes a package manifest alongside
-// the source so the generated project builds and runs without further setup.
+// runInit scaffolds a complete, runnable Pitot project and registers it as one
+// tenant fragment under .pitot/conf.d/. It validates its inputs, detects or
+// interactively selects the language and role, refuses to overwrite existing
+// files unless --force is set, and writes a package manifest alongside the
+// source so the generated project builds and runs without further setup.
+// Because every registration is its own fragment, running init in a repository
+// that already hosts other Pitot tenants is additive by construction.
 func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	lang := ""
 	role := ""
 	template := ""
 	dir := "pitot-project"
+	fragment := ""
 	force := false
 
 	for i := 0; i < len(args); i++ {
@@ -72,11 +76,24 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			}
 			dir = args[i+1]
 			i++
+		case "--fragment":
+			if i+1 >= len(args) {
+				return errors.New("pitot init: --fragment requires a name")
+			}
+			fragment = args[i+1]
+			i++
 		case "--force":
 			force = true
 		default:
 			return fmt.Errorf("pitot init: unexpected argument %q", args[i])
 		}
+	}
+
+	if fragment == "" {
+		fragment = filepath.Base(filepath.Clean(dir))
+	}
+	if !validFragmentName(fragment) {
+		return fmt.Errorf("pitot init: invalid fragment name %q (want lowercase letters, digits, '.', '_', '-')", fragment)
 	}
 
 	interactive := isInteractive(stdin)
@@ -135,17 +152,36 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Tenant-scoped identity: the fragment name doubles as the controller or
+	// consumer id, so two scaffolded tenants never collide on the fixed
+	// template ids. The generated source carries the same identity.
+	for name, content := range files {
+		files[name] = strings.ReplaceAll(content, defaultRoleID(template), fragment)
+	}
+	fragmentPath := filepath.Join(config.FragmentDir, fragment+".yaml")
+	fragmentBody := pitotConfig(lang, template, dir, fragment)
 
-	// Non-destructive: refuse to clobber existing files unless --force.
+	// Pre-flight the tenancy contract before writing anything: the new
+	// registration must merge cleanly with every existing tenant, so a
+	// collision surfaces at registration time, not at the next `pitot run`.
+	if err := config.Preflight(".", fragment+".yaml", []byte(fragmentBody)); err != nil {
+		return fmt.Errorf("pitot init: %s does not merge with the existing tenants: %w", filepath.ToSlash(fragmentPath), err)
+	}
+
+	// Non-destructive: refuse to clobber existing files unless --force. The
+	// fragment path is checked too — an existing fragment belongs to a tenant.
 	if !force {
 		var conflicts []string
 		for name := range files {
 			if _, statErr := os.Stat(filepath.Join(dir, name)); statErr == nil {
-				conflicts = append(conflicts, name)
+				conflicts = append(conflicts, filepath.ToSlash(filepath.Join(dir, name)))
 			}
 		}
+		if _, statErr := os.Stat(fragmentPath); statErr == nil {
+			conflicts = append(conflicts, filepath.ToSlash(fragmentPath))
+		}
 		if len(conflicts) > 0 {
-			return fmt.Errorf("pitot init: refusing to overwrite existing files in %s: %s (use --force)", dir, strings.Join(sorted(conflicts), ", "))
+			return fmt.Errorf("pitot init: refusing to overwrite existing files: %s (use --force)", strings.Join(sorted(conflicts), ", "))
 		}
 	}
 
@@ -163,17 +199,45 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return fmt.Errorf("pitot init: write %s: %w", name, err)
 		}
 	}
+	if err := os.MkdirAll(filepath.Dir(fragmentPath), 0o755); err != nil {
+		return fmt.Errorf("pitot init: create %s: %w", filepath.Dir(fragmentPath), err)
+	}
+	if err := os.WriteFile(fragmentPath, []byte(fragmentBody), 0o644); err != nil {
+		return fmt.Errorf("pitot init: write %s: %w", fragmentPath, err)
+	}
 
+	written := []string{filepath.ToSlash(fragmentPath)}
+	for _, name := range keys(files) {
+		written = append(written, filepath.ToSlash(filepath.Join(dir, name)))
+	}
 	fmt.Fprintf(stdout, "Initialized %s %s (%s) in %s\n", lang, role, template, dir)
-	fmt.Fprintf(stdout, "Files written: %s\n", strings.Join(sorted(keys(files)), ", "))
-	// The runtime launches the generated program from .pitot.yaml; the command
-	// after `--` is the coding agent Pitot supervises, never the Controller.
+	fmt.Fprintf(stdout, "Files written: %s\n", strings.Join(sorted(written), ", "))
+	// The runtime launches the generated program from its conf.d fragment; the
+	// command after `--` is the coding agent Pitot supervises, never the
+	// Controller. Everything runs from the repository root.
 	fmt.Fprintln(stdout, "Next:")
-	fmt.Fprintf(stdout, "  1. cd %s\n", dir)
-	fmt.Fprintln(stdout, "  2. Configure a supported host hook (see: pitot doctor --host HOST).")
-	fmt.Fprintln(stdout, "  3. Run: pitot dev --host HOST -- AGENT [ARGS...]")
+	fmt.Fprintln(stdout, "  1. Configure a supported host hook (see: pitot doctor --host HOST).")
+	fmt.Fprintln(stdout, "  2. Run: pitot dev --host HOST -- AGENT [ARGS...]")
 	fmt.Fprintln(stdout, "     example: pitot dev --host kimi -- kimi -p \"<prompt>\"")
 	return nil
+}
+
+// validFragmentName keeps tenant fragment filenames portable and predictable:
+// a lowercase alphanumeric first character, then lowercase letters, digits,
+// dots, underscores, and dashes.
+func validFragmentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case i > 0 && (r == '.' || r == '_' || r == '-'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // resolveTemplate reconciles the explicit --template value with the resolved
@@ -204,7 +268,7 @@ func templateRole(template string) string {
 	return "controller"
 }
 
-// controllerKind returns the .pitot.yaml request kind a controller template
+// controllerKind returns the config request kind a controller template
 // registers under. Only shell-policy governs the shell action kind that host
 // adapters (Kimi, Claude, Codex, ...) normalize Bash/PreToolUse events into.
 func controllerKind(template string) string {
@@ -214,17 +278,23 @@ func controllerKind(template string) string {
 	return "test.approval"
 }
 
-// controllerID returns the controller id embedded in the generated config and
-// source for a template.
-func controllerID(template string) string {
-	if template == "shell-policy" {
+// defaultRoleID returns the placeholder identity embedded in a template's
+// source; runInit replaces it with the tenant's fragment name so every
+// scaffolded tenant carries a unique id.
+func defaultRoleID(template string) string {
+	switch {
+	case template == "shell-policy":
 		return "local-shell-policy"
+	case templateRole(template) == "consumer":
+		return "local-consumer"
+	default:
+		return "local-controller"
 	}
-	return "local-controller"
 }
 
-// projectFiles returns the complete file set for a language/template: source,
-// package manifest(s), and the .pitot.yaml runtime configuration.
+// projectFiles returns the complete project file set for a language/template:
+// source and package manifest(s). The runtime registration is written
+// separately as a tenant fragment under .pitot/conf.d/.
 func projectFiles(lang, template string) (map[string]string, error) {
 	files := map[string]string{}
 
@@ -251,7 +321,6 @@ func projectFiles(lang, template string) (map[string]string, error) {
 		return nil, fmt.Errorf("pitot init: unsupported language %q", lang)
 	}
 
-	files[".pitot.yaml"] = pitotConfig(lang, template)
 	return files, nil
 }
 
@@ -301,32 +370,36 @@ func sourceTemplate(lang, template string) (string, error) {
 	}
 }
 
-// pitotConfig renders the .pitot.yaml wiring the generated template to its run
-// command. Consumers subscribe to events; controllers register for a request
-// kind — shell-policy under "shell" (the kind host adapters normalize Bash
-// events into), every other controller under "test.approval".
-func pitotConfig(lang, template string) string {
+// pitotConfig renders the tenant fragment wiring the generated template to its
+// run command under the tenant's own id. Consumers subscribe to events;
+// controllers register for a request kind — shell-policy under "shell" (the
+// kind host adapters normalize Bash events into), every other controller under
+// "test.approval". The dir field keeps the run command project-relative while
+// the runtime starts at the repository root.
+func pitotConfig(lang, template, dir, id string) string {
 	cmdList := runCommandList(lang)
 	if templateRole(template) == "consumer" {
-		return `consumers:
-  - id: local-consumer
-    command: ` + cmdList + `
+		return fmt.Sprintf(`consumers:
+  - id: %s
+    command: %s
+    dir: %q
     events: ["action.requested"]
     projection:
       content: full
-`
+`, id, cmdList, dir)
 	}
 	return fmt.Sprintf(`controllers:
   %s:
     id: %s
     command: %s
+    dir: %q
     deadline_ms: 2000
     on_timeout: deny
     on_unavailable: deny
-`, controllerKind(template), controllerID(template), cmdList)
+`, controllerKind(template), id, cmdList, dir)
 }
 
-// runCommandList is the JSON array form embedded in .pitot.yaml.
+// runCommandList is the JSON array form embedded in the tenant fragment.
 func runCommandList(lang string) string {
 	switch lang {
 	case "python":
@@ -722,12 +795,11 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		programArgs = fields[1:]
 	}
 
-	configPath := ".pitot.yaml"
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return errors.New("pitot dev: .pitot.yaml not found in current directory. Run 'pitot init' first")
-	}
-	loaded, err := config.Load(configPath)
+	loaded, err := config.Discover(".")
 	if err != nil {
+		if errors.Is(err, config.ErrNoConfig) {
+			return errors.New("pitot dev: no config fragments under .pitot/conf.d. Run 'pitot init' first")
+		}
 		return fmt.Errorf("pitot dev: load config: %w", err)
 	}
 
