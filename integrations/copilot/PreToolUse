@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+PITOT_COMMAND="${PITOT_BIN:-pitot}"
+PAYLOAD=$(cat)
+if PITOT_ERROR=$(printf '%s' "$PAYLOAD" | "$PITOT_COMMAND" hook copilot 2>&1 >/dev/null); then
+  printf '%s\n' '{"permissionDecision":"allow","permissionDecisionReason":"Pitot accepted the shell action"}'
+  exit 0
+fi
+
+python3 -c 'import json,sys; print(json.dumps({"permissionDecision":"deny","permissionDecisionReason":(sys.argv[1] or "Pitot rejected the shell request")[:1024]},separators=(",",":")))' "$PITOT_ERROR"
+exit 0

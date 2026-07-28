@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+PITOT_COMMAND="${1:-${PITOT_BIN:-pitot}}"
+PITOT_ARGUMENTS=()
+if [ "$#" -ge 5 ]; then
+  PITOT_ARGUMENTS=(--real-bin "$2" --receipt "$3" --nonce "$4")
+  RUNTIME_ARGUMENTS=(--runtime "$5")
+else
+  RUNTIME_ARGUMENTS=()
+fi
+PAYLOAD=$(cat)
+if PITOT_ERROR=$(printf '%s' "$PAYLOAD" | "$PITOT_COMMAND" "${PITOT_ARGUMENTS[@]}" hook gemini "${RUNTIME_ARGUMENTS[@]}" 2>&1 >/dev/null); then
+  printf '%s\n' '{"decision":"allow"}'
+  exit 0
+fi
+
+python3 -c 'import json,sys; print(json.dumps({"decision":"deny","reason":(sys.argv[1] or "Pitot rejected the shell request")[:1024]},separators=(",",":")))' "$PITOT_ERROR"
+exit 0
