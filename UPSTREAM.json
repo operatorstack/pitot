@@ -57,6 +57,8 @@
     "runtime/capabilities.go": "76c27bdd7ddfa11a1d639915ac2eb2d573b7ccdd687a5f548b3731b7c1e1828f",
     "runtime/descriptor_unix.go": "df41b6867e9840933f186c93b6bc61861e7ea5252a365455686ea0414bfa0044",
     "runtime/descriptor_windows.go": "2d9ffefe3af0154fa8042de6b67460d4e86dd3f4cdd9e986f180f7d0c535c9a5",
+    "runtime/request.go": "198c44fd6c547022a15b6d0d48e4d0130fa8afb687994365115576e4d874550d",
+    "runtime/request_test.go": "86d8a2feb4ec72e8ed675b9567da2d1f5d628950eeec907c10b9cc1675aa1904",
     "runtime/runtime.go": "e0624a16ac9f79e8080246042912c73b1588f1b9aeb4f9f95b3711c7acef7e81",
     "runtime/runtime_test.go": "afd78d122af20148bf30d0db873ff002544189df0dfec0f6167b8cf5cd0d42b1",
     "runtime/transport.go": "83e2218fb28474e875dafa6943bc5b665acef0565aaf5955fa88b1b4fd21614e",
@@ -115,5 +117,11 @@
     "windtunnel/doc.go": "44e0bcde632da73e1f8b98beade3a34ca8e0d0ea79cdfb91d131de290b164fc4",
     "windtunnel/windtunnel_test.go": "d34929ffdb1927b2ee27cc79640b333b0571659d231977b91c3a8898cf79bc42"
   },
-  "schema_version": 1
+  "generator": "operatorstack/pitot:project",
+  "schema_version": 1,
+  "source": {
+    "commit": "f3e44076ff395a608f025c7162627e44e795f55f",
+    "path": "labs/15-pitot",
+    "repository": "operatorstack/intelligence-flow"
+  }
 }

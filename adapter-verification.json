@@ -1,0 +1,24 @@
+{
+  "schema_version": 6,
+  "capabilities": [
+    {"id": "hook_control", "matrix": "agent_platform"},
+    {"id": "consumer_delivery", "matrix": "agent_platform"},
+    {"id": "explicit_request", "matrix": "platform"}
+  ],
+  "platforms": [
+    {"id": "ubuntu", "runner": "ubuntu-latest"},
+    {"id": "macos", "runner": "macos-latest"},
+    {"id": "windows", "runner": "windows-latest"}
+  ],
+  "agents": [
+    {"id": "claude", "label": "Claude", "version": "2.1.217", "executable": "claude", "installer": {"kind": "npm", "package": "@anthropic-ai/claude-code"}, "integration": "native_command_hook", "artifacts": [], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "cursor", "label": "Cursor", "version": "2026.07.20-8cc9c0b", "executable": "agent", "installer": {"kind": "cursor_release", "package": "https://downloads.cursor.com/lab/2026.07.20-8cc9c0b"}, "integration": "native_command_hook", "artifacts": ["integrations/cursor/beforeShellExecution"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "wsl"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "codex", "label": "Codex", "version": "0.145.0", "executable": "codex", "installer": {"kind": "npm", "package": "@openai/codex"}, "integration": "native_command_hook", "artifacts": ["integrations/codex/PreToolUse.ps1"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "copilot", "label": "GitHub Copilot CLI", "version": "1.0.73", "executable": "copilot", "installer": {"kind": "npm", "package": "@github/copilot"}, "integration": "native_command_hook", "artifacts": ["integrations/copilot/PreToolUse", "integrations/copilot/PreToolUse.ps1"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "gemini", "label": "Gemini", "version": "0.51.0", "executable": "gemini", "installer": {"kind": "npm", "package": "@google/gemini-cli"}, "integration": "native_command_hook", "artifacts": ["integrations/gemini/BeforeTool", "integrations/gemini/BeforeTool.ps1"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "kimi", "label": "Kimi Code", "version": "0.29.0", "executable": "kimi", "installer": {"kind": "kimi_release", "package": "https://code.kimi.com/kimi-code"}, "integration": "native_command_hook", "artifacts": [], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "opencode", "label": "OpenCode", "version": "1.18.4", "executable": "opencode", "installer": {"kind": "npm", "package": "opencode-ai"}, "integration": "opencode_plugin", "artifacts": ["integrations/opencode/pitot.ts"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "pi", "label": "Pi", "version": "0.81.1", "executable": "pi", "installer": {"kind": "npm", "package": "@earendil-works/pi-coding-agent"}, "integration": "pi_extension", "artifacts": ["integrations/pi/pitot.ts"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"},
+    {"id": "qwen", "label": "Qwen Code", "version": "0.20.1", "executable": "qwen", "installer": {"kind": "npm", "package": "@qwen-code/qwen-code"}, "integration": "native_command_hook", "artifacts": ["integrations/qwen/PreToolUse", "integrations/qwen/PreToolUse.cjs"], "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"}, "driver": "real_agent_driver.py", "required_mode": "real_cli"}
+  ]
+}

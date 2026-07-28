@@ -1,0 +1,1283 @@
+{
+  "capture_policy": "pinned_real_cli_capture",
+  "cells": [
+    {
+      "agent": "claude",
+      "capture_sha256": "f2eb7045e2370f18521c812d5e5d141f65c41d59d0c488fb8040698d2973c951",
+      "dialect": "anthropic_messages",
+      "executable_sha256": "5840c777fd47115e9ca276e165563c6e121e7c7e2b4d86598e0025f8cc37de56",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/messages",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Bash"
+          ],
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "anthropic_messages",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "2.1.217"
+    },
+    {
+      "agent": "claude",
+      "capture_sha256": "34f96279d0005b279c4287f18a7fa22d8726e8cdcdb3b124ee5b9a53058f0319",
+      "dialect": "anthropic_messages",
+      "executable_sha256": "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/messages",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Bash"
+          ],
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "anthropic_messages",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "2.1.217"
+    },
+    {
+      "agent": "claude",
+      "capture_sha256": "bb70ed5c57eeb11082dbb9738b7abce34496240bd5f16bbd8ded27ef2877b575",
+      "dialect": "anthropic_messages",
+      "executable_sha256": "7999fba95dbffe167d9e0a043f29057979a0518ebe89b60c4fcfc6401ea8c424",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/messages",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Bash"
+          ],
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "anthropic_messages",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "2.1.217"
+    },
+    {
+      "agent": "codex",
+      "capture_sha256": "5cec7ac20d1e1c550fc1fd1fc5cb96ef1e04b13d1212ea51125eaf2349460788",
+      "dialect": "openai_responses",
+      "executable_sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "exec_command",
+            "write_stdin",
+            "update_plan",
+            "request_user_input",
+            "view_image",
+            "multi_agent_v1",
+            "get_goal",
+            "create_goal",
+            "update_goal"
+          ],
+          "top_level_keys": [
+            "client_metadata",
+            "include",
+            "input",
+            "instructions",
+            "model",
+            "parallel_tool_calls",
+            "prompt_cache_key",
+            "reasoning",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.145.0"
+    },
+    {
+      "agent": "codex",
+      "capture_sha256": "b105f6d402c363f9734553bbaaa7510be71df2f6774f4b1040935dcabcfa1815",
+      "dialect": "openai_responses",
+      "executable_sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "exec_command",
+            "write_stdin",
+            "update_plan",
+            "request_user_input",
+            "view_image",
+            "multi_agent_v1",
+            "get_goal",
+            "create_goal",
+            "update_goal"
+          ],
+          "top_level_keys": [
+            "client_metadata",
+            "include",
+            "input",
+            "instructions",
+            "model",
+            "parallel_tool_calls",
+            "prompt_cache_key",
+            "reasoning",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.145.0"
+    },
+    {
+      "agent": "codex",
+      "capture_sha256": "fe466cdc0cd79fd12db0c06ba7b37d516bbfade7ed22e1fa9c61f740369e4c12",
+      "dialect": "openai_responses",
+      "executable_sha256": "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "shell_command",
+            "update_plan",
+            "request_user_input",
+            "view_image",
+            "multi_agent_v1",
+            "get_goal",
+            "create_goal",
+            "update_goal"
+          ],
+          "top_level_keys": [
+            "client_metadata",
+            "include",
+            "input",
+            "instructions",
+            "model",
+            "parallel_tool_calls",
+            "prompt_cache_key",
+            "reasoning",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.145.0"
+    },
+    {
+      "agent": "copilot",
+      "capture_sha256": "69ed781538ee899b31e85061f0c2e8ec3d2ca40244fff5d6a838d1908ce11462",
+      "dialect": "openai_chat",
+      "executable_sha256": "0ea824a86be5757533fdb092eff7050871bd7a711a46babde0ffe0e44ac5ad88",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "bash",
+            "read_bash",
+            "stop_bash",
+            "list_bash",
+            "apply_patch",
+            "view",
+            "fetch_copilot_cli_documentation",
+            "skill",
+            "sql",
+            "session_store_sql",
+            "read_agent",
+            "list_agents",
+            "write_agent",
+            "rg",
+            "glob",
+            "task"
+          ],
+          "top_level_keys": [
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.0.73"
+    },
+    {
+      "agent": "copilot",
+      "capture_sha256": "0a30d6ef202ef5743e1c1026122f524747862e1d445d8deeb6403d4eccb9810a",
+      "dialect": "openai_chat",
+      "executable_sha256": "0ea824a86be5757533fdb092eff7050871bd7a711a46babde0ffe0e44ac5ad88",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "bash",
+            "read_bash",
+            "stop_bash",
+            "list_bash",
+            "apply_patch",
+            "view",
+            "fetch_copilot_cli_documentation",
+            "skill",
+            "sql",
+            "session_store_sql",
+            "read_agent",
+            "list_agents",
+            "write_agent",
+            "rg",
+            "glob",
+            "task"
+          ],
+          "top_level_keys": [
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.0.73"
+    },
+    {
+      "agent": "copilot",
+      "capture_sha256": "07b91e3b6215218295878f1e449ba61bddcd860de1393756abc1d0b4f502d224",
+      "dialect": "openai_chat",
+      "executable_sha256": "959e8ea2c63474956adc1de9c884df9018a686a9c5463e8366b438161c01c8f8",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "powershell",
+            "read_powershell",
+            "stop_powershell",
+            "list_powershell",
+            "apply_patch",
+            "view",
+            "fetch_copilot_cli_documentation",
+            "skill",
+            "sql",
+            "session_store_sql",
+            "read_agent",
+            "list_agents",
+            "write_agent",
+            "rg",
+            "glob",
+            "task"
+          ],
+          "top_level_keys": [
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.0.73"
+    },
+    {
+      "agent": "cursor",
+      "capture_sha256": "143a5f1053a9f08cdbd3c9b60d7d9bdc635ecc7fcf13743c995b9929da450b1d",
+      "dialect": "cursor_connect_proto",
+      "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/agent.v1.AgentService/Run",
+        "request_shape": {
+          "message": "agent.v1.AgentClientMessage",
+          "method": "Run",
+          "service": "agent.v1.AgentService",
+          "stream": "bidirectional"
+        },
+        "transport": "http2"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "cursor_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "2026.07.20-8cc9c0b"
+    },
+    {
+      "agent": "cursor",
+      "capture_sha256": "9cfbafc5b68a8622d6a53e8526f67c2c1283d5a4fa2c329207a4b376e5d60af7",
+      "dialect": "cursor_connect_proto",
+      "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/agent.v1.AgentService/Run",
+        "request_shape": {
+          "message": "agent.v1.AgentClientMessage",
+          "method": "Run",
+          "service": "agent.v1.AgentService",
+          "stream": "bidirectional"
+        },
+        "transport": "http2"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "cursor_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "2026.07.20-8cc9c0b"
+    },
+    {
+      "agent": "cursor",
+      "capture_sha256": "9cadbd1499db106aee6479bec218227552d5a8b804ec194f5c550db77aec5763",
+      "dialect": "cursor_connect_proto",
+      "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/agent.v1.AgentService/Run",
+        "request_shape": {
+          "message": "agent.v1.AgentClientMessage",
+          "method": "Run",
+          "service": "agent.v1.AgentService",
+          "stream": "bidirectional"
+        },
+        "transport": "http2"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "cursor_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "wsl",
+      "version": "2026.07.20-8cc9c0b"
+    },
+    {
+      "agent": "gemini",
+      "capture_sha256": "59a1e83ce73a7a4f8912e0b8780ae084e6c35814952dc4d3930406fc8f1770d7",
+      "dialect": "gemini_generate_content",
+      "executable_sha256": "a2533ac23365a1c72b847780b53235d38cf21cc7ee736c98dfa8cbb70b1a9425",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1beta/models/pitot-control:streamGenerateContent",
+        "request_shape": {
+          "has_tools": true,
+          "stream": false,
+          "tool_names": [
+            "update_topic",
+            "list_directory",
+            "read_file",
+            "grep_search",
+            "glob",
+            "replace",
+            "write_file",
+            "web_fetch",
+            "run_shell_command",
+            "list_background_processes",
+            "read_background_output",
+            "google_web_search",
+            "enter_plan_mode",
+            "invoke_agent",
+            "activate_skill"
+          ],
+          "top_level_keys": [
+            "contents",
+            "generationConfig",
+            "systemInstruction",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "gemini_generate_content",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.51.0"
+    },
+    {
+      "agent": "gemini",
+      "capture_sha256": "f0f7bf0d7b2e88c03194449ccb25b8a7a534ee2d050b5f560fc578df069ef9c9",
+      "dialect": "gemini_generate_content",
+      "executable_sha256": "a2533ac23365a1c72b847780b53235d38cf21cc7ee736c98dfa8cbb70b1a9425",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1beta/models/pitot-control:streamGenerateContent",
+        "request_shape": {
+          "has_tools": true,
+          "stream": false,
+          "tool_names": [
+            "update_topic",
+            "list_directory",
+            "read_file",
+            "grep_search",
+            "glob",
+            "replace",
+            "write_file",
+            "web_fetch",
+            "run_shell_command",
+            "list_background_processes",
+            "read_background_output",
+            "google_web_search",
+            "enter_plan_mode",
+            "invoke_agent",
+            "activate_skill"
+          ],
+          "top_level_keys": [
+            "contents",
+            "generationConfig",
+            "systemInstruction",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "gemini_generate_content",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.51.0"
+    },
+    {
+      "agent": "gemini",
+      "capture_sha256": "e3e0a192ec038c2fbc76ace53288ec14ebb6032954cea331c8eac495f0a928a6",
+      "dialect": "gemini_generate_content",
+      "executable_sha256": "ed3d5b269acefc5dffb342df0a214b2351794244c520c124d3556bc5ea6064c5",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1beta/models/pitot-control:streamGenerateContent",
+        "request_shape": {
+          "has_tools": true,
+          "stream": false,
+          "tool_names": [
+            "update_topic",
+            "list_directory",
+            "read_file",
+            "grep_search",
+            "glob",
+            "replace",
+            "write_file",
+            "web_fetch",
+            "run_shell_command",
+            "list_background_processes",
+            "read_background_output",
+            "google_web_search",
+            "enter_plan_mode",
+            "invoke_agent",
+            "activate_skill"
+          ],
+          "top_level_keys": [
+            "contents",
+            "generationConfig",
+            "systemInstruction",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "gemini_generate_content",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.51.0"
+    },
+    {
+      "agent": "kimi",
+      "capture_sha256": "5c5a51e69a4686eedf0ed78648fbff64ecb850636404173dc6c061acd6b4bcad",
+      "dialect": "openai_chat",
+      "executable_sha256": "5cccf53604f20c5499ea10c3094298f49a1ad59fa90cddd9fd7e0ba44815fdd3",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Agent",
+            "AgentSwarm",
+            "AskUserQuestion",
+            "Bash",
+            "CreateGoal",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "Edit",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "FetchURL",
+            "GetGoal",
+            "Glob",
+            "Grep",
+            "Read",
+            "SetGoalBudget",
+            "Skill",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+            "TodoList",
+            "UpdateGoal",
+            "Write"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "prompt_cache_key",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.29.0"
+    },
+    {
+      "agent": "kimi",
+      "capture_sha256": "11ece29c94e071bec5f206d9ba00e19233db733be791457d21c7a925bc8d20eb",
+      "dialect": "openai_chat",
+      "executable_sha256": "44f0aed58655790b78fe8ac1bf44217f3fc0e65977abb7426f9edca943ddc444",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Agent",
+            "AgentSwarm",
+            "AskUserQuestion",
+            "Bash",
+            "CreateGoal",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "Edit",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "FetchURL",
+            "GetGoal",
+            "Glob",
+            "Grep",
+            "Read",
+            "SetGoalBudget",
+            "Skill",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+            "TodoList",
+            "UpdateGoal",
+            "Write"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "prompt_cache_key",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.29.0"
+    },
+    {
+      "agent": "kimi",
+      "capture_sha256": "4e0b6ea5c3c513f1e281a8a2d25e32025d9fb11bf995163fdc74a704b42bf44a",
+      "dialect": "openai_chat",
+      "executable_sha256": "c9daf5aec27ca9c35597a14d5cf05692f0aaf1d31d4d825ae6c988c404ecca6e",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "Agent",
+            "AgentSwarm",
+            "AskUserQuestion",
+            "Bash",
+            "CreateGoal",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "Edit",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "FetchURL",
+            "GetGoal",
+            "Glob",
+            "Grep",
+            "Read",
+            "SetGoalBudget",
+            "Skill",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+            "TodoList",
+            "UpdateGoal",
+            "Write"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "prompt_cache_key",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.29.0"
+    },
+    {
+      "agent": "opencode",
+      "capture_sha256": "db834ed83cf489dc517c27e2149f9783ae663c20055c2283dabcbdf08ff86457",
+      "dialect": "openai_responses",
+      "executable_sha256": "9449af91f517eacc2b0742fa93ae0da64fa6e5db7b714e30c62edea2a8de3f98",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "bash",
+            "edit",
+            "glob",
+            "grep",
+            "read",
+            "skill",
+            "task",
+            "todowrite",
+            "webfetch",
+            "write"
+          ],
+          "top_level_keys": [
+            "input",
+            "model",
+            "prompt_cache_key",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.18.4"
+    },
+    {
+      "agent": "opencode",
+      "capture_sha256": "8c98437528ae0a8f99e007b94cb1176a17943e9fbbd914643f60733152f4ba60",
+      "dialect": "openai_responses",
+      "executable_sha256": "6ce6570e7db9a40e7bd3304ebdfff607920bde8cafd2eb5587bd7a26f89ba0b5",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "bash",
+            "edit",
+            "glob",
+            "grep",
+            "read",
+            "skill",
+            "task",
+            "todowrite",
+            "webfetch",
+            "write"
+          ],
+          "top_level_keys": [
+            "input",
+            "model",
+            "prompt_cache_key",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.18.4"
+    },
+    {
+      "agent": "opencode",
+      "capture_sha256": "509555970aabc2e5aa178412295bd0d773467cdeb22d2b95000e2e5ac1d17ad4",
+      "dialect": "openai_responses",
+      "executable_sha256": "b53b698473bfa46e09487e485a7f1ad5b4881f8a8b319d3619aa251f3be8ae10",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/responses",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "bash",
+            "edit",
+            "glob",
+            "grep",
+            "read",
+            "skill",
+            "task",
+            "todowrite",
+            "webfetch",
+            "write"
+          ],
+          "top_level_keys": [
+            "input",
+            "model",
+            "prompt_cache_key",
+            "store",
+            "stream",
+            "tool_choice",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_responses",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "1.18.4"
+    },
+    {
+      "agent": "pi",
+      "capture_sha256": "fbad33dcce5982fee3ab29cacb251afbce95e15d319cf48f2933031e5a4e0df0",
+      "dialect": "openai_chat",
+      "executable_sha256": "af302f231437eaf6f37691bce4b34234fcb626bcb5eb3910d4fc3f6519bf78ca",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "read",
+            "bash",
+            "edit",
+            "write"
+          ],
+          "top_level_keys": [
+            "max_completion_tokens",
+            "messages",
+            "model",
+            "store",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.81.1"
+    },
+    {
+      "agent": "pi",
+      "capture_sha256": "c747e94254dc01646aa3624bb95b2a084a9ecc7a3ebb8f82322cceef051bfe0e",
+      "dialect": "openai_chat",
+      "executable_sha256": "af302f231437eaf6f37691bce4b34234fcb626bcb5eb3910d4fc3f6519bf78ca",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "read",
+            "bash",
+            "edit",
+            "write"
+          ],
+          "top_level_keys": [
+            "max_completion_tokens",
+            "messages",
+            "model",
+            "store",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.81.1"
+    },
+    {
+      "agent": "pi",
+      "capture_sha256": "ef7db6f237ae1ed9a02420404db9555820f6d8ff16b46462103c0436d39e0533",
+      "dialect": "openai_chat",
+      "executable_sha256": "7f4c35fbbbe908301c12e06b9e6b7017c6b9cbcc24c34e26615a08f9f60fa53e",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "read",
+            "bash",
+            "edit",
+            "write"
+          ],
+          "top_level_keys": [
+            "max_completion_tokens",
+            "messages",
+            "model",
+            "store",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.81.1"
+    },
+    {
+      "agent": "qwen",
+      "capture_sha256": "f31eb243bbc121471fdecb50d50d177b12e84075cb89c52a1dc7af01ba0b9852",
+      "dialect": "openai_chat",
+      "executable_sha256": "eac1ed6f8ed71466fa05cf7b2a63fc0cf252b1ad79183735bba365bbeda3cafb",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "agent",
+            "edit",
+            "glob",
+            "grep_search",
+            "list_directory",
+            "notebook_edit",
+            "read_file",
+            "run_shell_command",
+            "skill",
+            "todo_write",
+            "tool_search",
+            "write_file"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.20.1"
+    },
+    {
+      "agent": "qwen",
+      "capture_sha256": "27da2424b8153808118fe54ae7de564c0793c4c0151b77934636a69d596e934a",
+      "dialect": "openai_chat",
+      "executable_sha256": "eac1ed6f8ed71466fa05cf7b2a63fc0cf252b1ad79183735bba365bbeda3cafb",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "agent",
+            "edit",
+            "glob",
+            "grep_search",
+            "list_directory",
+            "notebook_edit",
+            "read_file",
+            "run_shell_command",
+            "skill",
+            "todo_write",
+            "tool_search",
+            "write_file"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.20.1"
+    },
+    {
+      "agent": "qwen",
+      "capture_sha256": "79c8dc86ad30a5e67c4259de7f438df2618d05d611bff69b88e4d67c8f64767a",
+      "dialect": "openai_chat",
+      "executable_sha256": "a5c19d0c03467074c1ff755ec604422223e1019fa19f8a9bf2f81dd84f32e070",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "sse",
+        "media_type": "application/json",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "request_shape": {
+          "has_tools": true,
+          "stream": true,
+          "tool_names": [
+            "agent",
+            "edit",
+            "glob",
+            "grep_search",
+            "list_directory",
+            "notebook_edit",
+            "read_file",
+            "run_shell_command",
+            "skill",
+            "todo_write",
+            "tool_search",
+            "write_file"
+          ],
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "model",
+            "stream",
+            "stream_options",
+            "tools"
+          ]
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "openai_chat",
+        "framing": "sse",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "0.20.1"
+    }
+  ],
+  "schema_version": 2
+}
