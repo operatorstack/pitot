@@ -32,7 +32,7 @@
     "conformance/fixtures/negative.jsonl": "503ea76988df595d96ebf695f991b8ea6c892be4a578522dff4ddb0d39b647e4",
     "conformance/fixtures/positive.jsonl": "881efdf58b66ee7d03171c6b4410bf1bce9e1b8db5c8bf969d0e8ec467420c3f",
     "doc.go": "a8abdafac969b1bf4372c8bb023aa51125dc073f03218f4ab9913dfc5ffa877d",
-    "e2e/e2e_coverage_test.go": "6235bd1df7212e4e229be324ac50f592aef70dce8855519d02e6b843656ea109",
+    "e2e/e2e_coverage_test.go": "09a738ca70749be94c462ce9974cdac9a7be0b24b9dc2b20ec0738d4686ebfbf",
     "e2e/e2e_hook_test.go": "5e184dc8907b6e36daeab90bbbb1654fa5336312866412031805a13ba535d1f8",
     "examples/doc.go": "58f3f9eb7d272d7b6eecdb05f43e1613d5e3ef92d15d97c5440bd4b6990c26f9",
     "examples/local-approval/main.go": "51386af324cd7d3bb07fe3ace53503884b02714b96b83073342fde81ce3b83a5",
@@ -120,7 +120,7 @@
   "generator": "operatorstack/pitot:project",
   "schema_version": 1,
   "source": {
-    "commit": "f3e44076ff395a608f025c7162627e44e795f55f",
+    "commit": "648cd76c16fc7f5463838c4d473ae94ce8ef95f2",
     "path": "labs/15-pitot",
     "repository": "operatorstack/intelligence-flow"
   }
