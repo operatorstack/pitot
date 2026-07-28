@@ -10,9 +10,12 @@ import (
 )
 
 func TestAllAdaptersHaveE2EScripts(t *testing.T) {
-	// The e2e package lives in labs/15-pitot/pitot/e2e
-	// The test scripts live in labs/15-pitot/tests
+	// Monorepo: labs/15-pitot/pitot/e2e -> labs/15-pitot/tests.
+	// Public projection: e2e -> tests.
 	testsDir := filepath.Join("..", "..", "tests")
+	if _, err := os.Stat(testsDir); os.IsNotExist(err) {
+		testsDir = filepath.Join("..", "tests")
+	}
 
 	for _, host := range adapters.Supported() {
 		t.Run(string(host), func(t *testing.T) {
