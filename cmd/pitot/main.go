@@ -53,6 +53,12 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runHook(ctx, args[1:], stdin, stdout, stderr)
 	case "request":
 		return runRequest(ctx, args[1:], stdout)
+	case "version", "--version", "-v":
+		return runVersion(stdout)
+	case "upgrade":
+		return runUpgrade(ctx, args[1:], stdout, stderr)
+	case "install":
+		return runInstall(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage())
 		return nil
@@ -215,9 +221,11 @@ func doctor(args []string, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Pitot %s — local boundary\n", schema.Version)
+	fmt.Fprintf(stdout, "binary version: %s (%s)\n", releaseVersion(), buildCommit())
 	fmt.Fprintf(stdout, "adapter version: %s\n", adapters.AdapterVersion)
 	fmt.Fprintln(stdout, "unauthenticated local socket: none")
 	fmt.Fprintln(stdout, "runtime capabilities: hook_control consumer_delivery explicit_request")
+	printHydrationStatus(stdout)
 	fmt.Fprintln(stdout, "hosts:")
 	for _, host := range adapters.Supported() {
 		probe, err := adapters.CanonicalHookEvent(host)
@@ -312,10 +320,18 @@ usage:
   pitot run [--config PATH] --runtime PATH
   pitot hook HOST [--runtime PATH]
   pitot request KIND [--data JSON] --runtime PATH
+  pitot version
+  pitot upgrade [--to X.Y.Z] [--check] [--host HOST]
+  pitot install typescript|python [--configure-only] [--revert] [--host HOST]
 
 configuration is tenant-partitioned: each tool or user registers its processes
 in its own fragment under .pitot/conf.d/; the runtime merges every fragment and
 rejects collisions. --config PATH overrides discovery with one explicit file.
+
+the binary is repo-pinned: .pitot/version names the exact release and the
+committed shim .pitot/bin/pitot hydrates it on demand (sha256-verified, cached
+per user). upgrade rewrites the pin only — commit that diff to upgrade every
+clone. install wires typed SDKs from our registry through the front door.
 `
 }
 

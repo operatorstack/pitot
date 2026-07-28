@@ -187,13 +187,47 @@ single-response rule before carrying the answer back. Pitot does not know what
 
 ## Install
 
-Download a release binary for macOS, Linux, or Windows, or install from source:
+**Nobody installs Pitot per machine — the repository pins it.** `pitot init`
+writes two substrate files alongside your tenant fragments:
+
+- `.pitot/version` — one committed semver line, the only version authority
+- `.pitot/bin/pitot` (+ `pitot.ps1`) — a committed shim that reads the pin,
+  hydrates exactly that release into a per-user cache
+  (`~/.cache/pitot/<version>/`, sha256-verified against the published
+  `checksums.txt`), and execs it
+
+Fresh clones, CI, and cloud agents run `.pitot/bin/pitot` with zero setup —
+the first invocation hydrates, every later one is a cache hit. There is no
+fallback to whatever binary happens to be on PATH; a missing release with no
+network fails closed with a named error, and `PITOT_NO_HYDRATE=1` makes
+hydration cache-only.
+
+**Upgrades are a reviewed diff.** `pitot upgrade` verifies the new release,
+re-checks every tenant fragment against it, and rewrites the one pin line —
+nothing else. Commit that diff and every clone hydrates the new version on
+its next invocation; roll back by reverting it.
+
+```bash
+pitot upgrade --check   # report pinned vs latest
+pitot upgrade           # hydrate, validate tenants, rewrite .pitot/version
+```
+
+For a global CLI convenience (running `pitot init` in new repos), grab a
+release binary or build from source:
 
 ```bash
 go install github.com/operatorstack/pitot/cmd/pitot@latest
 ```
 
-Inspect the effective local boundary at any time:
+Typed SDKs install from our own registry through the distribution front door
+— never public npm/PyPI, pinned to the CLI's version:
+
+```bash
+pitot install typescript   # scoped .npmrc + @operatorstack/pitot@<version>
+pitot install python       # .pitot/registry + operatorstack-pitot==<version>
+```
+
+Inspect the effective local boundary, pin, and cache state at any time:
 
 ```bash
 pitot doctor
