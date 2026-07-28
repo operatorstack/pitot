@@ -25,7 +25,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Create publisher token
+      - name: Create Operator Stack Publisher token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
@@ -109,5 +109,13 @@ jobs:
               --body-file "$body_file")"
             echo "Opened generated PR: $pr_url"
           else
+            pr_url="$existing"
             echo "Updated existing PR: $existing"
           fi
+          required_checks="$(gh api             "repos/operatorstack/pitot/branches/main/protection/required_status_checks"             --jq '(.contexts // []) + ([.checks[]?.context] // []) | unique | length')"
+          if [[ "$required_checks" -lt 1 ]]; then
+            echo "BLOCKED: main has no required status checks; refusing unsafe auto-merge." >&2
+            exit 1
+          fi
+          gh pr merge "$pr_url" --auto --squash
+          echo "Native auto-merge requested; branch protection owns merge eligibility."
