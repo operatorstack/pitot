@@ -50,6 +50,18 @@ func buildPitotBinary(t *testing.T) string {
 	return bin
 }
 
+// writeFragment registers a tenant config fragment under root/.pitot/conf.d.
+func writeFragment(t *testing.T, root, name, body string) {
+	t.Helper()
+	dir := filepath.Join(root, ".pitot", "conf.d")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // devAgentScript writes a POSIX agent stand-in that records the runtime it was
 // handed and its own argv, then drives one allow and one deny decision through
 // the running runtime via `pitot hook kimi`. It stands in for a real coding
@@ -89,9 +101,7 @@ func TestDevRunsAgentBehindShellController(t *testing.T) {
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
-	if err := os.WriteFile(filepath.Join(proj, ".pitot.yaml"), []byte(configBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFragment(t, proj, "shell-policy", configBody)
 	seenDir := t.TempDir()
 	agent := devAgentScript(t, seenDir)
 
@@ -156,9 +166,7 @@ func TestDevRuntimePathsAreUniquePerRun(t *testing.T) {
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
-	if err := os.WriteFile(filepath.Join(proj, ".pitot.yaml"), []byte(configBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFragment(t, proj, "shell-policy", configBody)
 	t.Setenv("PITOT_BIN", pitotBin)
 	t.Setenv("PITOT_RUNTIME", "")
 	t.Chdir(proj)
@@ -189,9 +197,7 @@ func TestDevExecSplitsWhereArgvDoesNot(t *testing.T) {
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
-	if err := os.WriteFile(filepath.Join(proj, ".pitot.yaml"), []byte(configBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFragment(t, proj, "shell-policy", configBody)
 	t.Setenv("PITOT_BIN", pitotBin)
 	t.Setenv("PITOT_RUNTIME", "")
 	t.Chdir(proj)

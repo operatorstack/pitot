@@ -254,16 +254,22 @@ func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			return fmt.Errorf("pitot: unexpected argument %q", args[i])
 		}
 	}
-	if configPath == "" {
-		return errors.New("pitot: run requires --config PATH")
-	}
 	if runtimePath == "" {
 		runtimePath = os.Getenv("PITOT_RUNTIME")
 	}
 	if runtimePath == "" {
 		return errors.New("pitot: run requires --runtime PATH or PITOT_RUNTIME")
 	}
-	loaded, err := config.Load(configPath)
+	var loaded config.Loaded
+	var err error
+	if configPath == "" {
+		loaded, err = config.Discover(".")
+		if errors.Is(err, config.ErrNoConfig) {
+			return errors.New("pitot: no config fragments under .pitot/conf.d (run 'pitot init' to register a controller or consumer, or pass --config PATH)")
+		}
+	} else {
+		loaded, err = config.Load(configPath)
+	}
 	if err != nil {
 		return err
 	}
@@ -300,12 +306,16 @@ func usage() string {
 	return `pitot — the open sensor and control transport for coding-agent tooling
 
 usage:
-  pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--template shell-policy|release-approval|blank-controller|blank-consumer] [--dir PATH] [--force]
+  pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--template shell-policy|release-approval|blank-controller|blank-consumer] [--dir PATH] [--fragment NAME] [--force]
   pitot dev --host HOST -- AGENT [ARGS...]
   pitot doctor [--host HOST]
-  pitot run --config PATH --runtime PATH
+  pitot run [--config PATH] --runtime PATH
   pitot hook HOST [--runtime PATH]
   pitot request KIND [--data JSON] --runtime PATH
+
+configuration is tenant-partitioned: each tool or user registers its processes
+in its own fragment under .pitot/conf.d/; the runtime merges every fragment and
+rejects collisions. --config PATH overrides discovery with one explicit file.
 `
 }
 

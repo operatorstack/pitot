@@ -78,9 +78,7 @@ func TestKimiSmokeRealCLI(t *testing.T) {
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
-	if err := os.WriteFile(filepath.Join(proj, ".pitot.yaml"), []byte(configBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFragment(t, proj, "shell-policy", configBody)
 
 	// A private Kimi home whose config.toml wires the PreToolUse hook to pitot.
 	kimiHome := t.TempDir()

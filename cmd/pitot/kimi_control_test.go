@@ -22,26 +22,44 @@ import (
 func buildGeneratedShellPolicy(t *testing.T) (binPath, configWithBinary string) {
 	t.Helper()
 
-	proj := filepath.Join(t.TempDir(), "shell-policy-proj")
-	var out, errb bytes.Buffer
-	if err := runInit([]string{"--language", "go", "--template", "shell-policy", "--dir", proj}, strings.NewReader(""), &out, &errb); err != nil {
-		t.Fatalf("init shell-policy: %v\n%s", err, errb.String())
-	}
-
-	// The generated config must register the controller under the shell kind.
-	cfg, err := os.ReadFile(filepath.Join(proj, ".pitot.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(cfg), "shell:") || !strings.Contains(string(cfg), "local-shell-policy") {
-		t.Fatalf("generated config does not register the shell-policy controller under shell:\n%s", cfg)
-	}
-
-	// Resolve the in-tree module root (cmd/pitot -> module root) and add a
-	// filesystem replace so the generated project resolves the SDK locally.
+	// Resolve the in-tree module root (cmd/pitot -> module root) before leaving
+	// the package directory, so the generated project can resolve the SDK with
+	// a filesystem replace.
 	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Scaffold inside a scratch repository root so the tenant fragment lands in
+	// a temporary .pitot/conf.d, then restore the caller's working directory.
+	root := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	var out, errb bytes.Buffer
+	if err := runInit([]string{"--language", "go", "--template", "shell-policy", "--dir", "shell-policy-proj"}, strings.NewReader(""), &out, &errb); err != nil {
+		t.Fatalf("init shell-policy: %v\n%s", err, errb.String())
+	}
+	proj := filepath.Join(root, "shell-policy-proj")
+
+	// The generated fragment must register the controller under the shell kind
+	// with the tenant-scoped id (the fragment name).
+	cfg, err := os.ReadFile(filepath.Join(root, ".pitot", "conf.d", "shell-policy-proj.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "shell:") || !strings.Contains(string(cfg), "shell-policy-proj") {
+		t.Fatalf("generated fragment does not register the shell-policy controller under shell:\n%s", cfg)
 	}
 	gomod := filepath.Join(proj, "go.mod")
 	existing, err := os.ReadFile(gomod)
@@ -69,7 +87,7 @@ func buildGeneratedShellPolicy(t *testing.T) (binPath, configWithBinary string) 
 	// per-spawn `go run` compile and any working-directory coupling.
 	configWithBinary = fmt.Sprintf(`controllers:
   shell:
-    id: local-shell-policy
+    id: shell-policy-proj
     command: [%q]
     deadline_ms: 2000
     on_timeout: deny
