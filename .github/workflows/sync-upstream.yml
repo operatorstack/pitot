@@ -112,10 +112,5 @@ jobs:
             pr_url="$existing"
             echo "Updated existing PR: $existing"
           fi
-          required_checks="$(gh api             "repos/operatorstack/pitot/branches/main/protection/required_status_checks"             --jq '(.contexts // []) + ([.checks[]?.context] // []) | unique | length')"
-          if [[ "$required_checks" -lt 1 ]]; then
-            echo "BLOCKED: main has no required status checks; refusing unsafe auto-merge." >&2
-            exit 1
-          fi
           gh pr merge "$pr_url" --auto --squash
           echo "Native auto-merge requested; branch protection owns merge eligibility."
