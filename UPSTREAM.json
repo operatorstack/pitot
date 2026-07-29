@@ -3,7 +3,7 @@
     ".goreleaser.yml": "d375f187624219e9420acd2a40cfae95772ef1fee3abda3e729d6a16ba612032",
     "CONTRIBUTING.md": "23728d8a132d62b8adfb2e5c3eb9d9bfcf8a4d04543765b1e22ad8d55424af8f",
     "LICENSE": "bd17d47aefaa7406616179288058001b6532881a2517254fe668d7e9c4965cfb",
-    "README.md": "74c442eb9d40e3c50e2781166798244698c929dc8b4d7a0257f269040a697233",
+    "README.md": "5788010ce3ba4b7175aab509ff1dc8014f5a4c73ae6e43f07489cdbcedc9e207",
     "adapter-verification.json": "f8ad4e206571650f698826a8b66d8c00822be425e8d2de8ae98d98239e575eb4",
     "adapters/adapters.go": "1b46ba131fa3b2c93eed23526330275a3506451ba4bbd4f497e5378dfab2b6a8",
     "assets/pitot-boundary.png": "8a0ddb7d81831d94e14813f50ea4ca8670d77417f339ed2f91f0c653bf52f41d",
@@ -18,13 +18,13 @@
     "cmd/generate-schema/main.go": "6e9d0030290d99e36967433f96e38385a122974f899ad9421aac1ef7e50d8fcb",
     "cmd/pitot/doctor_host.go": "7ecade40618bfb3510ae8e55fa802361371b4f7fbafedcd61233d19ef46cb219",
     "cmd/pitot/doctor_host_test.go": "4e6e327f6cf27cf94a0a608e10eb6790d6c11fcd53e6dfd7370007190749952f",
-    "cmd/pitot/install.go": "016829971a80544bded2231bc9d08f7d2d9abb2be57299b88b035005061d53d3",
+    "cmd/pitot/install.go": "46cab87809566f8da47c4d71b8a87618d06cb0829bdabe1c8f734faf53a9f46c",
     "cmd/pitot/kimi_control_test.go": "27b38867d4799636a664e3b1726ef55568f5dfd6a9be11f0ce5eca9931d759a4",
     "cmd/pitot/kimi_smoke_test.go": "01cbf18312902cac42ec1f2547d35362c2bc920938acea508ba7c7f0638a9473",
     "cmd/pitot/main.go": "69d1571a56ae1c024fcd697bb406c3aac0f4774d62b41f3444a949ffe6f4c4d4",
     "cmd/pitot/main_test.go": "b381fe30dafe3299c82fe23e1899b64f79c4a2b27059b78823179625e3b6679e",
     "cmd/pitot/shim.go": "a2a605b3126d4be7d3e2a587f09259a5f6e808c3a132480a760661cf34c1796f",
-    "cmd/pitot/substrate_test.go": "016c2fec0d61ffb725efa24fc177c6baaa71c69163fc88dbd914cc615275c03b",
+    "cmd/pitot/substrate_test.go": "b4e7d83aa592f7b5bf4ec059ec552abd62473e51a6634a26428448168898d0a3",
     "cmd/pitot/upgrade.go": "3f7adf156b04f9bac4847ed66c5fa69dc0906f482cb1362f60cbf3416a5733fc",
     "cmd/pitot/version.go": "60ddbabcc8985c5137d5b73e3ba1be0f62fbb9db2a6612027e08314dfd82d618",
     "cmd/pitot/workbench.go": "afbba5557974c1a4fb28ed2097ec8bea4d9bb1fa97cda931c9ebf52daec24915",
@@ -131,7 +131,7 @@
   "generator": "operatorstack/pitot:project",
   "schema_version": 1,
   "source": {
-    "commit": "de7af97b67ed343aeb26875354d0f09a422924a6",
+    "commit": "07c76f27ada2c07a5ae1b0426a121e174ff7763d",
     "path": "labs/15-pitot",
     "repository": "operatorstack/intelligence-flow"
   }
