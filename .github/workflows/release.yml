@@ -1,0 +1,100 @@
+# pitot release — rendered by distribution/render.mjs; hand-install into operatorstack/pitot's
+# .github/workflows/ (control plane can't be projected). Builds prebuilt binaries + bindings and
+# publishes them to GCP Artifact Registry (fronted by get.operatorstack.systems). No GitHub Releases.
+#
+# The AR project/location/repos come from repo VARIABLES (not hardcoded) so the private project id
+# never lands in public source. Set on operatorstack/pitot:
+#   vars: WIF_PROVIDER, DEPLOYER_SA_EMAIL (the pkg-deployer SA),
+#         AR_PROJECT, AR_LOCATION, AR_GENERIC_REPO, AR_NPM_REPO, AR_PYTHON_REPO
+name: release-pitot
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Workload Identity Federation — no keys
+  attestations: write # build provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "stable" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA_EMAIL }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # goreleaser's `sboms` block shells out to syft; install it so the SBOM step succeeds.
+      - name: install syft (SBOM)
+        uses: anchore/sbom-action/download-syft@v0
+
+      # google-github-actions/auth writes gha-creds-*.json into the workspace; exclude it so
+      # goreleaser's clean-tree check does not fail with "git is in a dirty state".
+      - name: keep the tree clean for goreleaser
+        run: echo 'gha-creds-*.json' >> .git/info/exclude
+
+      - name: build binaries + checksums + SBOM
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          # goreleaser's changelog (use: github) calls the compare API even when the GitHub
+          # release is disabled; without a token it 401s. contents:read is enough.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/pitot_*.tar.gz, dist/pitot_*.zip, dist/checksums.txt"
+
+      - name: publish binaries -> Artifact Registry (generic)
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"   # strip the leading v; goreleaser archives are named without it
+          for f in dist/pitot_*.tar.gz dist/pitot_*.zip dist/checksums.txt; do
+            [ -e "$f" ] || continue
+            gcloud artifacts generic upload \
+              --project="${{ vars.AR_PROJECT }}" --location="${{ vars.AR_LOCATION }}" \
+              --repository="${{ vars.AR_GENERIC_REPO }}" \
+              --package=pitot --version="${VER}" --source="$f"
+          done
+
+      # "latest" is resolved by the get-service from the AR version list — no channel manifest
+      # (AR rejects non-semver version ids like "latest").
+
+      - name: publish npm binding (@operatorstack/pitot)
+        working-directory: sdk/typescript
+        run: |
+          set -euo pipefail
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+          gcloud artifacts print-settings npm \
+            --project="${{ vars.AR_PROJECT }}" --location="${{ vars.AR_LOCATION }}" \
+            --repository="${{ vars.AR_NPM_REPO }}" --scope=@operatorstack > .npmrc
+          npx -y google-artifactregistry-auth .npmrc
+          npm publish
+
+      - name: publish python binding (operatorstack-pitot)
+        working-directory: sdk/python
+        run: |
+          set -euo pipefail
+          sed -i "s/^version = .*/version = \"${GITHUB_REF_NAME#v}\"/" pyproject.toml
+          pip install --quiet build twine keyrings.google-artifactregistry-auth
+          python -m build
+          twine upload \
+            --repository-url "https://${{ vars.AR_LOCATION }}-python.pkg.dev/${{ vars.AR_PROJECT }}/${{ vars.AR_PYTHON_REPO }}/" \
+            dist/*
