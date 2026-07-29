@@ -47,8 +47,12 @@ func runUpgrade(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		}
 	}
 
+	root := "."
+	if found, err := config.FindRoot("."); err == nil {
+		root = found
+	}
 	current := "none"
-	if pin, err := hydrate.Pin("."); err == nil {
+	if pin, err := hydrate.Pin(root); err == nil {
 		current = pin
 	}
 	if target == "" {
@@ -79,10 +83,10 @@ func runUpgrade(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return err
 	}
 	// Every tenant must still hold under the new binary before the pin moves.
-	if err := validateTenantsFor(target, slot); err != nil {
+	if err := validateTenantsFor(root, target, slot); err != nil {
 		return err
 	}
-	if err := hydrate.WritePin(".", target); err != nil {
+	if err := hydrate.WritePin(root, target); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "pinned %s -> %s (%s rewritten — commit this diff; every clone hydrates %s on its next invocation)\n", current, target, hydrate.PinPath, target)
@@ -92,8 +96,8 @@ func runUpgrade(ctx context.Context, args []string, stdout, stderr io.Writer) er
 // validateTenantsFor re-checks the tenancy contract against the upgrade
 // target: the merged config must still validate, and every fragment's
 // requires_protocol must be spoken by the new binary.
-func validateTenantsFor(version, slot string) error {
-	if _, err := config.Discover("."); err != nil {
+func validateTenantsFor(root, version, slot string) error {
+	if _, err := config.Discover(root); err != nil {
 		if errors.Is(err, config.ErrNoConfig) {
 			return nil // no tenants registered; nothing to preserve
 		}
@@ -103,7 +107,7 @@ func validateTenantsFor(version, slot string) error {
 	if err != nil {
 		return fmt.Errorf("pitot upgrade: could not determine the protocol of %s: %w", version, err)
 	}
-	floors, err := fragmentProtocolFloors(".")
+	floors, err := fragmentProtocolFloors(root)
 	if err != nil {
 		return err
 	}

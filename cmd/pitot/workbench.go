@@ -48,10 +48,17 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	template := ""
 	dir := "pitot-project"
 	fragment := ""
+	host := ""
 	force := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--host":
+			if i+1 >= len(args) {
+				return errors.New("pitot init: --host requires a host name")
+			}
+			host = args[i+1]
+			i++
 		case "--language":
 			if i+1 >= len(args) {
 				return errors.New("pitot init: --language requires a value (python, typescript, go, rust)")
@@ -87,6 +94,15 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		default:
 			return fmt.Errorf("pitot init: unexpected argument %q", args[i])
 		}
+	}
+
+	// --host wires an agent's hook config; it is a separate arm from project
+	// scaffolding and accepts only --force alongside.
+	if host != "" {
+		if lang != "" || role != "" || template != "" || fragment != "" || dir != "pitot-project" {
+			return errors.New("pitot init: --host wires an agent hook and cannot be combined with scaffold flags (--language/--role/--template/--dir/--fragment)")
+		}
+		return runWireHost(host, force, stdout)
 	}
 
 	if fragment == "" {
@@ -805,13 +821,15 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		programArgs = fields[1:]
 	}
 
-	loaded, err := config.Discover(".")
+	root, err := config.FindRoot(".")
 	if err != nil {
-		if errors.Is(err, config.ErrNoConfig) {
-			return errors.New("pitot dev: no config fragments under .pitot/conf.d. Run 'pitot init' first")
-		}
+		return errors.New("pitot dev: no config fragments under .pitot/conf.d (searched up to the repository boundary). Run 'pitot init' first")
+	}
+	loaded, err := config.Discover(root)
+	if err != nil {
 		return fmt.Errorf("pitot dev: load config: %w", err)
 	}
+	anchorDirs(&loaded.Config, root)
 
 	// Private, per-invocation runtime directory so concurrent runs never collide.
 	runtimeDir, err := os.MkdirTemp("", "pitot-dev-")

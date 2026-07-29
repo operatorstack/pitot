@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/operatorstack/pitot/adapters"
+	"github.com/operatorstack/pitot/config"
+	"github.com/operatorstack/pitot/wiring"
 )
 
 // hostProbe describes what `pitot doctor --host` inspects for a coding agent:
@@ -44,18 +46,28 @@ var hostProbes = map[adapters.Host]hostProbe{
 }
 
 // doctorHost reports whether a host is configured to route its blocking shell
-// boundary to Pitot. It never edits configuration — it only inspects and
-// reports, returning a non-nil error when a blocking issue is found so callers
-// (and CI) get a clear signal.
+// boundary to Pitot. It never edits configuration without an explicit --fix —
+// plain doctor only inspects and reports, returning a non-nil error when a
+// blocking issue is found so callers (and CI) get a clear signal.
 func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 	if !adapters.IsSupported(host) {
 		return fmt.Errorf("pitot doctor: unsupported host %q (want one of: %s)", host, hostList())
 	}
 	fmt.Fprintf(stdout, "Pitot %s — host check: %s\n", adapters.AdapterVersion, host)
 
+	// Repo-wireable hosts report their wiring state against the fragment
+	// witness (drift-is-named-not-silently-fixed).
+	if wiring.Supported(string(host)) {
+		root := "."
+		if found, err := config.FindRoot("."); err == nil {
+			root = found
+		}
+		return printWiringStatus(root, string(host), stdout)
+	}
+
 	probe, known := hostProbes[host]
 	if !known {
-		fmt.Fprintf(stdout, "  host-config inspection is not implemented for %q in this release; run `pitot doctor` for the decoder status\n", host)
+		fmt.Fprintf(stdout, "  host-config inspection is not implemented for %q in this release; run `pitot doctor` for the decoder status, or `pitot init --host %s` for the wiring snippet\n", host, host)
 		return nil
 	}
 

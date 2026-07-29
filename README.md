@@ -400,10 +400,38 @@ decision belongs to your Controller.
 ## Connect your agent
 
 The per-host hooks below wire each agent's native blocking boundary to Pitot.
-This wiring is a one-time edit to each host's own configuration; Pitot does not
-edit your host config for you. Run `pitot doctor --host HOST` to check whether a
-host's hook is correctly configured. Once wired, both `pitot dev` and the manual
-runtime flow use the same hook.
+Hosts whose hook config lives **in the repository** are wired by Pitot itself:
+
+```bash
+pitot init --host claude    # also: cursor, codex, gemini
+```
+
+That writes exactly one marker-owned entry into the host's repo config
+(`.claude/settings.json`, `.cursor/hooks.json`, `.codex/hooks.json`,
+`.gemini/settings.json`), pointing at the repo shim — foreign entries are
+never touched, and the committed fragment `.pitot/hooks/<host>.fragment.json`
+witnesses what was installed. `pitot doctor --host HOST` reports the entry as
+FOUND, MISSING, or DRIFTED against that witness; `pitot doctor --host HOST
+--fix` restores a drifted entry (Pitot's own entries only — that is the single
+mutation doctor ever performs, and only on request).
+
+Hosts configured at **user level** (Kimi, Copilot, Qwen) or via **plugin
+files** (OpenCode, Pi) keep the one-time manual edit below — Pitot does not
+edit files outside the repository; `pitot init --host kimi` prints the exact
+snippet. Once wired, both `pitot dev` and the manual runtime flow use the same
+hook.
+
+### Claude Code / Codex
+
+```bash
+pitot init --host claude
+pitot init --host codex
+```
+
+Both wire a `PreToolUse` hook (matcher `Bash`) whose command runs the repo
+shim: `"$CLAUDE_PROJECT_DIR"/.pitot/bin/pitot hook claude` (Codex uses the
+repo-relative equivalent plus a PowerShell `commandWindows`). Exit `0` allows;
+exit `2` blocks with the Controller's reason.
 
 ### Kimi Code
 
@@ -467,19 +495,27 @@ reason when a Controller rejects the command. See the official
 
 ### Cursor
 
-Copy `integrations/cursor/beforeShellExecution` into the repository and point
-`.cursor/hooks.json` at it with `failClosed: true`. The bridge returns Cursor's
-native `permission: "deny"` envelope, including the Controller message, while
-the runtime remains available through `PITOT_RUNTIME`. See Cursor's
+```bash
+pitot init --host cursor
+```
+
+Writes the committed bridge `.pitot/bin/hooks/cursor-beforeShellExecution`
+(which execs the repo shim and returns Cursor's native `permission: "deny"`
+envelope, including the Controller message) and points `.cursor/hooks.json` at
+it with `failClosed: true`. See Cursor's
 [hooks documentation](https://cursor.com/docs/agent/hooks).
 
 ### Gemini
 
-Copy `integrations/gemini/BeforeTool` to an executable path (or use
-`BeforeTool.ps1` on Windows) and register it as a `BeforeTool` command hook for
-`run_shell_command`. The bridge translates Pitot rejection into Gemini's
-structured `decision: "deny"` and `reason` response so the model receives the
-blocked tool result. See the [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/).
+```bash
+pitot init --host gemini
+```
+
+Writes the committed bridge `.pitot/bin/hooks/gemini-BeforeTool` and registers
+it as a `BeforeTool` command hook for `run_shell_command`. The bridge
+translates Pitot rejection into Gemini's structured `decision: "deny"` and
+`reason` response so the model receives the blocked tool result. See the
+[Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/).
 
 ### Qwen Code
 
