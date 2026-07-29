@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/operatorstack/pitot/config"
 	"github.com/operatorstack/pitot/hydrate"
 )
 
@@ -198,7 +199,11 @@ exit $LASTEXITCODE
 // pin, slot, shim, and pin-vs-running drift.
 func printHydrationStatus(stdout io.Writer) {
 	fmt.Fprintln(stdout, "hydration:")
-	pin, err := hydrate.Pin(".")
+	root := "."
+	if found, err := config.FindRoot("."); err == nil {
+		root = found
+	}
+	pin, err := hydrate.Pin(root)
 	if err != nil {
 		fmt.Fprintf(stdout, "  pin: none (%s absent or invalid)\n", hydrate.PinPath)
 		return

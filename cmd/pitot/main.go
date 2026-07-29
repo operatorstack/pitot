@@ -204,6 +204,7 @@ func runRequest(ctx context.Context, args []string, stdout io.Writer) error {
 
 func doctor(args []string, stdout, stderr io.Writer) error {
 	host := ""
+	fix := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--host":
@@ -212,11 +213,21 @@ func doctor(args []string, stdout, stderr io.Writer) error {
 			}
 			host = args[i+1]
 			i++
+		case "--fix":
+			fix = true
 		default:
 			return fmt.Errorf("pitot doctor: unexpected argument %q", args[i])
 		}
 	}
+	if fix && host == "" {
+		return errors.New("pitot doctor: --fix requires --host")
+	}
 	if host != "" {
+		if fix {
+			// The only mutation doctor ever performs, and only on request:
+			// restore Pitot's own marked entries (foreign config untouched).
+			return runWireHost(host, true, stdout)
+		}
 		return doctorHost(adapters.Host(host), stdout, stderr)
 	}
 
@@ -271,9 +282,13 @@ func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	var loaded config.Loaded
 	var err error
 	if configPath == "" {
-		loaded, err = config.Discover(".")
-		if errors.Is(err, config.ErrNoConfig) {
+		root, rootErr := config.FindRoot(".")
+		if rootErr != nil {
 			return errors.New("pitot: no config fragments under .pitot/conf.d (run 'pitot init' to register a controller or consumer, or pass --config PATH)")
+		}
+		loaded, err = config.Discover(root)
+		if err == nil {
+			anchorDirs(&loaded.Config, root)
 		}
 	} else {
 		loaded, err = config.Load(configPath)
@@ -315,8 +330,9 @@ func usage() string {
 
 usage:
   pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--template shell-policy|release-approval|blank-controller|blank-consumer] [--dir PATH] [--fragment NAME] [--force]
+  pitot init --host HOST [--force]
   pitot dev --host HOST -- AGENT [ARGS...]
-  pitot doctor [--host HOST]
+  pitot doctor [--host HOST] [--fix]
   pitot run [--config PATH] --runtime PATH
   pitot hook HOST [--runtime PATH]
   pitot request KIND [--data JSON] --runtime PATH

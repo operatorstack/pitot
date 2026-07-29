@@ -137,15 +137,18 @@ controllers:
 }
 
 // TestRunDiscoversFragmentsAndHonorsDir proves the tenant model end to end:
-// `pitot run` with no --config merges the .pitot/conf.d fragments in the
-// working directory, a controller from one tenant resolves explicit requests,
-// and a consumer declared with dir: runs in that working directory — its
-// relative receipt path lands inside the tenant's own directory.
+// `pitot run` with no --config discovers the .pitot/conf.d fragments by
+// walking up from a SUBDIRECTORY to the owning root
+// (discovery-walks-up-to-owned-roots-only), a controller from one tenant
+// resolves explicit requests, and a consumer declared with dir: runs in its
+// root-anchored working directory — its relative receipt path lands inside
+// the tenant's own directory regardless of where pitot was invoked.
 func TestRunDiscoversFragmentsAndHonorsDir(t *testing.T) {
 	t.Setenv("PITOT_RUNTIME", "")
 	helper := buildTestRole(t) // build before chdir: it compiles from the package dir
 	runtimePath := filepath.Join(t.TempDir(), "runtime.json")
-	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	t.Chdir(root)
 
 	controllerFragment := fmt.Sprintf(`controllers:
   release.approval:
@@ -175,6 +178,11 @@ func TestRunDiscoversFragmentsAndHonorsDir(t *testing.T) {
 	if err := os.MkdirAll("tenant-b", 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Invoke from a subdirectory: discovery must walk up to the owning root.
+	if err := os.MkdirAll("apps/web", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(root, "apps", "web"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -210,7 +218,7 @@ func TestRunDiscoversFragmentsAndHonorsDir(t *testing.T) {
 	if err := runWithIO(context.Background(), []string{"hook", "claude", "--runtime", runtimePath}, strings.NewReader(payload), &hookOut, &hookErr); err != nil {
 		t.Fatalf("hook err=%v stderr=%s", err, hookErr.String())
 	}
-	receipt := filepath.Join("tenant-b", "receipt.jsonl")
+	receipt := filepath.Join(root, "tenant-b", "receipt.jsonl")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if data, err := os.ReadFile(receipt); err == nil && strings.Contains(string(data), `"type":"action.requested"`) {

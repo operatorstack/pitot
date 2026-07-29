@@ -89,6 +89,33 @@ func Load(path string) (Loaded, error) {
 	return Loaded{Config: cfg, SHA256: hex.EncodeToString(digest[:])}, nil
 }
 
+// FindRoot resolves the Pitot repository root from a starting directory by
+// walking UP to the nearest directory owning .pitot/conf.d. The walk stops
+// at the first .git boundary, at the user's home directory, and at the
+// volume root — and it NEVER descends: a dependency's .pitot (e.g. inside
+// node_modules) is invisible from outside it
+// (discovery-walks-up-to-owned-roots-only).
+func FindRoot(start string) (string, error) {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return "", err
+	}
+	home, _ := os.UserHomeDir()
+	for {
+		if info, statErr := os.Stat(filepath.Join(dir, ".pitot", "conf.d")); statErr == nil && info.IsDir() {
+			return dir, nil
+		}
+		if _, statErr := os.Lstat(filepath.Join(dir, ".git")); statErr == nil {
+			return "", ErrNoConfig // owned boundary reached without a Pitot substrate
+		}
+		parent := filepath.Dir(dir)
+		if dir == home || parent == dir {
+			return "", ErrNoConfig
+		}
+		dir = parent
+	}
+}
+
 // source is one fragment's filename and raw bytes.
 type source struct {
 	name string
