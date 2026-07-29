@@ -1,7 +1,8 @@
 {
   "files": {
-    ".goreleaser.yml": "d4ba852e8c1b8801a562c048b7200ffd9ff74386f72f125f297096846c233bc5",
+    ".goreleaser.yml": "d375f187624219e9420acd2a40cfae95772ef1fee3abda3e729d6a16ba612032",
     "CONTRIBUTING.md": "23728d8a132d62b8adfb2e5c3eb9d9bfcf8a4d04543765b1e22ad8d55424af8f",
+    "LICENSE": "bd17d47aefaa7406616179288058001b6532881a2517254fe668d7e9c4965cfb",
     "README.md": "74c442eb9d40e3c50e2781166798244698c929dc8b4d7a0257f269040a697233",
     "adapter-verification.json": "f8ad4e206571650f698826a8b66d8c00822be425e8d2de8ae98d98239e575eb4",
     "adapters/adapters.go": "1b46ba131fa3b2c93eed23526330275a3506451ba4bbd4f497e5378dfab2b6a8",
@@ -130,7 +131,7 @@
   "generator": "operatorstack/pitot:project",
   "schema_version": 1,
   "source": {
-    "commit": "107c94141e23b7df3449cfa6e7b12a6d45052563",
+    "commit": "12d958e16e464e0ec0f05d9a1cc7ac183fa991ad",
     "path": "labs/15-pitot",
     "repository": "operatorstack/intelligence-flow"
   }

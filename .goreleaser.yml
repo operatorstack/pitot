@@ -47,11 +47,11 @@ archives:
       - goos: windows
         formats:
           - zip
-    # The public repo carries README.md at the root (projected from
-    # public-readme-preview). No LICENSE file exists yet — add it here when one
-    # lands.
+    # README.md and LICENSE live at the public repo root (projected from
+    # public-readme-preview).
     files:
       - README.md
+      - LICENSE
 
 checksum:
   name_template: checksums.txt
