@@ -12,7 +12,7 @@ description = "Pitot: The passive, protocol-first measurement boundary for codin
 authors = [
     { name = "Operator Stack" }
 ]
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 dependencies = []
 

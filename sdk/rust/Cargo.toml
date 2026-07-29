@@ -3,7 +3,7 @@ name = "pitot"
 version = "0.1.0"
 edition = "2021"
 description = "Pitot: The passive, protocol-first measurement boundary for coding agents."
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/operatorstack/pitot"
 
 [lib]
