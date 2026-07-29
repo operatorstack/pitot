@@ -70,7 +70,46 @@ func npmRegistryLine() string {
 	return npmScope + ":registry=" + hydrate.BaseURL() + "/npm/"
 }
 
+// ensureNodeProject creates a minimal private package.json when the directory
+// has none: npm honors a project .npmrc only inside a project, so without
+// this the scoped registry line is silently ignored and the install falls
+// back to public npm with a confusing 404.
+func ensureNodeProject(stdout io.Writer) error {
+	if _, err := os.Stat("package.json"); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	name := strings.ToLower(filepath.Base(cwd))
+	cleaned := make([]rune, 0, len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			cleaned = append(cleaned, r)
+		default:
+			cleaned = append(cleaned, '-')
+		}
+	}
+	name = strings.Trim(string(cleaned), "-._")
+	if name == "" {
+		name = "app"
+	}
+	body := fmt.Sprintf("{\n  \"name\": %q,\n  \"private\": true\n}\n", name)
+	if err := os.WriteFile("package.json", []byte(body), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "created package.json — npm honors the project registry config only inside a project")
+	return nil
+}
+
 func installNPM(stdout io.Writer, configureOnly bool) error {
+	if err := ensureNodeProject(stdout); err != nil {
+		return err
+	}
 	if err := upsertNPMRC(npmRegistryLine()); err != nil {
 		return err
 	}

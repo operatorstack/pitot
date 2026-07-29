@@ -297,6 +297,25 @@ func TestInstallWritesFrontDoorConfigWithExactPins(t *testing.T) {
 	if err := runInstall([]string{"typescript", "--configure-only"}, &out, &out); err != nil {
 		t.Fatal(err)
 	}
+	// npm honors the project .npmrc only inside a project: install must have
+	// created a minimal private package.json in the empty directory.
+	manifest, err := os.ReadFile("package.json")
+	if err != nil {
+		t.Fatalf("install must create package.json in a bare directory: %v", err)
+	}
+	if !strings.Contains(string(manifest), `"private": true`) {
+		t.Fatalf("created package.json must be private:\n%s", manifest)
+	}
+	// An existing package.json is never touched.
+	if err := os.WriteFile("package.json", []byte(`{"name":"mine"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runInstall([]string{"typescript", "--configure-only"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := os.ReadFile("package.json"); string(kept) != `{"name":"mine"}` {
+		t.Fatalf("existing package.json was rewritten:\n%s", kept)
+	}
 	npmrc, err := os.ReadFile(".npmrc")
 	if err != nil {
 		t.Fatal(err)

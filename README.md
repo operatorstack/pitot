@@ -227,6 +227,10 @@ pitot install typescript   # scoped .npmrc + @operatorstack/pitot@<version>
 pitot install python       # .pitot/registry + operatorstack-pitot==<version>
 ```
 
+(`install typescript` creates a minimal private `package.json` when the
+directory has none — npm honors a project registry config only inside a
+project.)
+
 Inspect the effective local boundary, pin, and cache state at any time:
 
 ```bash
