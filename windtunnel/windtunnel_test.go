@@ -38,11 +38,7 @@ var boatstackCanonicalEvents = map[adapters.Host]string{
 }
 
 func TestSensorConsumesBoatstackCanonicalEvents(t *testing.T) {
-	for _, host := range adapters.Supported() {
-		raw := boatstackCanonicalEvents[host]
-		if raw == "" {
-			t.Fatalf("no canonical event registered for host %s", host)
-		}
+	for host, raw := range boatstackCanonicalEvents {
 		// The bytes Pitot's own adapter would emit must match what Boatstack emits.
 		probe, err := adapters.CanonicalHookEvent(host)
 		if err != nil {
@@ -58,6 +54,30 @@ func TestSensorConsumesBoatstackCanonicalEvents(t *testing.T) {
 		if event.Action == nil || event.Action.Kind != "shell" {
 			t.Fatalf("host %s: unexpected action %+v", host, event.Action)
 		}
+	}
+}
+
+func TestSensorConsumesPitotOnlyTransportBoundaries(t *testing.T) {
+	var pitotOnly []adapters.Host
+	for _, host := range adapters.Supported() {
+		if _, sharedWithBoatstack := boatstackCanonicalEvents[host]; sharedWithBoatstack {
+			continue
+		}
+		pitotOnly = append(pitotOnly, host)
+		probe, err := adapters.CanonicalBoundaryEvent(host)
+		if err != nil {
+			t.Fatalf("canonical boundary for %s: %v", host, err)
+		}
+		event, err := sensor.Decode(host, probe, projection.SHA256)
+		if err != nil {
+			t.Fatalf("sensor could not consume %s boundary: %v", host, err)
+		}
+		if event.Action == nil || event.Action.Kind != "shell" || event.Observation.Source != schema.SourceHostEvent {
+			t.Fatalf("host %s: unexpected boundary event %+v", host, event)
+		}
+	}
+	if len(pitotOnly) != 1 || pitotOnly[0] != adapters.Devin {
+		t.Fatalf("unexpected Pitot-only transport inventory: %v", pitotOnly)
 	}
 }
 

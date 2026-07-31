@@ -45,6 +45,8 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runInit(args[1:], stdin, stdout, stderr)
 	case "dev":
 		return runDev(ctx, args[1:], stdout, stderr)
+	case "acp":
+		return runACP(ctx, args[1:], stdout, stderr)
 	case "doctor":
 		return doctor(args[1:], stdout, stderr)
 	case "run":
@@ -76,6 +78,9 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	host := adapters.Host(args[0])
 	if !adapters.IsSupported(host) {
 		return fmt.Errorf("pitot: unsupported hook host %q", host)
+	}
+	if transport, _ := adapters.BoundaryTransport(host); transport == adapters.TransportACP {
+		return fmt.Errorf("pitot: host %q uses ACP, not lifecycle hooks; use `pitot acp devin` or `pitot dev --host devin`", host)
 	}
 	runtimePath, err := parseRuntimeFlag(args[1:], false)
 	if err != nil {
@@ -235,7 +240,7 @@ func doctor(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "binary version: %s (%s)\n", releaseVersion(), buildCommit())
 	fmt.Fprintf(stdout, "adapter version: %s\n", adapters.AdapterVersion)
 	fmt.Fprintln(stdout, "unauthenticated local socket: none")
-	fmt.Fprintln(stdout, "runtime capabilities: hook_control consumer_delivery explicit_request")
+	fmt.Fprintln(stdout, "runtime capabilities: action_control consumer_delivery explicit_request")
 	printHydrationStatus(stdout)
 	fmt.Fprintln(stdout, "hosts:")
 	for _, host := range adapters.Supported() {
@@ -332,6 +337,7 @@ usage:
   pitot init [--language python|typescript|go|rust] [--role consumer|controller] [--template shell-policy|release-approval|blank-controller|blank-consumer] [--dir PATH] [--fragment NAME] [--force]
   pitot init --host HOST [--force]
   pitot dev --host HOST -- AGENT [ARGS...]
+  pitot acp devin --runtime PATH --prompt TEXT [--exec PATH] [--model MODEL] [--agent-type TYPE] [--cwd PATH]
   pitot doctor [--host HOST] [--fix]
   pitot run [--config PATH] --runtime PATH
   pitot hook HOST [--runtime PATH]

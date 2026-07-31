@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-07-31",
+  "cli": {
+    "name": "devin",
+    "version": "3000.3.22",
+    "build": "d5152ff5",
+    "archive_sha256": "eefe1f3c970c06d58b5ec2612ac5b36cd350635e0a2e59eb4d4f5baf43427662",
+    "executable_sha256": "1252ab77359e1cc63c23fda7a88ff7711bab5f853c1ab6d3323cb319b71a60ee"
+  },
+  "transport": {
+    "command": "devin acp",
+    "protocol": "agent-client-protocol",
+    "protocol_version": 1,
+    "sdk": "official Python agent-client-protocol"
+  },
+  "probe": {
+    "tool_call_id": "pitot_acp_deny",
+    "tool": "exec",
+    "command": "touch /tmp/PITOT_ACP_DENY_CANARY",
+    "permission_options_observed": [
+      "allow_once",
+      "allow_session",
+      "allow_always",
+      "allow_always_global",
+      "switch_bypass",
+      "reject_once"
+    ],
+    "selected_option": "reject_once",
+    "canary_absent": true,
+    "rejected_update": {
+      "status": "failed",
+      "rejected": true,
+      "text": "Tool execution was rejected: User rejected this tool call"
+    },
+    "next_main_model_request": {
+      "tool_call_id_observed": true,
+      "rejection_terms_observed": [
+        "reject",
+        "denied",
+        "permission"
+      ]
+    },
+    "final_agent_message": "PITOT_ACP_DENIAL_CONTINUED",
+    "stop_reason": "end_turn"
+  }
+}

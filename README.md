@@ -11,11 +11,11 @@
   <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
 </p>
 
-<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real hook → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
+<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real action boundary → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
 
-<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
+<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · Devin · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
 
-<p align="center"><sub>Supervised runtime capabilities: hook control · Consumer delivery · explicit request</sub></p>
+<p align="center"><sub>Supervised runtime capabilities: action control · Consumer delivery · explicit request</sub></p>
 <!-- pitot-adapter-supervisor:end -->
 
 <p align="center">
@@ -77,6 +77,27 @@ reason — `Pitot sample policy blocked the PITOT_DENY_ME canary.` — is return
 Kimi as the blocked tool result. The `shell-policy` sample is a demonstration
 tripwire, not a general shell-security control; the point is that *your* code
 made the decision.
+
+### Devin uses ACP
+
+Devin exposes the same Pitot control semantics through a stateful ACP boundary,
+so it does not need lifecycle-hook files:
+
+```bash
+pitot doctor --host devin
+pitot dev --host devin -- devin -p "Run: echo hello"
+```
+
+To attach to an already-running Pitot runtime, use the explicit single-prompt
+surface:
+
+```bash
+pitot acp devin --runtime "$PITOT_RUNTIME" --prompt "Run: echo hello"
+```
+
+Pitot selects only ACP's one-shot `allow_once` or `reject_once` options.
+Interactive, resume, and multi-turn Devin sessions are not supported in this
+initial adapter.
 
 ## Why Pitot?
 

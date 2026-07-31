@@ -1,5 +1,5 @@
 // Package adapters declares the coding-agent host boundaries Pitot supports and
-// the host-specific hook shapes it understands.
+// the host-specific event shapes it understands.
 //
 // The host mapping is seeded from the Boatstack safety-hook adapters
 // (labs/12-product-engineering-loop/product-engineering-loop/hooks.go:
@@ -32,18 +32,27 @@ const (
 	Copilot  Host = "copilot"
 	Qwen     Host = "qwen"
 	Pi       Host = "pi"
+	Devin    Host = "devin"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
 // consumers can reason about host-compatibility differences.
 const AdapterVersion = "0.1.0"
 
+// Transport identifies how a host exposes its controllable boundary.
+type Transport string
+
+const (
+	TransportHook Transport = "hook"
+	TransportACP  Transport = "acp"
+)
+
 // ParserConfig handles regular coding/parsing chores, converting raw host fields
 // into normalized action types and command strings.
 type ParserConfig struct {
 	CanonicalEvent []byte
-	EventNameFor   func(raw RawHookEvent) string
-	CommandFor     func(raw RawHookEvent) (string, bool)
+	EventNameFor   func(raw RawBoundaryEvent) string
+	CommandFor     func(raw RawBoundaryEvent) (string, bool)
 	ActionKinds    map[string]string // hook event name -> normalized action kind ("shell", "mcp")
 }
 
@@ -67,11 +76,27 @@ type HostConfig struct {
 	MainEventName string
 	Parser        ParserConfig
 	Partition     ControlPartition
+	Transport     Transport
 }
 
 var (
 	registryMu sync.RWMutex
 	registry   = map[Host]HostConfig{
+		Devin: {
+			MainEventName: "session/request_permission",
+			Transport:     TransportACP,
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"session/request_permission","tool_name":"exec","tool_input":{"command":"git status --short"}}`),
+				CommandFor: func(raw RawHookEvent) (string, bool) {
+					if raw.ToolName != "exec" {
+						return "", false
+					}
+					return toolInputCommand(raw)
+				},
+				ActionKinds: map[string]string{"session/request_permission": "shell"},
+			},
+			Partition: ControlPartition{Controllable: []string{"session/request_permission"}},
+		},
 		Copilot: preToolUseHost(),
 		Qwen: {
 			MainEventName: "PreToolUse",
@@ -259,6 +284,12 @@ func RegisterHost(h Host, config HostConfig) error {
 	if config.Parser.CommandFor == nil {
 		return fmt.Errorf("pitot: host %q must declare a CommandFor extractor", h)
 	}
+	if config.Transport == "" {
+		config.Transport = TransportHook
+	}
+	if config.Transport != TransportHook && config.Transport != TransportACP {
+		return fmt.Errorf("pitot: host %q declares unsupported transport %q", h, config.Transport)
+	}
 
 	// --- Control Laws Verification ---
 	// To safely supervise a host (maintain nonblocking control under K),
@@ -307,8 +338,8 @@ func IsSupported(h Host) bool {
 	return exists
 }
 
-// HookEvents returns the host hook event names Pitot attaches to.
-func HookEvents(h Host) []string {
+// BoundaryEvents returns the host event names Pitot observes or controls.
+func BoundaryEvents(h Host) []string {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
@@ -321,19 +352,25 @@ func HookEvents(h Host) []string {
 	return nil
 }
 
-// HookEventName is the field each host uses to name its hook event.
-func HookEventName(h Host) (string, error) {
+// HookEvents is the compatibility name for BoundaryEvents.
+func HookEvents(h Host) []string { return BoundaryEvents(h) }
+
+// BoundaryEventName is the field each host uses to name its boundary event.
+func BoundaryEventName(h Host) (string, error) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
 	if config, exists := registry[h]; exists {
 		return config.MainEventName, nil
 	}
-	return "", fmt.Errorf("pitot: unsupported hook host %q", h)
+	return "", fmt.Errorf("pitot: unsupported host %q", h)
 }
 
-// CanonicalHookEvent returns a canonical, read-only probe payload for a host.
-func CanonicalHookEvent(h Host) ([]byte, error) {
+// HookEventName is the compatibility name for BoundaryEventName.
+func HookEventName(h Host) (string, error) { return BoundaryEventName(h) }
+
+// CanonicalBoundaryEvent returns a canonical, read-only probe payload for a host.
+func CanonicalBoundaryEvent(h Host) ([]byte, error) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
@@ -342,13 +379,30 @@ func CanonicalHookEvent(h Host) ([]byte, error) {
 		copy(payload, config.Parser.CanonicalEvent)
 		return payload, nil
 	}
-	return nil, fmt.Errorf("pitot: unsupported hook host %q", h)
+	return nil, fmt.Errorf("pitot: unsupported host %q", h)
 }
 
-// RawHookEvent is the union of fields Pitot reads from a host hook payload. The
-// sensor decodes into this shape before normalizing; adapters preserve host
-// capability differences rather than inventing missing fields.
-type RawHookEvent struct {
+// CanonicalHookEvent is the compatibility name for CanonicalBoundaryEvent.
+func CanonicalHookEvent(h Host) ([]byte, error) { return CanonicalBoundaryEvent(h) }
+
+// BoundaryTransport returns the host's controllable transport.
+func BoundaryTransport(h Host) (Transport, error) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	config, exists := registry[h]
+	if !exists {
+		return "", fmt.Errorf("pitot: unsupported host %q", h)
+	}
+	if config.Transport == "" {
+		return TransportHook, nil
+	}
+	return config.Transport, nil
+}
+
+// RawBoundaryEvent is the union of fields Pitot reads from a host-controlled
+// action boundary. Adapters preserve host capability differences rather than
+// inventing missing fields.
+type RawBoundaryEvent struct {
 	// HookEventName is the host's event discriminator.
 	HookEventName string `json:"hook_event_name"`
 	// Command is populated by Cursor's beforeShellExecution.
@@ -358,8 +412,12 @@ type RawHookEvent struct {
 	ToolInput map[string]any `json:"tool_input"`
 }
 
+// RawHookEvent is retained as a source-compatible alias.
+// Deprecated: use RawBoundaryEvent.
+type RawHookEvent = RawBoundaryEvent
+
 // EventNameFor extracts the host-specific event discriminator.
-func (h Host) EventNameFor(raw RawHookEvent) string {
+func (h Host) EventNameFor(raw RawBoundaryEvent) string {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 	if config, exists := registry[h]; exists && config.Parser.EventNameFor != nil {
@@ -371,7 +429,7 @@ func (h Host) EventNameFor(raw RawHookEvent) string {
 // CommandFor extracts the shell command a raw hook event describes, per host
 // shape. It returns ok=false when the host omitted the command entirely, so the
 // sensor can raise a boundary fault instead of manufacturing an empty command.
-func (h Host) CommandFor(raw RawHookEvent) (command string, ok bool) {
+func (h Host) CommandFor(raw RawBoundaryEvent) (command string, ok bool) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
@@ -381,8 +439,8 @@ func (h Host) CommandFor(raw RawHookEvent) (command string, ok bool) {
 	return "", false
 }
 
-// HasHookEvent reports whether the host supports the given hook event name.
-func (h Host) HasHookEvent(name string) bool {
+// HasBoundaryEvent reports whether the host supports the given boundary event.
+func (h Host) HasBoundaryEvent(name string) bool {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
@@ -401,13 +459,17 @@ func (h Host) HasHookEvent(name string) bool {
 	return false
 }
 
-// ActionKind returns the normalized action kind (e.g., "shell", "mcp") for a given hook event name.
-func (h Host) ActionKind(hookEventName string) string {
+// HasHookEvent is retained as a source-compatible alias.
+// Deprecated: use HasBoundaryEvent.
+func (h Host) HasHookEvent(name string) bool { return h.HasBoundaryEvent(name) }
+
+// ActionKind returns the normalized action kind for a boundary event.
+func (h Host) ActionKind(boundaryEventName string) string {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
 	if config, exists := registry[h]; exists {
-		if kind, ok := config.Parser.ActionKinds[hookEventName]; ok {
+		if kind, ok := config.Parser.ActionKinds[boundaryEventName]; ok {
 			return kind
 		}
 	}

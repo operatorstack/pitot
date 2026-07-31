@@ -104,6 +104,7 @@ func runWireHost(host string, force bool, stdout io.Writer) error {
 // documented wiring instead of editing $HOME.
 func printWiringGuidance(host string, stdout io.Writer) error {
 	guidance := map[string]string{
+		"devin":    "no hook configuration is required. Run:\n\n  pitot dev --host devin -- devin -p \"<prompt>\"\n\nFor a separately managed runtime, use:\n\n  pitot acp devin --runtime \"$PITOT_RUNTIME\" --prompt \"<prompt>\"",
 		"kimi":     "add to ~/.kimi-code/config.toml (or $KIMI_CODE_HOME/config.toml):\n\n  [[hooks]]\n  event = \"PreToolUse\"\n  matcher = \"Bash\"\n  command = \"pitot hook kimi\"",
 		"qwen":     "add to ~/.qwen/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"^Bash$\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/qwen/PreToolUse>\"}]}",
 		"copilot":  "add to ~/.copilot/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"Bash\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/copilot/PreToolUse>\"}]}",
@@ -112,9 +113,13 @@ func printWiringGuidance(host string, stdout io.Writer) error {
 	}
 	text, known := guidance[host]
 	if !known {
-		return fmt.Errorf("pitot init: unsupported host %q (want one of: %s, or a guidance-only host: kimi, qwen, copilot, opencode, pi)", host, joinSorted(wiring.RepoHosts()))
+		return fmt.Errorf("pitot init: unsupported host %q (want one of: %s, or a guidance-only host: devin, kimi, qwen, copilot, opencode, pi)", host, joinSorted(wiring.RepoHosts()))
 	}
-	fmt.Fprintf(stdout, "%s is configured at user level; Pitot does not edit files outside the repository.\n", host)
+	if host == "devin" {
+		fmt.Fprintln(stdout, "devin uses a stateful ACP boundary; Pitot does not create lifecycle-hook configuration.")
+	} else {
+		fmt.Fprintf(stdout, "%s is configured at user level; Pitot does not edit files outside the repository.\n", host)
+	}
 	fmt.Fprintf(stdout, "To wire it, %s\n\nThen verify: pitot doctor --host %s\n", text, host)
 	return nil
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real released-agent prompt-to-hook E2E. Direct hook invocation is forbidden.
+# Real released-agent prompt-to-boundary E2E. Direct boundary invocation is forbidden.
 set -euo pipefail
 
 HOST="${1:-}"

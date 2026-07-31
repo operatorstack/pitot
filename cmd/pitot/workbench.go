@@ -14,6 +14,7 @@ import (
 
 	"github.com/operatorstack/pitot/adapters"
 	"github.com/operatorstack/pitot/config"
+	"github.com/operatorstack/pitot/internal/devinacp"
 	"github.com/operatorstack/pitot/runtime"
 )
 
@@ -820,6 +821,14 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		program = fields[0]
 		programArgs = fields[1:]
 	}
+	var devinOptions *devinacp.Options
+	if adapters.Host(host) == adapters.Devin {
+		options, optionsErr := devinOptionsFromAgent(program, programArgs, "", stdout, stderr)
+		if optionsErr != nil {
+			return optionsErr
+		}
+		devinOptions = &options
+	}
 
 	root, err := config.FindRoot(".")
 	if err != nil {
@@ -876,13 +885,18 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	fmt.Fprintf(stdout, "Runtime ready. Starting agent: %s %s\n", program, strings.Join(programArgs, " "))
 	fmt.Fprintln(stdout, "Decisions:")
 
-	cmd := exec.CommandContext(devCtx, program, programArgs...)
-	cmd.Env = append(os.Environ(), "PITOT_RUNTIME="+runtimePath)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Stdin = os.Stdin
-
-	runErr := cmd.Run()
+	var runErr error
+	if devinOptions != nil {
+		devinOptions.Runtime = runtimePath
+		runErr = runDevinACP(devCtx, *devinOptions)
+	} else {
+		cmd := exec.CommandContext(devCtx, program, programArgs...)
+		cmd.Env = append(os.Environ(), "PITOT_RUNTIME="+runtimePath)
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		cmd.Stdin = os.Stdin
+		runErr = cmd.Run()
+	}
 
 	// Stop the runtime and reap its goroutine before returning.
 	cancel()

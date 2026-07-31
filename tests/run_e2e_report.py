@@ -16,6 +16,7 @@ LAB = Path(__file__).resolve().parent.parent
 ROOT = LAB.parents[1] if LAB.name == "15-pitot" else LAB
 MANIFEST = json.loads((LAB / "adapter-verification.json").read_text(encoding="utf-8"))
 AGENTS = {agent["id"] for agent in MANIFEST["agents"]}
+AGENT_RECORDS = {agent["id"]: agent for agent in MANIFEST["agents"]}
 PLATFORMS = {platform["id"] for platform in MANIFEST["platforms"]}
 RESULT_PATTERN = re.compile(r"^PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated$", re.MULTILINE)
 RUNTIME_RESULT_PATTERN = re.compile(r"^PITOT_RUNTIME_E2E_RESULT capability=explicit_request evidence=nonce-correlated$", re.MULTILINE)
@@ -25,7 +26,7 @@ def load_evidence(path: Path | None, *, agent: str) -> dict[str, object] | None:
     if path is None or not path.is_file():
         return None
     value = json.loads(path.read_text(encoding="utf-8"))
-    required = {"schema_version", "agent", "cli", "prompt_hash", "protocol", "endpoint", "nonce", "receipts", "runtime", "hooks", "controller", "consumer", "canary"}
+    required = {"schema_version", "agent", "cli", "prompt_hash", "protocol", "endpoint", "nonce", "receipts", "runtime", "boundaries", "controller", "consumer", "canary"}
     if not isinstance(value, dict) or set(value) != required or value["schema_version"] != 2 or value["agent"] != agent:
         return None
     receipts = value.get("receipts")
@@ -42,8 +43,9 @@ def load_evidence(path: Path | None, *, agent: str) -> dict[str, object] | None:
     nonce = value.get("nonce")
     if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
         return None
-    hooks = value.get("hooks")
-    if not isinstance(hooks, list) or len(hooks) != 2 or [item.get("pitot_exit") for item in hooks] != [0, 2] or any(item.get("action_kind") != "shell" or item.get("host") != agent or item.get("nonce") != nonce for item in hooks):
+    boundaries = value.get("boundaries")
+    expected_transport = "acp" if AGENT_RECORDS[agent]["integration"] == "acp_client" else "hook"
+    if not isinstance(boundaries, list) or len(boundaries) != 2 or [item.get("decision") for item in boundaries] != ["allow", "deny"] or any(item.get("action_kind") != "shell" or item.get("host") != agent or item.get("nonce") != nonce or item.get("transport") != expected_transport for item in boundaries):
         return None
     endpoint = value.get("endpoint", {})
     endpoint_required = {"fixture", "fixture_sha256", "provenance", "dialect", "request", "response", "executable_sha256"}
@@ -81,7 +83,7 @@ def result_for(agent: str, platform: str, returncode: int, output: str, evidence
     markers = RESULT_PATTERN.findall(output)
     receipt = load_evidence(evidence_path, agent=agent)
     passed = returncode == 0 and len(markers) == 1 and receipt is not None
-    evidence = "binary-observed request, real hook control, projected Consumer, allow/deny canary, and final receipts" if passed else "real-agent control evidence contract failed"
+    evidence = "binary-observed request, real action control, projected Consumer, allow/deny canary, and final receipts" if passed else "real-agent control evidence contract failed"
 
     return {
         "schema_version": 2,
@@ -97,7 +99,7 @@ def result_for(agent: str, platform: str, returncode: int, output: str, evidence
         "nonce": receipt["nonce"] if passed else None,
         "receipts": receipt["receipts"] if passed else None,
         "runtime": receipt["runtime"] if passed else None,
-        "hooks": receipt["hooks"] if passed else None,
+        "boundaries": receipt["boundaries"] if passed else None,
         "controller": receipt["controller"] if passed else None,
         "consumer": receipt["consumer"] if passed else None,
         "canary": receipt["canary"] if passed else None,
