@@ -58,10 +58,14 @@ type client struct {
 	stdin    io.WriteCloser
 	scanner  *bufio.Scanner
 	stdout   io.Writer
+	stderr   io.Writer
 	deliver  DeliverFunc
 	commands map[string]string
 	nextID   int
 	writeMu  sync.Mutex
+	// metaAbsenceReported dedupes the once-per-session diagnostic for
+	// tool_call updates missing the vendor _meta tool name.
+	metaAbsenceReported bool
 }
 
 // Run launches Devin as an ACP subprocess and completes one prompt turn.
@@ -126,6 +130,7 @@ func Run(ctx context.Context, options Options) error {
 		stdin:    stdin,
 		scanner:  scanner,
 		stdout:   options.Stdout,
+		stderr:   options.Stderr,
 		deliver:  deliver,
 		commands: map[string]string{},
 	}
@@ -278,6 +283,13 @@ func (c *client) handleUpdate(raw json.RawMessage) error {
 		tool, _ := params.Update.Meta["cognition.ai/inferenceToolName"].(string)
 		if params.SessionID != "" && params.Update.ToolCallID != "" && tool == "exec" && command != "" {
 			c.commands[commandKey(params.SessionID, params.Update.ToolCallID)] = command
+		} else if tool == "" && command != "" && !c.metaAbsenceReported {
+			// Fail-closed fallbacks must be observable: without the vendor
+			// _meta tool name no command is ever cached, so every permission
+			// request will be rejected. Name protocol drift once so it is
+			// not mistaken for Controller policy.
+			c.metaAbsenceReported = true
+			fmt.Fprintln(c.stderr, "pitot acp: tool_call update lacks _meta cognition.ai/inferenceToolName; commands cannot be attributed and permissions will be rejected (fail-closed)")
 		}
 	case "agent_message_chunk":
 		var content struct {

@@ -87,11 +87,18 @@ def main() -> int:
         "auxiliary_requests": 0,
     }
 
+    receipt_lock = threading.Lock()
+
     def save() -> None:
-        args.receipt.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.receipt.with_suffix(".tmp")
-        temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temporary.replace(args.receipt)
+        # Handlers run on concurrent threads (one per connection). The receipt
+        # mutation and the tmp-file replace must be atomic as a unit: a shared
+        # tmp name raced by two handlers throws, killing the connection —
+        # which a bursting Devin client observes as "error sending request".
+        with receipt_lock:
+            args.receipt.parent.mkdir(parents=True, exist_ok=True)
+            temporary = args.receipt.with_suffix(f".{threading.get_ident()}.tmp")
+            temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            temporary.replace(args.receipt)
 
     class Handler(BaseHTTPRequestHandler):
         # Devin's HTTP client pools connections. Under the default HTTP/1.0

@@ -37,6 +37,12 @@ type Config struct {
 	RequiresProtocol string                      `yaml:"requires_protocol,omitempty"`
 	Consumers        []ConsumerConfig            `yaml:"consumers,omitempty"`
 	Controllers      map[string]ControllerConfig `yaml:"controllers,omitempty"`
+	// RequireController converts silent observation-only degradation into a
+	// fault: an action kind delivered without a registered Controller is
+	// blocked instead of allowed. Additive and off by default — plain
+	// observation-only operation is unchanged. Any fragment declaring it
+	// makes the merged config strict.
+	RequireController bool `yaml:"require_controller,omitempty"`
 }
 
 // ConsumerConfig declares a passive JSON-Lines event sink.
@@ -209,6 +215,9 @@ func mergeSources(sources []source) (Loaded, error) {
 		}
 		if len(fragment.Consumers) == 0 && len(fragment.Controllers) == 0 {
 			return Loaded{}, fmt.Errorf("pitot: fragment %q declares no consumers or controllers", rel)
+		}
+		if fragment.RequireController {
+			merged.RequireController = true
 		}
 		if fragment.RequiresProtocol != "" && fragment.RequiresProtocol != schema.Version {
 			return Loaded{}, fmt.Errorf("pitot: fragment %q requires protocol %q but this pitot speaks protocol %q", rel, fragment.RequiresProtocol, schema.Version)

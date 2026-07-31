@@ -34,13 +34,20 @@ type Decision struct {
 
 // Manager starts configured role processes and exposes their shared delivery path.
 type Manager struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	stderr      io.Writer
-	controllers map[string]*controllerWorker
-	consumers   []*consumerWorker
-	observer    func(Decision)
+	ctx               context.Context
+	cancel            context.CancelFunc
+	stderr            io.Writer
+	controllers       map[string]*controllerWorker
+	consumers         []*consumerWorker
+	observer          func(Decision)
+	requireController bool
+	observedKindsMu   sync.Mutex
+	observedKinds     map[string]struct{}
 }
+
+// ErrControllerRequired reports a kind delivered without a registered
+// Controller while require_controller (or --strict) is active.
+var ErrControllerRequired = errors.New("pitot: no controller registered for this action kind and require_controller is active")
 
 // SetDecisionObserver registers a callback invoked for every resolved controller
 // decision. It is optional; a nil observer disables receipts. Not safe to change
@@ -66,10 +73,12 @@ func (m *Manager) reportDecision(kind string, response *schema.ControlResponse) 
 func Start(parent context.Context, cfg config.Config, stderr io.Writer) (*Manager, error) {
 	ctx, cancel := context.WithCancel(parent)
 	manager := &Manager{
-		ctx:         ctx,
-		cancel:      cancel,
-		stderr:      stderr,
-		controllers: map[string]*controllerWorker{},
+		ctx:               ctx,
+		cancel:            cancel,
+		stderr:            stderr,
+		controllers:       map[string]*controllerWorker{},
+		requireController: cfg.RequireController,
+		observedKinds:     map[string]struct{}{},
 	}
 	for _, kind := range sortedKinds(cfg.Controllers) {
 		declared := cfg.Controllers[kind]
@@ -126,6 +135,17 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 	}
 	worker, exists := m.controllers[event.Action.Kind]
 	if !exists {
+		if m.requireController {
+			return nil, fmt.Errorf("%w (kind %q)", ErrControllerRequired, event.Action.Kind)
+		}
+		// Observation-only is a feature; silence about it is not. Name the
+		// degradation once per kind on the operator's channel.
+		m.observedKindsMu.Lock()
+		if _, seen := m.observedKinds[event.Action.Kind]; !seen {
+			m.observedKinds[event.Action.Kind] = struct{}{}
+			fmt.Fprintf(m.stderr, "pitot: kind %q has no controller; observation-only (set require_controller: true or run with --strict to fault instead)\n", event.Action.Kind)
+		}
+		m.observedKindsMu.Unlock()
 		return nil, nil
 	}
 	data, err := json.Marshal(event)

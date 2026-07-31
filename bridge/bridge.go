@@ -47,16 +47,36 @@ func (r Registration) validate() error {
 	return nil
 }
 
+// resolvedWindow bounds the duplicate-detection memory: the Router remembers
+// the most recent resolvedWindow resolved action IDs. Action IDs are 16
+// crypto-random bytes minted per action, so a duplicate arriving after 4096
+// newer actions is not a realistic correlation hazard, and the bound keeps
+// long-lived runtimes at constant memory.
+const resolvedWindow = 4096
+
 // Router holds at most one Controller registration per request kind.
 type Router struct {
 	registrations map[string]Registration
 	resolved      map[string]struct{}
+	resolvedOrder []string
 	mu            sync.Mutex
 }
 
 // NewRouter returns an empty Router.
 func NewRouter() *Router {
 	return &Router{registrations: map[string]Registration{}, resolved: map[string]struct{}{}}
+}
+
+// markResolved records actionID in the bounded duplicate-detection window.
+// Callers must hold r.mu.
+func (r *Router) markResolved(actionID string) {
+	r.resolved[actionID] = struct{}{}
+	r.resolvedOrder = append(r.resolvedOrder, actionID)
+	if len(r.resolvedOrder) > resolvedWindow {
+		evict := r.resolvedOrder[0]
+		r.resolvedOrder = r.resolvedOrder[1:]
+		delete(r.resolved, evict)
+	}
 }
 
 // Register records reg, enforcing the exactly-one-Controller-per-kind rule.
@@ -119,7 +139,7 @@ func (r *Router) Resolve(req schema.ControlRequested, candidate *schema.ControlR
 	if !ok {
 		return schema.ControlResponse{}, ErrNoController
 	}
-	r.resolved[req.ActionID] = struct{}{}
+	r.markResolved(req.ActionID)
 	if candidate == nil {
 		return r.defaultResponse(reg, req, reg.OnUnavailable), nil
 	}
@@ -153,7 +173,7 @@ func (r *Router) TimeoutResponse(req schema.ControlRequested) (schema.ControlRes
 	if !ok {
 		return schema.ControlResponse{}, ErrNoController
 	}
-	r.resolved[req.ActionID] = struct{}{}
+	r.markResolved(req.ActionID)
 	return r.defaultResponse(reg, req, reg.OnTimeout), nil
 }
 

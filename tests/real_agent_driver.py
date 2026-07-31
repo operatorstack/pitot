@@ -360,6 +360,13 @@ def validate_receipts(
     if agent["integration"] == "acp_client":
         if witnesses:
             raise RuntimeError("ACP control unexpectedly entered the lifecycle-hook witness path")
+        # Observed baseline is ~10 auxiliary (non-chat) requests per session;
+        # an unexplained surge means the proxy is answering traffic the
+        # trajectory never accounted for. Test-side ceiling only: the proxy
+        # itself stays permissive so a chattier Devin build cannot black-hole.
+        auxiliary = int(proxy.get("auxiliary_requests", 0))
+        if auxiliary > 100:
+            raise RuntimeError(f"devin proxy answered {auxiliary} auxiliary requests; ceiling is 100")
     else:
         if len(witnesses) != 2:
             raise RuntimeError("Pitot witness receipts do not identify exactly two hook actions")
