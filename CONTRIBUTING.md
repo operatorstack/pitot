@@ -12,6 +12,32 @@ Before proposing an adapter or protocol change:
 5. prove passive Consumers cannot reach the response channel; and
 6. document any change to request correlation or timeout behavior.
 
+## Adding a host adapter
+
+A new host is admissible only if its blocking boundary can complete Pitot's
+causal loop: a proposed command reaches a Controller, allow/deny applies before
+execution, and a denied action returns to the model so the agent continues. If
+the host can only abort on denial, it is not yet supervisable — say so in the
+research note and stop there (see `docs/devin-adapter-research.md` for a worked
+rejection-then-acceptance across two of the same host's surfaces).
+
+Adapters come in two transport classes:
+
+- **One-shot hook** (Claude, Codex, Cursor, Copilot, Gemini, Kimi, OpenCode,
+  Pi, Qwen): the host invokes `pitot hook HOST` at a synchronous pre-execution
+  boundary, Pitot answers by exit code or a native block envelope, and the
+  process ends. Add a decoder that normalizes the host payload to a `shell`
+  action and an encoder for the host's native deny shape.
+- **Stateful transport** (Devin, over ACP): Pitot launches and drives a
+  long-lived host process, correlates each command to a permission request, and
+  maps allow/deny onto the host's typed one-shot permission options. Never
+  select persistent or bypass options.
+
+Either way: add positive and negative conformance fixtures, prove passive
+Consumers cannot reach the response channel, and register the adapter in the
+supervised inventory so it joins the cross-platform E2E matrix (each adapter is
+verified allow-and-deny on Ubuntu, macOS, and Windows before it ships).
+
 ## Development
 
 The reference implementation is a Go module (`go 1.26`). From the repository

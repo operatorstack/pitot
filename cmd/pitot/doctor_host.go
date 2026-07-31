@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -69,12 +71,15 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 		if found, err := config.FindRoot("."); err == nil {
 			root = found
 		}
-		return printWiringStatus(root, string(host), stdout)
+		err := printWiringStatus(root, string(host), stdout)
+		doctorCommonNotes(host, stdout)
+		return err
 	}
 
 	probe, known := hostProbes[host]
 	if !known {
 		fmt.Fprintf(stdout, "  host-config inspection is not implemented for %q in this release; run `pitot doctor` for the decoder status, or `pitot init --host %s` for the wiring snippet\n", host, host)
+		doctorCommonNotes(host, stdout)
 		return nil
 	}
 
@@ -139,12 +144,53 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 
 	// Kimi's PreToolUse hook is fail-open on crash/timeout per host semantics.
 	fmt.Fprintf(stdout, "  note: %s hooks are fail-open on hook crash or timeout per host semantics; this sample controller is not a security sandbox\n", host)
+	doctorCommonNotes(host, stdout)
 
 	if len(problems) > 0 {
 		return fmt.Errorf("pitot doctor: %s host check found %d issue(s): %s", host, len(problems), strings.Join(problems, "; "))
 	}
 	fmt.Fprintf(stdout, "  ready: %s can route its shell boundary to Pitot\n", host)
 	return nil
+}
+
+// doctorCommonNotes surfaces the two silent degradations every wired host is
+// exposed to: hooks without a selected runtime observe instead of supervise,
+// and user-level wrappers resolve `pitot` from PATH, which can drift from the
+// binary the operator reviewed. Notes never fail the check; they name the
+// state so the operator can decide.
+func doctorCommonNotes(host adapters.Host, stdout io.Writer) {
+	if os.Getenv("PITOT_RUNTIME") == "" {
+		fmt.Fprintln(stdout, "  note: PITOT_RUNTIME is not set in this shell; hooks run observe-only until a runtime is selected (`pitot run` / `pitot dev`), and `pitot run --strict` or `require_controller: true` faults instead of allowing")
+	}
+	if wiring.Supported(string(host)) {
+		return // repo-wired hosts pin .pitot/bin/pitot; PATH is not consulted
+	}
+	self, selfErr := os.Executable()
+	onPath, pathErr := doctorLookPath("pitot")
+	if selfErr != nil || pathErr != nil {
+		return
+	}
+	selfSum, err1 := fileSHA256(self)
+	pathSum, err2 := fileSHA256(onPath)
+	if err1 != nil || err2 != nil {
+		return
+	}
+	if selfSum != pathSum {
+		fmt.Fprintf(stdout, "  warning: `pitot` on PATH (%s) is a different binary than this one (%s); user-level %s wrappers resolve ${PITOT_BIN:-pitot} from PATH, so the drifted binary would do the supervising\n", onPath, self, host)
+	}
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func doctorDevin(stdout, stderr io.Writer) error {

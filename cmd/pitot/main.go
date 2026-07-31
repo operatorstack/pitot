@@ -116,6 +116,9 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		return fmt.Errorf("pitot: emit normalized event: %w", err)
 	}
 	if runtimePath == "" {
+		// Observation-only is a feature; silence about it is not (Locus
+		// root-cause: silent-mode-degradation). Exit 0 is preserved.
+		fmt.Fprintln(stderr, "pitot: observe-only (no --runtime/PITOT_RUNTIME); this action is recorded, not supervised")
 		return nil
 	}
 	client, err := runtime.OpenClient(runtimePath)
@@ -128,7 +131,17 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		fmt.Fprintln(stderr, err)
 		return errBlocked
 	}
-	if response == nil || response.Outcome == schema.OutcomeAllow {
+	if response == nil {
+		return nil
+	}
+	if response.Outcome == schema.OutcomeAllow {
+		if response.ActionID != actionID {
+			// An allow that does not correlate to this action is not an
+			// allow for this action (same nonce binding the ACP client
+			// enforces before selecting allow_once).
+			fmt.Fprintln(stderr, "pitot: invalid controller resolution")
+			return errBlocked
+		}
 		return nil
 	}
 	if response.Outcome != schema.OutcomeDeny || response.ActionID != actionID {
@@ -260,6 +273,7 @@ func doctor(args []string, stdout, stderr io.Writer) error {
 func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	configPath := ""
 	runtimePath := ""
+	strict := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
@@ -274,6 +288,8 @@ func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			}
 			runtimePath = args[i+1]
 			i++
+		case "--strict":
+			strict = true
 		default:
 			return fmt.Errorf("pitot: unexpected argument %q", args[i])
 		}
@@ -300,6 +316,9 @@ func runRuntime(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	if err != nil {
 		return err
+	}
+	if strict {
+		loaded.Config.RequireController = true
 	}
 	manager, err := runtime.Start(ctx, loaded.Config, stderr)
 	if err != nil {
@@ -339,7 +358,7 @@ usage:
   pitot dev --host HOST -- AGENT [ARGS...]
   pitot acp devin --runtime PATH --prompt TEXT [--exec PATH] [--model MODEL] [--agent-type TYPE] [--cwd PATH]
   pitot doctor [--host HOST] [--fix]
-  pitot run [--config PATH] --runtime PATH
+  pitot run [--config PATH] [--strict] --runtime PATH
   pitot hook HOST [--runtime PATH]
   pitot request KIND [--data JSON] --runtime PATH
   pitot version

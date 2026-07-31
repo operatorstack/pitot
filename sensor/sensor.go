@@ -67,6 +67,13 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonEmptyCommand}
 	}
 
+	kind := host.ActionKind(eventName)
+	if kind == "" {
+		// No registered kind for this boundary event: a malformed boundary,
+		// never a silently-defaulted shell action.
+		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
+	}
+
 	content, err := projection.Apply(mode, []byte(command))
 	if err != nil {
 		return schema.Event{}, err
@@ -83,7 +90,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 			Name:           string(host),
 			AdapterVersion: adapters.AdapterVersion,
 		},
-		Action:  &schema.Action{Kind: host.ActionKind(eventName)},
+		Action:  &schema.Action{Kind: kind},
 		Content: &content,
 		Observation: schema.Observation{
 			Source:   source,

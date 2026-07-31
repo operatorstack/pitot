@@ -304,9 +304,10 @@ Agent finished. Runtime stopped.
 ```
 
 `--host` must name a supported agent (`claude`, `codex`, `copilot`, `cursor`,
-`gemini`, `kimi`, `opencode`, `pi`, `qwen`), and that agent's host hook must
+`devin`, `gemini`, `kimi`, `opencode`, `pi`, `qwen`). Hook-based hosts must
 already be wired to `pitot hook HOST` (see **Connect your agent** and
-`pitot doctor --host HOST`). The runtime descriptor lives in a per-invocation
+`pitot doctor --host HOST`); Devin connects over ACP and needs no hook file.
+The runtime descriptor lives in a per-invocation
 temporary path and is removed on exit, so concurrent `pitot dev` sessions never
 collide.
 
@@ -398,25 +399,47 @@ pitot run --runtime $env:PITOT_RUNTIME
 
 Every host below normalizes its native blocking boundary to a `shell` action and
 passes Pitot's language-neutral decoder conformance suite. The E2E column marks
-adapters exercised by the cross-platform agent supervisor (the badge at the top)
-on Ubuntu, macOS, and Windows. Kimi additionally has an in-repo, no-model test
-that asserts the full allow **and** deny control path end to end.
+adapters exercised by the cross-platform agent supervisor (the badge at the top);
+the Platforms column names the operating systems each one is verified on. Kimi
+additionally has an in-repo, no-model test that asserts the full allow **and**
+deny control path end to end.
 
-| Host | Blocking boundary | Hook wiring | Verified in this repo |
-|---|---|---|---|
-| Kimi Code | `PreToolUse` / Bash | native `config.toml` | decoder + E2E + allow/deny control test |
-| Claude | `PreToolUse` | native settings hook | decoder + E2E |
-| Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | decoder + E2E |
-| Codex | `PreToolUse` | bridge (`integrations/codex`) | decoder + E2E |
-| GitHub Copilot CLI | `PreToolUse` | bridge (`integrations/copilot`) | decoder + E2E |
-| Gemini | `BeforeTool` | bridge (`integrations/gemini`) | decoder + E2E |
-| OpenCode | `PreToolUse` | bridge (`integrations/opencode`) | decoder + E2E |
-| Pi | `tool_call` | extension (`integrations/pi`) | decoder + E2E |
-| Qwen Code | `PreToolUse` | bridge (`integrations/qwen`) | decoder + E2E |
+| Host | Blocking boundary | Hook wiring | Platforms | Verified in this repo |
+|---|---|---|---|---|
+| Kimi Code | `PreToolUse` / Bash | native `config.toml` | Ubuntu · macOS · Windows | decoder + E2E + allow/deny control test |
+| Claude | `PreToolUse` | native settings hook | Ubuntu · macOS · Windows | decoder + E2E |
+| Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | Ubuntu · macOS · Windows (WSL) | decoder + E2E |
+| Codex | `PreToolUse` | bridge (`integrations/codex`) | Ubuntu · macOS · Windows | decoder + E2E |
+| Devin | `session/request_permission` (ACP) | stateful ACP transport | Ubuntu · macOS · Windows | decoder + E2E |
+| GitHub Copilot CLI | `PreToolUse` | bridge (`integrations/copilot`) | Ubuntu · macOS · Windows | decoder + E2E |
+| Gemini | `BeforeTool` | bridge (`integrations/gemini`) | Ubuntu · macOS · Windows | decoder + E2E |
+| OpenCode | `PreToolUse` | bridge (`integrations/opencode`) | Ubuntu · macOS · Windows | decoder + E2E |
+| Pi | `tool_call` | extension (`integrations/pi`) | Ubuntu · macOS · Windows | decoder + E2E |
+| Qwen Code | `PreToolUse` | bridge (`integrations/qwen`) | Ubuntu · macOS · Windows | decoder + E2E |
 
 "Decoder" means Pitot correctly normalizes that host's payload into the stable
 event envelope. It does not claim Pitot judges whether any command is safe — that
-decision belongs to your Controller.
+decision belongs to your Controller. On Windows, Cursor runs under WSL; every
+other host runs natively.
+
+## Host admission criteria
+
+A host earns a supervised adapter only when its blocking boundary can complete
+Pitot's causal loop: a proposed command must reach a Controller, an allow or
+deny decision must apply **before** the command runs, and — critically — a
+denied action must return to the model so the agent can continue from the
+blocked outcome rather than halting. This last requirement, deny-continuation,
+is what distinguishes a supervisable boundary from one that can only abort.
+
+Devin is the worked example. Its lifecycle hooks (`PreToolUse`,
+`PermissionRequest`) apply a denial but end the turn instead of handing the
+rejected outcome back to the model, so they do not complete the loop in
+non-interactive mode. Its Agent Client Protocol surface does: the client
+selects `reject_once`, the canary never executes, and Devin makes a follow-up
+model request carrying the rejection and continues. Pitot therefore ships Devin
+over ACP and does not ship the hook wiring. The full investigation, including
+the content-safe evidence receipt, is in
+[docs/devin-adapter-research.md](docs/devin-adapter-research.md).
 
 ## Connect your agent
 
@@ -568,6 +591,31 @@ blocking `tool_call` event into Pitot's stable envelope and returns Pi's native
 `block` response when Pitot rejects the request. See the official
 [Pi extensions documentation](https://pi.dev/docs/latest/extensions).
 
+### Devin
+
+Devin needs no hook file. Pitot speaks to it over the Agent Client Protocol,
+launching `devin acp` as a stdio JSON-RPC server and correlating each
+`tool_call` command by its tool-call ID:
+
+```bash
+pitot dev --host devin -- devin -p "Run: echo hello"
+```
+
+To attach to an already-running runtime, use the explicit single-prompt
+surface:
+
+```bash
+pitot acp devin --runtime "$PITOT_RUNTIME" --prompt "Run: echo hello"
+```
+
+Pitot maps an allow decision to ACP's one-shot `allow_once` and a deny to
+`reject_once`; it never selects a persistent option such as `allow_always` or a
+bypass mode. Attestation comes from the Controller receipts and canary rather
+than a lifecycle-hook witness. This initial adapter is single-prompt; resume and
+multi-turn Devin sessions are not yet supported. See
+[docs/devin-adapter-research.md](docs/devin-adapter-research.md) for why ACP,
+not hooks, is the supervised boundary.
+
 Pitot uses supervised local processes in v1. It starts declared Consumers and
 Controllers itself, applies each projection before bytes enter the child pipe,
 and exposes only a loopback endpoint authenticated by the owner-only runtime
@@ -685,6 +733,45 @@ Pitot is local and storage-free by default.
 - custom agent interfaces over existing runtimes; and
 - new Pitot-compatible coding-agent runtimes.
 
+## Threat model
+
+Pitot mediates the host's wired boundary and nothing else. Understanding where
+that boundary ends is part of using it correctly.
+
+- **Only the wired boundary is mediated.** Pitot sees an action when the host
+  actually routes it through the configured hook or ACP transport. An action
+  the host takes through a path you did not wire is not observed. `pitot doctor
+  --host HOST` reports whether the boundary is present, and for repo-owned
+  hosts whether the entry has drifted.
+- **User-level hook configs are user-editable.** For hosts wired at user level
+  (Kimi, Copilot, Qwen) the hook lives in a file the user owns and can change
+  or remove. Pitot does not police edits outside the repository; it reports the
+  current state through `pitot doctor`.
+- **Without a runtime, hooks only observe.** A `pitot hook` invocation with no
+  `PITOT_RUNTIME` (or `--runtime`) selected records the action and exits
+  allowing it — observation-only, for backwards compatibility. It now prints a
+  one-line notice so this mode is never silent, and `pitot doctor` flags a host
+  that is wired but has no runtime. Once a runtime is explicitly selected,
+  transport or authentication failure blocks the controllable action rather
+  than falling open.
+- **Hosts retain their own bypass options.** Some hosts expose persistent or
+  bypass permissions (for example Devin's ACP `allow_always` and switch-bypass
+  modes). Pitot never selects them — it uses only the one-shot `allow_once` /
+  `reject_once` options — but a human operating the host directly still can.
+- **Kimi executes the action if its hook process crashes or times out.** This
+  is Kimi's host semantics, not a Pitot decision, and Pitot cannot override it:
+  a supervisory-control analysis of the Kimi lifecycle shows a reachable
+  transition from the pending state straight to an unsupervised execution when
+  the hook fails open, which no supervisor placed at the boundary can prevent.
+  Every other supervised host either fails closed or returns the denial to the
+  model. `pitot doctor --host kimi` states this plainly. If your policy cannot
+  tolerate fail-open execution, prefer a fail-closed host (such as Cursor,
+  wired with `failClosed: true`) or Devin's ACP transport.
+
+None of these change the core contract: within the boundary Pitot mediates,
+every pending action receives exactly one terminal resolution. **Pitot reports.
+Your controller decides.**
+
 ## What Pitot does not decide
 
 Pitot does not define whether:
@@ -743,10 +830,13 @@ at the host boundary; interpretation and control belong downstream.
 Start with the protocol and conformance fixtures. A new adapter should declare
 its host capabilities, normalize supported events, classify boundary faults
 without exposing content, encode Controller responses, and pass the shared
-positive and negative fixture suite.
+positive and negative fixture suite. It must also meet the host admission
+criteria above — a boundary that can only abort on denial, rather than return
+the outcome to the model, is not yet supervisable.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and compatibility
-requirements.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, the two adapter
+transport classes (one-shot hook and stateful ACP-style transport), and the
+cross-platform verification every adapter must pass.
 
 ## License
 

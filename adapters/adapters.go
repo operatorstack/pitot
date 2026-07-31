@@ -116,7 +116,7 @@ var (
 			MainEventName: "tool_call",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"tool_call","tool_name":"bash","tool_input":{"command":"git status --short"}}`),
-				CommandFor:     toolInputCommand,
+				CommandFor:     shellCommandForTools("bash"),
 				ActionKinds:    map[string]string{"tool_call": "shell"},
 			},
 			Partition: ControlPartition{Controllable: []string{"tool_call"}},
@@ -142,13 +142,7 @@ var (
 			MainEventName: "PreToolUse",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.ToolInput == nil {
-						return "", false
-					}
-					value, present := raw.ToolInput["command"].(string)
-					return value, present && value != ""
-				},
+				CommandFor:     shellCommandForTools("Bash"),
 				ActionKinds: map[string]string{
 					"PreToolUse": "shell",
 				},
@@ -162,13 +156,7 @@ var (
 			MainEventName: "PreToolUse",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.ToolInput == nil {
-						return "", false
-					}
-					value, present := raw.ToolInput["command"].(string)
-					return value, present && value != ""
-				},
+				CommandFor:     shellCommandForTools("Bash"),
 				ActionKinds: map[string]string{
 					"PreToolUse": "shell",
 				},
@@ -182,13 +170,7 @@ var (
 			MainEventName: "BeforeTool",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"git status --short"}}`),
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.ToolInput == nil {
-						return "", false
-					}
-					value, present := raw.ToolInput["command"].(string)
-					return value, present && value != ""
-				},
+				CommandFor:     shellCommandForTools("run_shell_command"),
 				ActionKinds: map[string]string{
 					"BeforeTool": "shell",
 				},
@@ -202,13 +184,7 @@ var (
 			MainEventName: "PreToolUse",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.ToolInput == nil {
-						return "", false
-					}
-					value, present := raw.ToolInput["command"].(string)
-					return value, present && value != ""
-				},
+				CommandFor:     shellCommandForTools("Bash"),
 				ActionKinds: map[string]string{
 					"PreToolUse": "shell",
 				},
@@ -222,13 +198,7 @@ var (
 			MainEventName: "PreToolUse",
 			Parser: ParserConfig{
 				CanonicalEvent: []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"}}`),
-				CommandFor: func(raw RawHookEvent) (string, bool) {
-					if raw.ToolInput == nil {
-						return "", false
-					}
-					value, present := raw.ToolInput["command"].(string)
-					return value, present && value != ""
-				},
+				CommandFor:     shellCommandForTools("Bash"),
 				ActionKinds: map[string]string{
 					"PreToolUse": "shell",
 				},
@@ -244,6 +214,24 @@ var (
 func toolInputCommand(raw RawHookEvent) (string, bool) {
 	value, present := raw.ToolInput["command"].(string)
 	return value, present && value != ""
+}
+
+// shellCommandForTools returns a CommandFor that accepts tool_input.command
+// only when the event's tool_name is one of names. Hosts scope their hook to
+// the shell tool in their own config; this guard holds the same line inside
+// the decoder, so a widened or drifted host matcher cannot promote another
+// tool's input to a supervised shell action.
+func shellCommandForTools(names ...string) func(RawBoundaryEvent) (string, bool) {
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		allowed[name] = struct{}{}
+	}
+	return func(raw RawBoundaryEvent) (string, bool) {
+		if _, ok := allowed[raw.ToolName]; !ok {
+			return "", false
+		}
+		return toolInputCommand(raw)
+	}
 }
 
 func preToolUseHost() HostConfig {
@@ -463,15 +451,24 @@ func (h Host) HasBoundaryEvent(name string) bool {
 // Deprecated: use HasBoundaryEvent.
 func (h Host) HasHookEvent(name string) bool { return h.HasBoundaryEvent(name) }
 
-// ActionKind returns the normalized action kind for a boundary event.
+// ActionKind returns the normalized action kind for a boundary event. An
+// empty boundaryEventName resolves through the host's main boundary event
+// (hosts whose payloads omit the discriminator mean their primary boundary).
+// An unknown non-empty event returns "" so callers fault instead of silently
+// acquiring the shell kind.
 func (h Host) ActionKind(boundaryEventName string) string {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 
-	if config, exists := registry[h]; exists {
-		if kind, ok := config.Parser.ActionKinds[boundaryEventName]; ok {
-			return kind
-		}
+	config, exists := registry[h]
+	if !exists {
+		return ""
 	}
-	return "shell" // fallback default
+	if boundaryEventName == "" {
+		boundaryEventName = config.MainEventName
+	}
+	if kind, ok := config.Parser.ActionKinds[boundaryEventName]; ok {
+		return kind
+	}
+	return ""
 }

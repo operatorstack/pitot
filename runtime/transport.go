@@ -142,6 +142,12 @@ func (s *Server) handleEvent(w http.ResponseWriter, request *http.Request) {
 	response, err := s.manager.DeliverEvent(request.Context(), event)
 	if err != nil {
 		fmt.Fprintf(s.stderr, "pitot: action %s resolved with boundary fault: %v\n", event.Action.ID, err)
+		if response == nil {
+			// An errored delivery with no resolution must never read as an
+			// observation-only allow (204): fail closed so the hook blocks.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "event delivery faulted"})
+			return
+		}
 	}
 	if response == nil {
 		w.WriteHeader(http.StatusNoContent)
