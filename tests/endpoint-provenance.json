@@ -1277,6 +1277,93 @@
       },
       "runtime": "native",
       "version": "0.20.1"
+    },
+    {
+      "agent": "devin",
+      "capture_sha256": "4e486e91fb33c8220d0772d0a9dc2552799b5af309c2fb8a73cf72f8cde1902b",
+      "dialect": "devin_connect_proto",
+      "executable_sha256": "c303dc3395149d946568f57e00bcea509b269ed361f6845eea38206f59113551",
+      "platform": "ubuntu",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+        "request_shape": {
+          "message": "GetChatMessageRequest",
+          "method": "GetChatMessage",
+          "service": "exa.api_server_pb.ApiServerService",
+          "stream": "server"
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "devin_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "3000.3.22"
+    },
+    {
+      "agent": "devin",
+      "capture_sha256": "16888b9fe29244c7462d2637c55f3b1938375b4cac30bc978236c6726378c3dd",
+      "dialect": "devin_connect_proto",
+      "executable_sha256": "1252ab77359e1cc63c23fda7a88ff7711bab5f853c1ab6d3323cb319b71a60ee",
+      "platform": "macos",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+        "request_shape": {
+          "message": "GetChatMessageRequest",
+          "method": "GetChatMessage",
+          "service": "exa.api_server_pb.ApiServerService",
+          "stream": "server"
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "devin_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "3000.3.22"
+    },
+    {
+      "agent": "devin",
+      "capture_sha256": "cf0add8cb81014d2bdefe14ce92e7e4b47b7ae40f22cf65ecff7696137b3411d",
+      "dialect": "devin_connect_proto",
+      "executable_sha256": "fd0901491ad7a42d8d2d7e0af6f1b53564bbc4e563a6bd3135111346c78e08f6",
+      "platform": "windows",
+      "provenance": "pinned_real_cli_capture",
+      "request": {
+        "framing": "connect_envelope",
+        "media_type": "application/connect+proto",
+        "method": "POST",
+        "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+        "request_shape": {
+          "message": "GetChatMessageRequest",
+          "method": "GetChatMessage",
+          "service": "exa.api_server_pb.ApiServerService",
+          "stream": "server"
+        },
+        "transport": "http1"
+      },
+      "response": {
+        "acceptance": "nonce_tool_result_round_trip",
+        "encoder": "devin_connect_proto",
+        "framing": "connect_envelope",
+        "tool_call": "native_shell"
+      },
+      "runtime": "native",
+      "version": "3000.3.22"
     }
   ],
   "schema_version": 2

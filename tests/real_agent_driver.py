@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -112,6 +113,30 @@ def configure(
         )
         env["CODEX_HOME"] = str(home / ".codex")
         prompt_flag = ["exec", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "--model", "pitot-control"]
+    elif agent == "devin":
+        endpoint = urllib.parse.urlparse(proxy)
+        app_data = home / "AppData/Roaming"
+        local_app_data = home / "AppData/Local"
+        app_data.mkdir(parents=True, exist_ok=True)
+        local_app_data.mkdir(parents=True, exist_ok=True)
+        credentials = home / ".local/share/devin/credentials.toml"
+        credentials.parent.mkdir(parents=True, exist_ok=True)
+        credentials.write_text(
+            'windsurf_api_key = "pitot-local-only"\n'
+            f"api_server_url = {json.dumps(proxy)}\n"
+            f"devin_webapp_host = {json.dumps(endpoint.netloc)}\n"
+            f"devin_api_url = {json.dumps(proxy)}\n",
+            encoding="utf-8",
+        )
+        env.update({
+            "WINDSURF_API_KEY": "pitot-local-only",
+            "WINDSURF_API_SERVER_URL": proxy,
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_DATA_HOME": str(home / ".local/share"),
+            "APPDATA": str(app_data),
+            "LOCALAPPDATA": str(local_app_data),
+        })
+        prompt_flag = []
     elif agent == "copilot":
         hooks = home / ".copilot/hooks"
         hooks.mkdir(parents=True, exist_ok=True)
@@ -263,7 +288,7 @@ def capture_record(agent: dict[str, object], platform: str, installation: dict[s
     observed = proxy.get("endpoint_observed")
     dialect = proxy.get("protocol")
     if not isinstance(observed, dict) or dialect not in {
-        "anthropic_messages", "openai_chat", "openai_responses", "gemini_generate_content", "cursor_connect_proto",
+        "anthropic_messages", "openai_chat", "openai_responses", "gemini_generate_content", "cursor_connect_proto", "devin_connect_proto",
     }:
         raise RuntimeError("proxy did not binary-observe a supported request contract")
     digest = installation.get("executable_sha256")
@@ -330,21 +355,29 @@ def validate_receipts(
     final_marker = f"PITOT_E2E_COMPLETE {nonce}"
     if exit_code != 0 or "hook: PreToolUse Failed" in output or final_marker not in output or not all(proxy.get(flag) is True for flag in proxy_flags):
         raise RuntimeError(f"agent loop incomplete (exit={exit_code}, proxy={proxy}, witnesses={witnesses})\n{output[-4000:]}")
-    if proxy.get("nonce") != nonce or len(witnesses) != 2:
-        raise RuntimeError("proxy and Pitot witness receipts do not identify exactly two hook actions")
-    if any(item.get("nonce") != nonce or item.get("host") != agent["id"] or item.get("valid") is not True for item in witnesses):
-        raise RuntimeError("Pitot hook witnesses escaped the nonce-bound real-agent session")
-    if [item.get("pitot_exit") for item in witnesses] != [0, 2]:
-        raise RuntimeError(f"real hook did not carry one allow and one deny: {witnesses}")
-    action_ids = [item.get("action_id") for item in witnesses]
-    if len(set(action_ids)) != 2 or not all(isinstance(item, str) and item.startswith("act_") for item in action_ids):
-        raise RuntimeError("hook actions lack unique Pitot correlation ids")
+    if proxy.get("nonce") != nonce:
+        raise RuntimeError("proxy receipt escaped the nonce-bound real-agent session")
+    if agent["integration"] == "acp_client":
+        if witnesses:
+            raise RuntimeError("ACP control unexpectedly entered the lifecycle-hook witness path")
+    else:
+        if len(witnesses) != 2:
+            raise RuntimeError("Pitot witness receipts do not identify exactly two hook actions")
+        if any(item.get("nonce") != nonce or item.get("host") != agent["id"] or item.get("valid") is not True for item in witnesses):
+            raise RuntimeError("Pitot hook witnesses escaped the nonce-bound real-agent session")
+        if [item.get("pitot_exit") for item in witnesses] != [0, 2]:
+            raise RuntimeError(f"real hook did not carry one allow and one deny: {witnesses}")
     requests = [item.get("value") for item in controller if item.get("receipt_type") == "request"]
     responses = [item.get("value") for item in controller if item.get("receipt_type") == "response"]
     if len(requests) != 2 or len(responses) != 2:
-        raise RuntimeError(f"Controller did not receive and resolve both hook actions: {controller}")
+        raise RuntimeError(f"Controller did not receive and resolve both boundary actions: {controller}")
+    action_ids = [item.get("action_id") for item in requests]
+    if len(set(action_ids)) != 2 or not all(isinstance(item, str) and item.startswith("act_") for item in action_ids):
+        raise RuntimeError("boundary actions lack unique Pitot correlation ids")
+    if witnesses and [item.get("action_id") for item in witnesses] != action_ids:
+        raise RuntimeError("hook correlation ids do not match the Controller actions")
     if [item.get("action_id") for item in requests] != action_ids or [item.get("action_id") for item in responses] != action_ids:
-        raise RuntimeError("Controller correlation ids do not match the real hook actions")
+        raise RuntimeError("Controller correlation ids do not match the real boundary actions")
     if [item.get("outcome") for item in responses] != ["allow", "deny"] or responses[1].get("message") != f"PITOT_CONTROLLER_DENY {nonce}":
         raise RuntimeError("external Controller did not produce the nonce-bound allow/deny trajectory")
     if len(consumers) != 2 or [item.get("action", {}).get("id") for item in consumers] != action_ids:
@@ -382,7 +415,17 @@ def validate_receipts(
         "nonce": nonce,
         "receipts": {**{flag: True for flag in proxy_flags}, "consumer_observed": True, "controller_allow_observed": True, "controller_deny_observed": True, "deny_canary_absent": True, "final_output_observed": True, "cli_exit_zero": True},
         "runtime": runtime_public,
-        "hooks": [{"host": item["host"], "action_kind": item["action_kind"], "action_id": item["action_id"], "pitot_exit": item["pitot_exit"], "nonce": item["nonce"]} for item in witnesses],
+        "boundaries": [
+            {
+                "host": agent["id"],
+                "transport": "acp" if agent["integration"] == "acp_client" else "hook",
+                "action_kind": "shell",
+                "action_id": action_id,
+                "decision": outcome,
+                "nonce": nonce,
+            }
+            for action_id, outcome in zip(action_ids, ("allow", "deny"), strict=True)
+        ],
         "controller": {"id": "e2e-shell-controller", "action_ids": action_ids, "outcomes": ["allow", "deny"]},
         "consumer": {"id": "e2e-audit", "action_ids": action_ids, "projection": "sha256"},
         "canary": {"executions": canary, "denied_executions": 0},
@@ -442,6 +485,7 @@ def main() -> int:
             str(canary_executable), receipt_argument, windows_host() and not host_controls_wsl,
         )
         ready, proxy_receipt, witness_receipt = base / "proxy.url", base / "proxy.json", base / "witness.jsonl"
+        proxy_request_log = base / "proxy-requests.log"
         runtime_descriptor = base / "runtime.json"
         runtime_config = base / "pitot.json"
         consumer_receipt = base / "consumer.jsonl"
@@ -495,6 +539,8 @@ def main() -> int:
                 ]
             else:
                 proxy_command = ["node", str(LAB / "tests/cursor_control_proxy.mjs"), "--nonce", nonce, "--receipt", str(proxy_receipt), "--ready-file", str(ready), "--canary-command", canary_command, "--response-fault", args.response_fault]
+        elif args.agent == "devin":
+            proxy_command = [sys.executable, str(LAB / "tests/devin_control_proxy.py"), "--nonce", nonce, "--receipt", str(proxy_receipt), "--ready-file", str(ready), "--canary-command", canary_command, "--response-fault", args.response_fault, "--request-log", str(proxy_request_log)]
         else:
             proxy_command = [sys.executable, str(LAB / "tests/model_control_proxy.py"), "--agent", args.agent, "--nonce", nonce, "--receipt", str(proxy_receipt), "--ready-file", str(ready), "--canary-command", canary_command, "--response-fault", args.response_fault]
         proxy_process = subprocess.Popen(
@@ -554,6 +600,14 @@ def main() -> int:
                     "wsl.exe", "--distribution", "Ubuntu", "--cd", wsl_path(project),
                     "--", "env", *assignments, executable, *flags, prompt,
                 ]
+            elif args.agent == "devin":
+                command = [
+                    str(args.pitot.resolve()), "acp", "devin",
+                    "--runtime", str(runtime_descriptor),
+                    "--prompt", prompt,
+                    "--exec", executable,
+                    "--cwd", str(project),
+                ]
             else:
                 command = [executable, "-p", prompt, *flags] if args.agent in {"copilot", "kimi"} else [executable, *flags, prompt]
             try:
@@ -571,6 +625,14 @@ def main() -> int:
             # reporting layer cannot fail after a successful agent session.
             sys.stdout.buffer.write(completed.stdout.encode("utf-8", errors="replace"))
             sys.stdout.buffer.flush()
+            if args.agent == "devin" and proxy_request_log.is_file():
+                # Connection-level journal from the proxy: shows whether a
+                # hanging fetch ever reached the server and on which socket.
+                journal = proxy_request_log.read_text(encoding="utf-8", errors="replace")
+                sys.stdout.buffer.write(
+                    ("PITOT_PROXY_REQUEST_LOG begin\n" + journal[-12000:] + "PITOT_PROXY_REQUEST_LOG end\n").encode("utf-8", errors="replace")
+                )
+                sys.stdout.buffer.flush()
             if args.expect_incompatible_response:
                 observed = json.loads(proxy_receipt.read_text(encoding="utf-8")) if proxy_receipt.is_file() else {}
                 if not (

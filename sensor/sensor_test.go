@@ -28,7 +28,11 @@ func TestDecodeCanonicalEvents(t *testing.T) {
 		if event.Host.Name != string(host) {
 			t.Errorf("%s: host name = %q", host, event.Host.Name)
 		}
-		if event.Observation.Source != schema.SourceHostHook || event.Observation.Fidelity != schema.FidelityDirect {
+		wantSource := schema.SourceHostHook
+		if host == adapters.Devin {
+			wantSource = schema.SourceHostEvent
+		}
+		if event.Observation.Source != wantSource || event.Observation.Fidelity != schema.FidelityDirect {
 			t.Errorf("%s: observation = %+v", host, event.Observation)
 		}
 		if event.Content == nil || event.Content.Mode != schema.ContentSHA256 || event.Content.SHA256 == "" {

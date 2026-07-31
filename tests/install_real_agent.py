@@ -11,7 +11,10 @@ from pathlib import Path
 import platform as host_platform
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import urllib.request
+import zipfile
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -89,6 +92,51 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
                 temporary_link.unlink()
             temporary_link.symlink_to(installed)
             temporary_link.replace(link)
+    elif kind == "devin_release":
+        manifest_url = f"{package}/{version}/manifest.json"
+        with urllib.request.urlopen(manifest_url, timeout=30) as response:
+            manifest = json.loads(response.read())
+        if manifest.get("version") != version:
+            raise RuntimeError("Devin release manifest version does not match the supervised pin")
+        machine = host_platform.machine().lower()
+        arch = "aarch64" if machine in {"arm64", "aarch64"} else "x86_64"
+        suffix = {"ubuntu": "unknown-linux", "macos": "apple-darwin", "windows": "pc-windows"}[platform]
+        target = f"{arch}-{suffix}"
+        release = manifest.get("platforms", {}).get(target)
+        if not isinstance(release, dict) or set(release) != {"url", "sha256"}:
+            raise RuntimeError(f"Devin release manifest omitted {target}")
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / ("devin.zip" if platform == "windows" else "devin.tar.gz")
+            with urllib.request.urlopen(release["url"], timeout=120) as response:
+                archive.write_bytes(response.read())
+            if hashlib.sha256(archive.read_bytes()).hexdigest() != release["sha256"]:
+                raise RuntimeError("Devin release archive SHA-256 mismatch")
+            executable_name = "devin.exe" if platform == "windows" else "devin"
+            if platform == "windows":
+                with zipfile.ZipFile(archive) as bundle:
+                    matches = [name for name in bundle.namelist() if Path(name).name == executable_name]
+                    if len(matches) != 1:
+                        raise RuntimeError(f"Devin archive contained {len(matches)} executables")
+                    executable_bytes = bundle.read(matches[0])
+            else:
+                with tarfile.open(archive, "r:gz") as bundle:
+                    matches = [member for member in bundle.getmembers() if member.isfile() and Path(member.name).name == executable_name]
+                    if len(matches) != 1:
+                        raise RuntimeError(f"Devin archive contained {len(matches)} executables")
+                    source = bundle.extractfile(matches[0])
+                    if source is None:
+                        raise RuntimeError("Devin executable could not be extracted")
+                    executable_bytes = source.read()
+            installed_dir = Path.home() / ".local" / "share" / "pitot-devin" / version
+            installed_dir.mkdir(parents=True, exist_ok=True)
+            installed = installed_dir / executable_name
+            installed.write_bytes(executable_bytes)
+            installed.chmod(0o755)
+            destination = Path.home() / ".local" / "bin"
+            destination.mkdir(parents=True, exist_ok=True)
+            launcher = destination / executable_name
+            shutil.copy2(installed, launcher)
+            launcher.chmod(0o755)
     else:
         raise ValueError(f"unsupported installer: {kind}")
 

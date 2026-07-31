@@ -1,4 +1,4 @@
-// Package sensor normalizes raw host hook payloads into Pitot's event envelope.
+// Package sensor normalizes raw host boundary payloads into Pitot's event envelope.
 //
 // It is the observation pipeline: it reports what a host supplied and marks the
 // quality of that observation. It never decides what an action means and it must
@@ -39,7 +39,7 @@ func (e *FaultError) Fault(actionID string) schema.BoundaryFault {
 	}
 }
 
-// Decode normalizes a raw host hook payload into an action.requested event with
+// Decode normalizes a raw host boundary payload into an action.requested event with
 // the requested content projection. A malformed payload or an omitted command
 // yields a *FaultError so the caller can emit a boundary fault rather than a
 // silently degraded event.
@@ -51,14 +51,14 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 		return schema.Event{}, fmt.Errorf("pitot: unsupported projection mode %q", mode)
 	}
 
-	var event adapters.RawHookEvent
+	var event adapters.RawBoundaryEvent
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
 	}
 
 	// An empty or mismatched event name is a malformed boundary, not a decision.
 	eventName := host.EventNameFor(event)
-	if eventName != "" && !host.HasHookEvent(eventName) {
+	if eventName != "" && !host.HasBoundaryEvent(eventName) {
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
 	}
 
@@ -71,6 +71,10 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 	if err != nil {
 		return schema.Event{}, err
 	}
+	source := schema.SourceHostHook
+	if transport, transportErr := adapters.BoundaryTransport(host); transportErr == nil && transport == adapters.TransportACP {
+		source = schema.SourceHostEvent
+	}
 
 	return schema.Event{
 		PitotVersion: schema.Version,
@@ -82,7 +86,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 		Action:  &schema.Action{Kind: host.ActionKind(eventName)},
 		Content: &content,
 		Observation: schema.Observation{
-			Source:   schema.SourceHostHook,
+			Source:   source,
 			Fidelity: schema.FidelityDirect,
 		},
 	}, nil

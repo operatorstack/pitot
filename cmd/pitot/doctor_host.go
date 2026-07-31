@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,6 +46,9 @@ var hostProbes = map[adapters.Host]hostProbe{
 	},
 }
 
+var doctorLookPath = exec.LookPath
+var doctorCommand = exec.Command
+
 // doctorHost reports whether a host is configured to route its blocking shell
 // boundary to Pitot. It never edits configuration without an explicit --fix —
 // plain doctor only inspects and reports, returning a non-nil error when a
@@ -54,6 +58,9 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 		return fmt.Errorf("pitot doctor: unsupported host %q (want one of: %s)", host, hostList())
 	}
 	fmt.Fprintf(stdout, "Pitot %s — host check: %s\n", adapters.AdapterVersion, host)
+	if host == adapters.Devin {
+		return doctorDevin(stdout, stderr)
+	}
 
 	// Repo-wireable hosts report their wiring state against the fragment
 	// witness (drift-is-named-not-silently-fixed).
@@ -137,5 +144,33 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 		return fmt.Errorf("pitot doctor: %s host check found %d issue(s): %s", host, len(problems), strings.Join(problems, "; "))
 	}
 	fmt.Fprintf(stdout, "  ready: %s can route its shell boundary to Pitot\n", host)
+	return nil
+}
+
+func doctorDevin(stdout, stderr io.Writer) error {
+	const supportedVersion = "3000.3.22"
+	path, err := doctorLookPath("devin")
+	if err != nil {
+		fmt.Fprintln(stdout, "  binary on PATH: NOT FOUND (devin)")
+		return errors.New("pitot doctor: devin host check found 1 issue: \"devin\" not on PATH")
+	}
+	fmt.Fprintf(stdout, "  binary on PATH: %s\n", path)
+	version, versionErr := doctorCommand(path, "--version").CombinedOutput()
+	if versionErr != nil {
+		fmt.Fprintf(stderr, "  devin --version: %s\n", strings.TrimSpace(string(version)))
+		return fmt.Errorf("pitot doctor: devin --version failed: %w", versionErr)
+	}
+	versionText := strings.TrimSpace(string(version))
+	fmt.Fprintf(stdout, "  version: %s\n", versionText)
+	if !strings.Contains(versionText, supportedVersion) {
+		return fmt.Errorf("pitot doctor: Devin version %q is unsupported; install %s", versionText, supportedVersion)
+	}
+	help, helpErr := doctorCommand(path, "acp", "--help").CombinedOutput()
+	if helpErr != nil || !strings.Contains(string(help), "Agent Client Protocol") {
+		return errors.New("pitot doctor: installed Devin does not advertise the required ACP server")
+	}
+	fmt.Fprintln(stdout, "  ACP v1 boundary: FOUND (`devin acp`)")
+	fmt.Fprintln(stdout, "  wiring: none required; use `pitot dev --host devin -- devin -p \"<prompt>\"`")
+	fmt.Fprintln(stdout, "  ready: Devin can route its exec permission boundary to Pitot")
 	return nil
 }
