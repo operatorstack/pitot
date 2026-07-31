@@ -163,7 +163,7 @@ fn main() {
 RUST_CONSUMER = """use pitot::{run_consumer, Event};
 
 fn handler(event: Event) {
-    eprintln!("consumed {}", event.type_field);
+    eprintln!("consumed {}", event.event_type);
 }
 
 fn main() {
