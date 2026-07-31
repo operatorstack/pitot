@@ -12,7 +12,7 @@ func TestNewControlRequestFillsEnvelopeAndMarshalsPayload(t *testing.T) {
 		Actor     string `json:"actor"`
 		Operation string `json:"operation"`
 	}
-	req, err := NewControlRequest("interlock.decide", body{Actor: "publisher", Operation: "artifact.publish"})
+	req, err := NewControlRequest("interlock.effect", body{Actor: "publisher", Operation: "artifact.publish"})
 	if err != nil {
 		t.Fatalf("NewControlRequest: %v", err)
 	}
@@ -22,8 +22,8 @@ func TestNewControlRequestFillsEnvelopeAndMarshalsPayload(t *testing.T) {
 	if req.Type != schema.TypeControlRequested {
 		t.Errorf("type = %q, want %q", req.Type, schema.TypeControlRequested)
 	}
-	if req.Kind != "interlock.decide" {
-		t.Errorf("kind = %q, want interlock.decide", req.Kind)
+	if req.Kind != "interlock.effect" {
+		t.Errorf("kind = %q, want interlock.effect", req.Kind)
 	}
 	if req.ActionID == "" {
 		t.Error("ActionID was not minted")

@@ -1,0 +1,5 @@
+# Rust build artifacts — the crate is a library; a resolved lockfile and the
+# compiled target/ tree are produced by `cargo build`/`cargo test` (locally and
+# in the conformance CI job) and are never part of the published SDK.
+/target
+Cargo.lock
