@@ -157,7 +157,7 @@
   "generator": "operatorstack/pitot:project",
   "schema_version": 1,
   "source": {
-    "commit": "ef3ef32beeb743ca17afe3bd74706798e3e72c04",
+    "commit": "6149e9333caa3d936f69e03015252b712cf453ee",
     "path": "labs/15-pitot",
     "repository": "operatorstack/intelligence-flow"
   }
