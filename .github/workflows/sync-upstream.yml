@@ -4,8 +4,6 @@
 name: Sync from Intelligence Flow
 
 on:
-  schedule:
-    - cron: "59 */6 * * *"
   workflow_dispatch:
     inputs:
       source_commit:
