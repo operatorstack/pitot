@@ -926,26 +926,41 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 // waitForRuntime blocks until the runtime descriptor is live, the server errors,
 // or the deadline elapses.
 func waitForRuntime(ctx context.Context, runtimePath string, serveErr <-chan error, timeout time.Duration) error {
-	deadline := time.After(timeout)
+	readyCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	expires, _ := readyCtx.Deadline()
+	timeoutError := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return context.DeadlineExceeded
+		}
+		return errors.New("pitot dev: runtime did not become ready within timeout")
+	}
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		if !time.Now().Before(expires) || readyCtx.Err() != nil {
+			return timeoutError()
+		}
 		select {
 		case err := <-serveErr:
 			if err != nil {
 				return fmt.Errorf("pitot dev: runtime server error: %w", err)
 			}
 			return errors.New("pitot dev: runtime server stopped before becoming ready")
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
-			return errors.New("pitot dev: runtime did not become ready within timeout")
+		case <-readyCtx.Done():
+			return timeoutError()
 		case <-ticker.C:
 			client, err := runtime.OpenClient(runtimePath)
 			if err != nil {
 				continue
 			}
-			if err := client.Health(ctx); err == nil {
+			if err := client.Health(readyCtx); err == nil {
+				if !time.Now().Before(expires) || readyCtx.Err() != nil {
+					return timeoutError()
+				}
 				return nil
 			}
 		}
