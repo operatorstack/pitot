@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -52,6 +53,11 @@ func NewServer(manager *Manager, configSHA, runtimePath string, stdout, stderr i
 
 // Serve publishes the runtime descriptor only after the authenticated endpoint is ready.
 func (s *Server) Serve(ctx context.Context) error {
+	ownership, err := acquireRuntimeOwnership(s.runtimePath)
+	if err != nil {
+		return err
+	}
+	defer ownership.Close()
 	if err := prepareRuntimePath(s.runtimePath); err != nil {
 		return err
 	}
@@ -94,6 +100,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
+	defer server.Close()
 	serveErr := make(chan error, 1)
 	go func() {
 		err := server.Serve(listener)
@@ -375,10 +382,30 @@ func prepareRuntimePath(path string) error {
 	if err != nil {
 		return fmt.Errorf("pitot: refusing to replace an invalid runtime descriptor: %w", err)
 	}
+	endpoint, err := url.Parse(client.descriptor.Endpoint)
+	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return errors.New("pitot: refusing to replace a runtime descriptor with an invalid loopback endpoint")
+	}
+	host, _, err := net.SplitHostPort(endpoint.Host)
+	if err != nil || host != "127.0.0.1" {
+		return errors.New("pitot: refusing to replace a runtime descriptor without a literal loopback endpoint")
+	}
+	// Ownership evidence must come directly from the descriptor's endpoint.
+	// Redirects, proxies and a reused connection cannot prove that endpoint dead.
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	client.http = &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if client.Health(ctx) == nil {
+	err = client.Health(ctx)
+	if err == nil {
 		return errors.New("pitot: runtime descriptor already belongs to a live instance")
+	}
+	var dialErr *net.OpError
+	if !errors.As(err, &dialErr) || dialErr.Op != "dial" || dialErr.Addr == nil || dialErr.Addr.String() != endpoint.Host || !connectionRefused(dialErr.Err) {
+		return fmt.Errorf("pitot: refusing to replace a runtime descriptor with uncertain owner health: %w", err)
 	}
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("pitot: remove stale runtime descriptor: %w", err)
