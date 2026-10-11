@@ -27,16 +27,24 @@ class ProxyHarness:
         self.ready = self.workdir / "ready.txt"
         self.log = self.workdir / "requests.log" if request_log else None
         command = [
-            sys.executable, str(PROXY),
-            "--nonce", NONCE,
-            "--receipt", str(self.receipt),
-            "--ready-file", str(self.ready),
-            "--canary-command", "echo PITOT_CANARY",
-            "--response-fault", response_fault,
+            sys.executable,
+            str(PROXY),
+            "--nonce",
+            NONCE,
+            "--receipt",
+            str(self.receipt),
+            "--ready-file",
+            str(self.ready),
+            "--canary-command",
+            "echo PITOT_CANARY",
+            "--response-fault",
+            response_fault,
         ]
         if self.log is not None:
             command += ["--request-log", str(self.log)]
-        self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.process = subprocess.Popen(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         deadline = time.time() + 10
         while time.time() < deadline:
             if self.ready.is_file() and self.ready.read_text(encoding="utf-8").strip():
@@ -65,25 +73,32 @@ class DevinProxyHTTPTests(unittest.TestCase):
         self.addCleanup(self.proxy.close)
 
     def test_keepalive_serves_sequential_requests_on_one_connection(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         self.addCleanup(connection.close)
         for i in range(3):
             connection.request(
-                "POST", "/exa.seat_management_pb.SeatManagementService/GetCliTeamSettings",
-                body=b"x", headers={"Content-Type": "application/proto"},
+                "POST",
+                "/exa.seat_management_pb.SeatManagementService/GetCliTeamSettings",
+                body=b"x",
+                headers={"Content-Type": "application/proto"},
             )
             response = connection.getresponse()
             self.assertEqual(response.status, 200, f"request {i}")
             self.assertEqual(response.read(), b"")
             self.assertEqual(response.version, 11, "proxy must speak HTTP/1.1")
             self.assertNotEqual(
-                (response.getheader("Connection") or "").lower(), "close",
+                (response.getheader("Connection") or "").lower(),
+                "close",
                 "keep-alive must not be refused on the auxiliary path",
             )
         self.assertEqual(self.proxy.receipt_json()["auxiliary_requests"], 3)
 
     def test_chunked_request_body_is_drained_exactly(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         self.addCleanup(connection.close)
         connection.putrequest("POST", "/aux.Service/Chunked")
         connection.putheader("Transfer-Encoding", "chunked")
@@ -103,9 +118,12 @@ class DevinProxyHTTPTests(unittest.TestCase):
 
     def test_connection_burst_within_backlog_all_served(self):
         errors: list[str] = []
+
         def one(i: int) -> None:
             try:
-                connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=10)
+                connection = http.client.HTTPConnection(
+                    self.proxy.host, self.proxy.port, timeout=10
+                )
                 connection.request("POST", "/aux.Service/Burst", body=b"b")
                 response = connection.getresponse()
                 if response.status != 200:
@@ -114,16 +132,21 @@ class DevinProxyHTTPTests(unittest.TestCase):
                 connection.close()
             except Exception as error:  # noqa: BLE001 - the failure IS the signal
                 errors.append(f"{i}: {error}")
+
         threads = [threading.Thread(target=one, args=(i,)) for i in range(64)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(timeout=15)
-        self.assertEqual(errors, [], "burst connections must all be served (backlog 128)")
+        self.assertEqual(
+            errors, [], "burst connections must all be served (backlog 128)"
+        )
         self.assertEqual(self.proxy.receipt_json()["auxiliary_requests"], 64)
 
     def test_request_journal_records_connections_and_requests(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         connection.request("POST", "/aux.Service/Journal", body=b"j")
         connection.getresponse().read()
         connection.close()
@@ -135,7 +158,9 @@ class DevinProxyHTTPTests(unittest.TestCase):
         self.assertIn("RES  ", journal)
 
     def test_get_is_404_with_explicit_length(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         self.addCleanup(connection.close)
         connection.request("GET", "/anything")
         response = connection.getresponse()
@@ -147,12 +172,16 @@ class DevinProxyHTTPTests(unittest.TestCase):
         self.assertEqual(connection.getresponse().status, 200)
 
     def test_off_trajectory_chat_request_is_409(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         self.addCleanup(connection.close)
         # A GetChatMessage without the nonce is off the control trajectory.
         connection.request(
-            "POST", "/exa.api_server_pb.ApiServerService/GetChatMessage",
-            body=b"no nonce here", headers={"Content-Type": "application/connect+proto"},
+            "POST",
+            "/exa.api_server_pb.ApiServerService/GetChatMessage",
+            body=b"no nonce here",
+            headers={"Content-Type": "application/connect+proto"},
         )
         response = connection.getresponse()
         self.assertEqual(response.status, 409)
@@ -162,11 +191,15 @@ class DevinProxyHTTPTests(unittest.TestCase):
         self.assertFalse(receipt["initial_prompt_observed"])
 
     def test_initial_prompt_with_nonce_advances_trajectory(self):
-        connection = http.client.HTTPConnection(self.proxy.host, self.proxy.port, timeout=5)
+        connection = http.client.HTTPConnection(
+            self.proxy.host, self.proxy.port, timeout=5
+        )
         self.addCleanup(connection.close)
         connection.request(
-            "POST", "/exa.api_server_pb.ApiServerService/GetChatMessage",
-            body=NONCE.encode(), headers={"Content-Type": "application/connect+proto"},
+            "POST",
+            "/exa.api_server_pb.ApiServerService/GetChatMessage",
+            body=NONCE.encode(),
+            headers={"Content-Type": "application/connect+proto"},
         )
         response = connection.getresponse()
         self.assertEqual(response.status, 200)
@@ -185,8 +218,10 @@ class DevinProxyFaultModeTests(unittest.TestCase):
         connection = http.client.HTTPConnection(proxy.host, proxy.port, timeout=5)
         self.addCleanup(connection.close)
         connection.request(
-            "POST", "/exa.api_server_pb.ApiServerService/GetChatMessage",
-            body=NONCE.encode(), headers={"Content-Type": "application/connect+proto"},
+            "POST",
+            "/exa.api_server_pb.ApiServerService/GetChatMessage",
+            body=NONCE.encode(),
+            headers={"Content-Type": "application/connect+proto"},
         )
         response = connection.getresponse()
         self.assertEqual(response.status, 200)

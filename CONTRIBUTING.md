@@ -55,6 +55,37 @@ positive vector for every new adapter behavior and a negative control for every
 boundary fault. The sensor package must never import the bridge package —
 measurement stays innocent of control.
 
+## Formatting
+
+Formatting is checked in CI. Install the Go toolchain from `go.mod`, Python
+3.11 or newer, Node.js 22 or newer, and Rust 1.97.1 with its rustfmt component.
+From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-format.txt
+npm ci --ignore-scripts
+go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1
+export PATH="$(go env GOPATH)/bin:$PATH"
+npm run format        # write formatting changes
+npm run format:check  # fail on drift without writing
+```
+
+The commands use gofmt, Ruff 0.17.0, Prettier 3.9.10, rustfmt 1.9.0, and shfmt
+3.14.1 on tracked and unignored authored Go, Python, JS/TS, Rust, shell,
+JSON/YAML, and Markdown files. The Python environment must be active when
+running the npm commands. On Windows, activate `.venv/Scripts/activate` from
+Git Bash and ensure `python3` resolves to that environment.
+
+Generated SDK types and exports, the generated E2E workflow, README's generated
+supervisor block (and therefore the whole README), captured JSON evidence, and
+the npm lockfile retain their existing generator or capture ownership. The
+exclusions are explicit in `scripts/format.py`; generation stability remains a
+separate CI check. Rust formatting uses stdin so formatting an authored module
+cannot traverse into generated types. TOML manifests and JSON Lines conformance
+fixtures are outside this initial formatting gate.
+
 ## Refreshing agent endpoint provenance
 
 Protocol documentation is not a verification authority. When a pinned agent

@@ -54,9 +54,9 @@ func RunController(controllerID string, handler ControllerHandler) {
 			fmt.Fprintf(os.Stderr, "Pitot Controller error: %v\n", err)
 			continue
 		}
-		
+
 		result := handler(req)
-		
+
 		resp := schema.ControlResponse{
 			PitotVersion: schema.Version,
 			Type:         schema.TypeControlResponse,
@@ -65,7 +65,7 @@ func RunController(controllerID string, handler ControllerHandler) {
 			Outcome:      result.Outcome,
 			Message:      result.Message,
 		}
-		
+
 		if err := json.NewEncoder(os.Stdout).Encode(resp); err != nil {
 			fmt.Fprintf(os.Stderr, "Pitot Controller error: %v\n", err)
 		}

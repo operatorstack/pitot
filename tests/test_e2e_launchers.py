@@ -15,7 +15,8 @@ class AgentLauncherTests(unittest.TestCase):
         bash = shutil.which("bash")
         self.assertIsNotNone(bash, "agent E2E launchers require Bash")
         wrappers = sorted(
-            path for path in TESTS.glob("e2e_*_cli_test.sh")
+            path
+            for path in TESTS.glob("e2e_*_cli_test.sh")
             if "e2e_unified_runner.sh" in path.read_text(encoding="utf-8")
         )
         self.assertEqual(len(wrappers), 10)
@@ -29,10 +30,15 @@ class AgentLauncherTests(unittest.TestCase):
                     wrapper = directory / source.name
                     shutil.copyfile(source, wrapper)
                     completed = subprocess.run(
-                        [bash, str(wrapper)], cwd=TESTS.parent,
-                        text=True, capture_output=True, timeout=10,
+                        [bash, str(wrapper)],
+                        cwd=TESTS.parent,
+                        text=True,
+                        capture_output=True,
+                        timeout=10,
                     )
-                    agent = source.name.removeprefix("e2e_").removesuffix("_cli_test.sh")
+                    agent = source.name.removeprefix("e2e_").removesuffix(
+                        "_cli_test.sh"
+                    )
                     self.assertEqual(completed.returncode, 23, completed.stderr)
                     self.assertEqual(completed.stdout, f"agent={agent}\n")
 

@@ -32,13 +32,56 @@ supervisor = _load(
 
 def _receipt(agent="claude", platform="ubuntu"):
     record = next(item for item in runner.MANIFEST["agents"] if item["id"] == agent)
-    dialect = {"claude": "anthropic_messages", "codex": "openai_responses", "gemini": "gemini_generate_content", "cursor": "cursor_connect_proto", "devin": "devin_connect_proto"}.get(agent, "openai_chat")
-    framing = "connect_envelope" if dialect in {"cursor_connect_proto", "devin_connect_proto"} else "sse"
-    request = {"transport": "http2" if dialect == "cursor_connect_proto" else "http1", "method": "POST", "path": "/fixture", "media_type": "application/connect+proto" if dialect in {"cursor_connect_proto", "devin_connect_proto"} else "application/json", "framing": framing, "request_shape": {"fixture": "redacted"}}
-    response = {"encoder": dialect, "framing": framing, "tool_call": "native_shell", "acceptance": "nonce_tool_result_round_trip"}
-    core = {"agent": agent, "platform": platform, "runtime": record["runtime"][platform], "version": record["version"], "executable_sha256": "d" * 64, "dialect": dialect, "request": request, "response": response, "provenance": "pinned_real_cli_capture"}
-    fixture = {**core, "capture_sha256": hashlib.sha256(json.dumps(core, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
-    reporter.ENDPOINT_PROVENANCE["cells"] = [cell for cell in reporter.ENDPOINT_PROVENANCE["cells"] if (cell["agent"], cell["platform"]) != (agent, platform)] + [fixture]
+    dialect = {
+        "claude": "anthropic_messages",
+        "codex": "openai_responses",
+        "gemini": "gemini_generate_content",
+        "cursor": "cursor_connect_proto",
+        "devin": "devin_connect_proto",
+    }.get(agent, "openai_chat")
+    framing = (
+        "connect_envelope"
+        if dialect in {"cursor_connect_proto", "devin_connect_proto"}
+        else "sse"
+    )
+    request = {
+        "transport": "http2" if dialect == "cursor_connect_proto" else "http1",
+        "method": "POST",
+        "path": "/fixture",
+        "media_type": "application/connect+proto"
+        if dialect in {"cursor_connect_proto", "devin_connect_proto"}
+        else "application/json",
+        "framing": framing,
+        "request_shape": {"fixture": "redacted"},
+    }
+    response = {
+        "encoder": dialect,
+        "framing": framing,
+        "tool_call": "native_shell",
+        "acceptance": "nonce_tool_result_round_trip",
+    }
+    core = {
+        "agent": agent,
+        "platform": platform,
+        "runtime": record["runtime"][platform],
+        "version": record["version"],
+        "executable_sha256": "d" * 64,
+        "dialect": dialect,
+        "request": request,
+        "response": response,
+        "provenance": "pinned_real_cli_capture",
+    }
+    fixture = {
+        **core,
+        "capture_sha256": hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    reporter.ENDPOINT_PROVENANCE["cells"] = [
+        cell
+        for cell in reporter.ENDPOINT_PROVENANCE["cells"]
+        if (cell["agent"], cell["platform"]) != (agent, platform)
+    ] + [fixture]
     endpoint = {
         "fixture": f"tests/endpoint-provenance.json#{agent}/{platform}",
         "fixture_sha256": fixture["capture_sha256"],
@@ -51,19 +94,69 @@ def _receipt(agent="claude", platform="ubuntu"):
     return {
         "schema_version": 2,
         "agent": agent,
-        "cli": {"version": record["version"], "executable": f"/bin/{record['executable']}", "executable_sha256": fixture["executable_sha256"], "installer": record["installer"]["kind"], "runtime": record["runtime"][platform]},
+        "cli": {
+            "version": record["version"],
+            "executable": f"/bin/{record['executable']}",
+            "executable_sha256": fixture["executable_sha256"],
+            "installer": record["installer"]["kind"],
+            "runtime": record["runtime"][platform],
+        },
         "prompt_hash": "f" * 64,
         "protocol": dialect,
         "endpoint": endpoint,
         "nonce": "e" * 32,
-        "receipts": {name: True for name in ("initial_prompt_observed", "allow_tool_call_response_emitted", "allow_tool_result_observed", "deny_tool_call_response_emitted", "denied_result_observed", "final_response_emitted", "consumer_observed", "controller_allow_observed", "controller_deny_observed", "deny_canary_absent", "final_output_observed", "cli_exit_zero")},
-        "runtime": {"schema_version": 1, "instance_id": "instance", "pid": 1, "endpoint": "http://127.0.0.1:1", "config_sha256": "c" * 64},
+        "receipts": {
+            name: True
+            for name in (
+                "initial_prompt_observed",
+                "allow_tool_call_response_emitted",
+                "allow_tool_result_observed",
+                "deny_tool_call_response_emitted",
+                "denied_result_observed",
+                "final_response_emitted",
+                "consumer_observed",
+                "controller_allow_observed",
+                "controller_deny_observed",
+                "deny_canary_absent",
+                "final_output_observed",
+                "cli_exit_zero",
+            )
+        },
+        "runtime": {
+            "schema_version": 1,
+            "instance_id": "instance",
+            "pid": 1,
+            "endpoint": "http://127.0.0.1:1",
+            "config_sha256": "c" * 64,
+        },
         "boundaries": [
-            {"host": agent, "transport": "acp" if agent == "devin" else "hook", "action_kind": "shell", "action_id": "act_allow", "decision": "allow", "nonce": "e" * 32},
-            {"host": agent, "transport": "acp" if agent == "devin" else "hook", "action_kind": "shell", "action_id": "act_deny", "decision": "deny", "nonce": "e" * 32},
+            {
+                "host": agent,
+                "transport": "acp" if agent == "devin" else "hook",
+                "action_kind": "shell",
+                "action_id": "act_allow",
+                "decision": "allow",
+                "nonce": "e" * 32,
+            },
+            {
+                "host": agent,
+                "transport": "acp" if agent == "devin" else "hook",
+                "action_kind": "shell",
+                "action_id": "act_deny",
+                "decision": "deny",
+                "nonce": "e" * 32,
+            },
         ],
-        "controller": {"id": "e2e-shell-controller", "action_ids": ["act_allow", "act_deny"], "outcomes": ["allow", "deny"]},
-        "consumer": {"id": "e2e-audit", "action_ids": ["act_allow", "act_deny"], "projection": "sha256"},
+        "controller": {
+            "id": "e2e-shell-controller",
+            "action_ids": ["act_allow", "act_deny"],
+            "outcomes": ["allow", "deny"],
+        },
+        "consumer": {
+            "id": "e2e-audit",
+            "action_ids": ["act_allow", "act_deny"],
+            "projection": "sha256",
+        },
         "canary": {"executions": ["PITOT_ALLOW " + "e" * 32], "denied_executions": 0},
     }
 
@@ -76,7 +169,9 @@ def _result(agent="claude", platform="ubuntu", status="pass", mode="real_cli"):
         "platform": platform,
         "status": status,
         "verification_mode": mode,
-        "evidence": "binary-observed request, real action control, projected Consumer, allow/deny canary, and final receipts" if status == "pass" else "real-agent control evidence contract failed",
+        "evidence": "binary-observed request, real action control, projected Consumer, allow/deny canary, and final receipts"
+        if status == "pass"
+        else "real-agent control evidence contract failed",
         "cli": receipt["cli"] if receipt else None,
         "protocol": receipt["protocol"] if receipt else None,
         "endpoint": receipt["endpoint"] if receipt else None,
@@ -99,9 +194,23 @@ def _runtime_receipt(platform="ubuntu"):
         "capability": "explicit_request",
         "platform": platform,
         "nonce": "e" * 32,
-        "runtime": {"schema_version": 1, "instance_id": "instance", "pid": 1, "endpoint": "http://127.0.0.1:1", "config_sha256": "c" * 64},
-        "controller": {"id": "e2e-release-controller", "action_ids": ["act_allow", "act_deny"], "outcomes": ["allow", "deny"]},
-        "receipts": {"request_allow_observed": True, "request_deny_observed": True, "correlation_observed": True},
+        "runtime": {
+            "schema_version": 1,
+            "instance_id": "instance",
+            "pid": 1,
+            "endpoint": "http://127.0.0.1:1",
+            "config_sha256": "c" * 64,
+        },
+        "controller": {
+            "id": "e2e-release-controller",
+            "action_ids": ["act_allow", "act_deny"],
+            "outcomes": ["allow", "deny"],
+        },
+        "receipts": {
+            "request_allow_observed": True,
+            "request_deny_observed": True,
+            "correlation_observed": True,
+        },
         "commit_sha": "a" * 40,
     }
 
@@ -120,12 +229,20 @@ class ResultGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             evidence = Path(temp) / "evidence.json"
             evidence.write_text(json.dumps(_receipt()))
-            result = runner.result_for("claude", "ubuntu", 0, "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n", evidence)
+            result = runner.result_for(
+                "claude",
+                "ubuntu",
+                0,
+                "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n",
+                evidence,
+            )
             self.assertEqual(result["status"], "pass")
             self.assertEqual(result["verification_mode"], "real_cli")
 
     def test_hook_marker_cannot_pass(self):
-        result = runner.result_for("gemini", "macos", 0, "PITOT_E2E_RESULT mode=hook_subprocess\n")
+        result = runner.result_for(
+            "gemini", "macos", 0, "PITOT_E2E_RESULT mode=hook_subprocess\n"
+        )
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["verification_mode"])
 
@@ -133,21 +250,32 @@ class ResultGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             evidence = Path(temp) / "evidence.json"
             evidence.write_text(json.dumps(_receipt("opencode", "windows")))
-            result = runner.result_for("opencode", "windows", 0, "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n", evidence)
+            result = runner.result_for(
+                "opencode",
+                "windows",
+                0,
+                "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n",
+                evidence,
+            )
             self.assertEqual(result["platform"], "windows")
             self.assertEqual(result["status"], "pass")
 
     def test_missing_or_duplicate_marker_fails(self):
-        self.assertEqual(runner.result_for("codex", "ubuntu", 0, "ok\n")["status"], "fail")
+        self.assertEqual(
+            runner.result_for("codex", "ubuntu", 0, "ok\n")["status"], "fail"
+        )
         duplicate = "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n" * 2
-        self.assertEqual(runner.result_for("codex", "ubuntu", 0, duplicate)["status"], "fail")
+        self.assertEqual(
+            runner.result_for("codex", "ubuntu", 0, duplicate)["status"], "fail"
+        )
 
     def test_explicit_request_runtime_marker_passes(self):
         with tempfile.TemporaryDirectory() as temp:
             evidence = Path(temp) / "runtime-evidence.json"
             evidence.write_text(json.dumps(_runtime_receipt()))
             result = runner.result_for_runtime(
-                "ubuntu", 0,
+                "ubuntu",
+                0,
                 "PITOT_RUNTIME_E2E_RESULT capability=explicit_request evidence=nonce-correlated\n",
                 evidence,
             )
@@ -155,7 +283,12 @@ class ResultGenerationTests(unittest.TestCase):
             self.assertEqual(result["verification_mode"], "real_runtime")
 
     def test_nonzero_command_fails_even_with_marker(self):
-        result = runner.result_for("cursor", "ubuntu", 1, "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n")
+        result = runner.result_for(
+            "cursor",
+            "ubuntu",
+            1,
+            "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n",
+        )
         self.assertEqual(result["status"], "fail")
         self.assertIsNone(result["verification_mode"])
 
@@ -166,13 +299,18 @@ class ResultGenerationTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(ROOT / "tests/run_e2e_report.py"),
-                    "--agent", "claude",
-                    "--platform", "windows",
-                    "--output", str(output),
-                    "--evidence", str(Path(temp) / "missing-evidence.json"),
+                    "--agent",
+                    "claude",
+                    "--platform",
+                    "windows",
+                    "--output",
+                    str(output),
+                    "--evidence",
+                    str(Path(temp) / "missing-evidence.json"),
                     "--",
                     sys.executable,
-                    "-c", "import sys; sys.stdout.buffer.write(b'\\x96')",
+                    "-c",
+                    "import sys; sys.stdout.buffer.write(b'\\x96')",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -188,15 +326,23 @@ class ReporterContractTests(unittest.TestCase):
 
         def request(method, path, payload=None):
             calls.append((method, path, payload))
-            return {"total_count": 31, "artifacts": [{"name": str(index)} for index in range(31)]}
+            return {
+                "total_count": 31,
+                "artifacts": [{"name": str(index)} for index in range(31)],
+            }
 
         github.request = request
         self.assertEqual(len(github.list_run_artifacts(7)), 31)
-        self.assertEqual(calls, [("GET", "/actions/runs/7/artifacts?per_page=100", None)])
+        self.assertEqual(
+            calls, [("GET", "/actions/runs/7/artifacts?per_page=100", None)]
+        )
 
     def test_truncated_artifact_listing_fails_closed(self):
         github = reporter.GitHub("operatorstack/pitot", "test-token")
-        github.request = lambda method, path, payload=None: {"total_count": 31, "artifacts": [{}] * 30}
+        github.request = lambda method, path, payload=None: {
+            "total_count": 31,
+            "artifacts": [{}] * 30,
+        }
         with self.assertRaisesRegex(ValueError, "truncated or malformed"):
             github.list_run_artifacts(7)
 
@@ -237,7 +383,11 @@ class ReporterContractTests(unittest.TestCase):
         self.assertEqual(len(generated), len(reporter.AGENTS) * len(reporter.PLATFORMS))
         self.assertEqual(
             {(item["agent"], item["platform"]) for item in generated},
-            {(agent, platform) for agent in reporter.AGENTS for platform in reporter.PLATFORMS},
+            {
+                (agent, platform)
+                for agent in reporter.AGENTS
+                for platform in reporter.PLATFORMS
+            },
         )
         self.assertIn("runs-on: ${{ inputs.runner }}", workflow)
         self.assertIn('--platform "${{ inputs.platform }}"', workflow)
@@ -251,12 +401,16 @@ class ReporterContractTests(unittest.TestCase):
         self.assertIn("pitot-e2e-runtime-${{ matrix.platform }}", unified)
         self.assertIn('-- "$PITOT_BASH" tests/e2e_runtime_cli_test.sh', unified)
         self.assertIn("name: pitot-e2e-inventory", unified)
-        self.assertEqual(runner_script.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build"), 3)
+        self.assertEqual(
+            runner_script.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build"), 3
+        )
         self.assertIn("pitot-linux", runner_script)
         self.assertIn("pitot-witness-linux", runner_script)
         self.assertIn("pitot-testrole-linux", runner_script)
         self.assertIn("wsl.exe --distribution Ubuntu -- env", runner_script)
-        self.assertIn('python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"', runner_script)
+        self.assertIn(
+            'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"', runner_script
+        )
         self.assertIn("MSYS2_ARG_CONV_EXCL='*'", runner_script)
 
     def test_inventory_schema_rejects_identity_injection(self):
@@ -288,14 +442,18 @@ class ReporterContractTests(unittest.TestCase):
 
     def test_validates_exact_artifact_schema(self):
         value = _result()
-        self.assertIs(reporter.validate_result(value, agent="claude", platform="ubuntu"), value)
+        self.assertIs(
+            reporter.validate_result(value, agent="claude", platform="ubuntu"), value
+        )
         value["unexpected"] = True
         with self.assertRaises(ValueError):
             reporter.validate_result(value, agent="claude", platform="ubuntu")
 
     def test_rejects_identity_and_evidence_injection(self):
         with self.assertRaises(ValueError):
-            reporter.validate_result(_result(agent="cursor"), agent="claude", platform="ubuntu")
+            reporter.validate_result(
+                _result(agent="cursor"), agent="claude", platform="ubuntu"
+            )
         value = _result()
         value["evidence"] = "@everyone | injected"
         with self.assertRaises(ValueError):
@@ -337,7 +495,9 @@ class ReporterContractTests(unittest.TestCase):
             reporter.validate_result(value, agent="claude", platform="ubuntu")
 
     def test_aggregate_requires_all_platforms(self):
-        self.assertEqual(reporter.aggregate({"ubuntu": _result(), "macos": None}), "pending")
+        self.assertEqual(
+            reporter.aggregate({"ubuntu": _result(), "macos": None}), "pending"
+        )
         self.assertEqual(
             reporter.aggregate(
                 {
@@ -379,7 +539,9 @@ class ReporterContractTests(unittest.TestCase):
             "macos": _result(platform="macos"),
             "windows": _result(platform="windows"),
         }
-        body = reporter.render_comment(results, {"claude": "https://example.test/run"}, "b" * 40)
+        body = reporter.render_comment(
+            results, {"claude": "https://example.test/run"}, "b" * 40
+        )
         self.assertIn(reporter.MARKER, body)
         self.assertIn("Pass · real CLI", body)
         self.assertNotIn("hook verified", body)
