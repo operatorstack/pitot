@@ -123,7 +123,7 @@ Pitot separates two capabilities that are easy to blur:
 | **Consumer** | Projected events | No | Usage, memory, analytics, reports |
 | **Controller** | Registered requests | Yes | Approval, verification, policy, workflow |
 
-A passive Consumer cannot reach the response channel. A Controller is
+Pitot does not interpret Consumer output as Controller responses. A Controller is
 statically registered for one request kind and returns at most one response for
 the pending action.
 
@@ -628,7 +628,11 @@ not hooks, is the supervised boundary.
 Pitot uses supervised local processes in v1. It starts declared Consumers and
 Controllers itself, applies each projection before bytes enter the child pipe,
 and exposes only a loopback endpoint authenticated by the owner-only runtime
-descriptor. The capability token is never passed to child processes or logs.
+descriptor. Pitot does not pass the capability token directly to child processes or include it
+in its diagnostics. These are trusted programs running as the launching user:
+they may read the owner-only descriptor and access its authenticated endpoint.
+Pitot does not sandbox them or restrict their filesystem, environment, or network
+access. Descriptor permissions exclude other users, not programs running as the owner.
 
 ## Language-neutral by design
 
@@ -795,8 +799,27 @@ Pitot is local and storage-free by default.
 - Projection happens before delivery, not inside downstream applications.
 - No network exporter is enabled implicitly.
 - Pitot does not retain an event history unless a configured Consumer does.
-- Passive Consumers receive no Controller capability.
-- Diagnostics and fault codes are content-safe.
+- Consumer output is not wired to the Controller response channel.
+- Pitot-generated event delivery and response rejection diagnostics omit envelope
+  identifiers and content. Configured process labels may appear in diagnostics.
+  Controller stderr and both Consumer output streams are forwarded to operator
+  stderr; this application-controlled output may contain sensitive information.
+
+Projection controls command content in each delivered event. It preserves other
+metadata and does not prevent a trusted program from obtaining content elsewhere.
+SHA-256 supports equality checks and comparison against guessed content; it is
+not encryption. An existing digest can be narrowed to `omit`; requests that need
+unavailable full content or a missing digest are rejected. Absent content stays
+absent under every projection policy.
+
+Consumer delivery is bounded and best effort. Queue saturation and unavailable
+processes produce diagnostics. An unexpected process exit or pipe-write failure
+reports once that observation delivery may be incomplete, even without another
+event. Queue acceptance and a successful pipe write are not acknowledgements that
+an application processed the event. Pitot does not retry or retain dropped
+observations; a Consumer can implement its own retention. Expected runtime
+shutdown is quiet. Consumer pipe writes run separately from Controller resolution;
+a slow operator diagnostic sink can still block existing delivery diagnostics.
 
 ## What can you build?
 
@@ -884,7 +907,8 @@ pitot/
 ## Design principles
 
 1. **Report before interpretation.** Preserve what the host actually supplied.
-2. **Make capability structural.** Consumers cannot reply; Controllers can.
+2. **Make capability structural.** Consumer output is observation-only; only the
+   configured Controller response pipe participates in decisions.
 3. **Keep host churn together.** Decoders and encoders share one compatibility
    boundary.
 4. **Project before delivery.** Privacy is enforced before content crosses the

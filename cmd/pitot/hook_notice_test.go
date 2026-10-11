@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// Observation-only stays exit-0 but is never silent (Locus root-cause:
-// silent-mode-degradation).
+// Observation-only stays exit-0 and is announced on stderr.
 func TestHookWithoutRuntimeAnnouncesObserveOnly(t *testing.T) {
 	t.Setenv("PITOT_RUNTIME", "")
 	stdin := strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}`)

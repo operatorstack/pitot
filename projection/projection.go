@@ -1,7 +1,8 @@
 // Package projection applies a Consumer's content policy before bytes cross the
 // process boundary. Projection happens at the boundary, not inside downstream
-// applications: a passive Consumer configured for sha256 or omit can never
-// recover the raw payload.
+// applications. SHA256 and Omit withhold raw content from the delivered event,
+// but do not conceal metadata or sandbox the Consumer. Digests permit equality
+// checks and comparison against guesses of predictable content.
 package projection
 
 import (

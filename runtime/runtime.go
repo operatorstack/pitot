@@ -142,14 +142,14 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 	worker, exists := m.controllers[event.Action.Kind]
 	if !exists {
 		if m.requireController {
-			return nil, fmt.Errorf("%w (kind %q)", ErrControllerRequired, event.Action.Kind)
+			return nil, ErrControllerRequired
 		}
-		// Observation-only is a feature; silence about it is not. Name the
+		// Observation-only is a feature; silence about it is not. Report the
 		// degradation once per kind on the operator's channel.
 		m.observedKindsMu.Lock()
 		if _, seen := m.observedKinds[event.Action.Kind]; !seen {
 			m.observedKinds[event.Action.Kind] = struct{}{}
-			fmt.Fprintf(m.stderr, "pitot: kind %q has no controller; observation-only (set require_controller: true or run with --strict to fault instead)\n", event.Action.Kind)
+			fmt.Fprintf(m.stderr, "pitot: action kind has no controller; observation-only (set require_controller: true or run with --strict to fault instead)\n")
 		}
 		m.observedKindsMu.Unlock()
 		return nil, nil
@@ -427,7 +427,8 @@ type consumerWorker struct {
 	stdin      io.WriteCloser
 	startErr   error
 	dead       chan struct{}
-	closeOnce  sync.Once
+	stateMu    sync.Mutex
+	stderr     io.Writer
 }
 
 func newConsumerWorker(ctx context.Context, declared config.ConsumerConfig, stderr io.Writer) *consumerWorker {
@@ -437,6 +438,7 @@ func newConsumerWorker(ctx context.Context, declared config.ConsumerConfig, stde
 		projection: declared.Projection.Content,
 		queue:      make(chan schema.Event, consumerQueueSize),
 		dead:       make(chan struct{}),
+		stderr:     stderr,
 	}
 	for _, event := range declared.Events {
 		worker.events[event] = struct{}{}
@@ -460,7 +462,11 @@ func newConsumerWorker(ctx context.Context, declared config.ConsumerConfig, stde
 	go worker.deliver(ctx)
 	go func() {
 		_ = cmd.Wait()
-		worker.closeOnce.Do(func() { close(worker.dead) })
+		if ctx.Err() == nil {
+			worker.stop("process-exited")
+		} else {
+			worker.stop("")
+		}
 	}()
 	return worker
 }
@@ -473,9 +479,14 @@ func (w *consumerWorker) offer(event schema.Event) error {
 	if err != nil {
 		return err
 	}
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
 	select {
 	case <-w.dead:
 		return errors.New("consumer process is unavailable")
+	default:
+	}
+	select {
 	case w.queue <- projected:
 		return nil
 	default:
@@ -485,13 +496,31 @@ func (w *consumerWorker) offer(event schema.Event) error {
 
 func (w *consumerWorker) deliver(ctx context.Context) {
 	for {
+		if ctx.Err() != nil {
+			w.stop("")
+			return
+		}
 		select {
 		case event := <-w.queue:
+			if ctx.Err() != nil {
+				w.stop("")
+				return
+			}
+			select {
+			case <-w.dead:
+				return
+			default:
+			}
 			if err := protocol.WriteLine(w.stdin, event); err != nil {
-				w.closeOnce.Do(func() { close(w.dead) })
+				if ctx.Err() == nil {
+					w.stop("write-failed")
+				} else {
+					w.stop("")
+				}
 				return
 			}
 		case <-ctx.Done():
+			w.stop("")
 			return
 		case <-w.dead:
 			return
@@ -499,7 +528,25 @@ func (w *consumerWorker) deliver(ctx context.Context) {
 	}
 }
 
+// stop publishes terminal state before reporting it. Neither pipe writes nor
+// diagnostics hold stateMu, so admission cannot wait for a blocked child/sink.
+func (w *consumerWorker) stop(reason string) {
+	w.stateMu.Lock()
+	select {
+	case <-w.dead:
+		w.stateMu.Unlock()
+		return
+	default:
+		close(w.dead)
+	}
+	w.stateMu.Unlock()
+	if reason != "" && w.stderr != nil {
+		fmt.Fprintf(w.stderr, "pitot: consumer %q delivery fault: %s; observation delivery may be incomplete\n", w.id, reason)
+	}
+}
+
 func (w *consumerWorker) close() {
+	w.stop("")
 	if w.stdin != nil {
 		_ = w.stdin.Close()
 	}
@@ -519,6 +566,10 @@ func projectEvent(event schema.Event, mode projection.Mode) (schema.Event, error
 		return copyEvent, nil
 	}
 	if event.Content.Mode != schema.ContentFull || len(event.Content.Full) == 0 {
+		if mode == projection.Omit {
+			copyEvent.Content = &schema.Content{Mode: schema.ContentOmit}
+			return copyEvent, nil
+		}
 		if mode == projection.Mode(event.Content.Mode) {
 			content := *event.Content
 			copyEvent.Content = &content

@@ -21,8 +21,13 @@ func WriteLine(w io.Writer, v any) error {
 	if bytes.ContainsRune(payload, '\n') {
 		return fmt.Errorf("pitot: encoded record contains an embedded newline")
 	}
-	if _, err := w.Write(append(payload, '\n')); err != nil {
+	record := append(payload, '\n')
+	n, err := w.Write(record)
+	if err != nil {
 		return fmt.Errorf("pitot: write line: %w", err)
+	}
+	if n != len(record) {
+		return fmt.Errorf("pitot: write line: %w", io.ErrShortWrite)
 	}
 	return nil
 }
