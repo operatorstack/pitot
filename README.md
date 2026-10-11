@@ -670,7 +670,7 @@ Every event identifies its schema, source, session, and observation quality:
   },
   "content": {
     "mode": "sha256",
-    "sha256": "9f2..."
+    "sha256": "9f2c00a18f8164a5f13127c1c38e48e67d97db8a03ccdc0c7a1cb86842f90d85"
   },
   "observation": {
     "source": "host_hook",
@@ -705,8 +705,44 @@ Controller correlation, timeout and unavailable-default behavior.
 The shared typed-envelope vectors are in
 `conformance/fixtures/envelopes.jsonl`. This admission gate does not enable new
 event delivery capabilities: runtime ingress still accepts only
-`action.requested`. SDK raw-line decoding and generated schema constraints are
-separate conformance boundaries.
+`action.requested`. SDK readers apply the wire contract below before invoking handlers.
+
+## SDK wire contract
+
+The canonical v1 value constraints are published in [schema/v1.json](schema/v1.json).
+Generated SDK types are structural conveniences; the Go, Python, TypeScript and
+Rust runners validate raw input before constructing handler values. Optional
+metadata may be absent, but explicit null is rejected for typed string/object
+fields. Controller-owned `data` may contain any JSON value, including null.
+
+The JSON-Lines transport profile adds constraints that JSON Schema cannot check
+after decoding:
+
+- UTF-8 and Unicode scalar strings, with unique decoded member names in every
+  object, including nested Controller data;
+- one object per LF-delimited record, exact-case envelope fields, and no trailing
+  JSON or unknown envelope/typed-object fields;
+- at most 4 MiB per record, excluding LF (CR counts), and 128 nested containers;
+- token counts spelled as JSON integers, from 0 through 9007199254740991. Decimal
+  and exponent spellings are rejected even when their mathematical value is
+  integral; this preserves typed-reader compatibility and avoids silent rounding.
+
+Blank JSON whitespace lines are ignored. CRLF and a final nonempty record without
+LF are accepted. Malformed and oversized lines are skipped with content-safe
+diagnostics; oversized records are drained so the next valid record can proceed.
+Controller results are validated before stdout, and absent response messages are
+omitted. FIFO handler ordering is preserved, including asynchronous TypeScript.
+Python admission does not depend on assertions and also runs under `python -O`.
+
+The shared raw corpus is [conformance/fixtures/wire.jsonl](conformance/fixtures/wire.jsonl).
+Tests distinguish decoded JSON Schema constraints from transport constraints and
+drive the real runners. Arbitrary Controller data still uses each language's
+native JSON representation: numeric precision/range and absent/null distinctions
+are not made identical by the SDKs. Generated constructors used directly do not
+apply the runner admission gate. The Go API retains platform-sized `int` counters;
+verification and shipped targets are 64-bit, while 32-bit callers have a narrower
+native integer range. The runtime continues to deliver only
+`action.requested` events; accepting `model.usage` in SDKs adds no host capability.
 
 ## Controller guarantees
 

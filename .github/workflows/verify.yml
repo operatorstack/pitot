@@ -91,7 +91,7 @@ jobs:
       - name: Install locked maintenance tools
         run: npm ci --ignore-scripts
       - name: Install pinned Python checks
-        run: python -m pip install -r requirements-format.txt
+        run: python -m pip install -r requirements-format.txt -r requirements-wire.txt
       - name: Check generated SDK stability
         run: npm run generate:check
       - name: Check authored-source correctness

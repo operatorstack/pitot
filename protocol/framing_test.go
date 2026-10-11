@@ -1,9 +1,11 @@
-package protocol
+package protocol_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"github.com/operatorstack/pitot/protocol"
 	"github.com/operatorstack/pitot/schema"
 )
 
@@ -16,14 +18,14 @@ func TestWriteThenDecodeRoundTrips(t *testing.T) {
 		ActionID:     "act_7f2",
 		Outcome:      schema.OutcomeAllow,
 	}
-	if err := WriteLine(&buf, want); err != nil {
+	if err := protocol.WriteLine(&buf, want); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if !bytes.HasSuffix(buf.Bytes(), []byte("\n")) {
 		t.Fatal("record must end with a newline")
 	}
 	var got schema.ControlResponse
-	if err := DecodeLine(buf.Bytes(), &got); err != nil {
+	if err := protocol.DecodeLine(buf.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if got != want {
@@ -32,8 +34,26 @@ func TestWriteThenDecodeRoundTrips(t *testing.T) {
 }
 
 func TestDecodeRejectsTrailingContent(t *testing.T) {
-	var got schema.ControlResponse
-	if err := DecodeLine([]byte(`{"pitot_version":"1"}{"x":1}`), &got); err == nil {
-		t.Fatal("expected trailing content to be rejected")
+	for _, raw := range []string{`{"pitot_version":"1"}{"x":1}`, `{"pitot_version":"1"}}`, `{"pitot_version":"1"}]`} {
+		var got schema.ControlResponse
+		if err := protocol.DecodeLine([]byte(raw), &got); err == nil {
+			t.Fatal("expected trailing content to be rejected")
+		}
+	}
+}
+
+func TestReadFramesDrainsOversizedRecord(t *testing.T) {
+	input := strings.Repeat("x", protocol.MaxFrameBytes+1) + "\n \r\n{}\r\n{}"
+	var values []string
+	rejected := 0
+	err := protocol.ReadFrames(strings.NewReader(input), func(raw []byte, err error) {
+		if err != nil {
+			rejected++
+			return
+		}
+		values = append(values, string(raw))
+	})
+	if err != nil || rejected != 1 || len(values) != 2 || values[0] != "{}\r" || values[1] != "{}" {
+		t.Fatalf("err=%v, rejected=%d, values=%v", err, rejected, values)
 	}
 }

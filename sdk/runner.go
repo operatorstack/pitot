@@ -1,29 +1,28 @@
 package sdk
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"unicode/utf8"
 
+	"github.com/operatorstack/pitot/protocol"
 	"github.com/operatorstack/pitot/schema"
 )
 
 type ConsumerHandler func(event schema.Event)
 
 func RunConsumer(handler ConsumerHandler) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	err := protocol.ReadFrames(os.Stdin, func(line []byte, frameErr error) {
 		var event schema.Event
-		if err := json.Unmarshal(line, &event); err != nil {
-			fmt.Fprintf(os.Stderr, "Pitot Consumer error: %v\n", err)
-			continue
+		if frameErr != nil || schema.DecodeEnvelope(line, &event) != nil {
+			fmt.Fprintln(os.Stderr, "Pitot Consumer error: invalid envelope")
+			return
 		}
 		handler(event)
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Pitot Consumer error: input unavailable")
 	}
 }
 
@@ -43,18 +42,12 @@ func Deny(message string) Outcome {
 type ControllerHandler func(req schema.ControlRequested) Outcome
 
 func RunController(controllerID string, handler ControllerHandler) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	err := protocol.ReadFrames(os.Stdin, func(line []byte, frameErr error) {
 		var req schema.ControlRequested
-		if err := json.Unmarshal(line, &req); err != nil {
-			fmt.Fprintf(os.Stderr, "Pitot Controller error: %v\n", err)
-			continue
+		if frameErr != nil || schema.DecodeEnvelope(line, &req) != nil {
+			fmt.Fprintln(os.Stderr, "Pitot Controller error: invalid envelope")
+			return
 		}
-
 		result := handler(req)
 
 		resp := schema.ControlResponse{
@@ -65,9 +58,21 @@ func RunController(controllerID string, handler ControllerHandler) {
 			Outcome:      result.Outcome,
 			Message:      result.Message,
 		}
-
-		if err := json.NewEncoder(os.Stdout).Encode(resp); err != nil {
-			fmt.Fprintf(os.Stderr, "Pitot Controller error: %v\n", err)
+		if schema.ValidateResponse(resp) != nil || !utf8.ValidString(resp.Message) || !utf8.ValidString(controllerID) {
+			fmt.Fprintln(os.Stderr, "Pitot Controller error: invalid response")
+			return
 		}
+
+		encoded, err := json.Marshal(resp)
+		if err != nil || len(encoded) > protocol.MaxFrameBytes {
+			fmt.Fprintln(os.Stderr, "Pitot Controller error: invalid response")
+			return
+		}
+		if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
+			fmt.Fprintln(os.Stderr, "Pitot Controller error: output unavailable")
+		}
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Pitot Controller error: input unavailable")
 	}
 }
