@@ -1,0 +1,124 @@
+name: Pitot E2E reusable agent check
+
+on:
+  workflow_call:
+    inputs:
+      agent:
+        description: Supported Pitot coding-agent host
+        required: true
+        type: string
+      platform:
+        description: Canonical Pitot platform identifier
+        required: true
+        type: string
+      runner:
+        description: GitHub-hosted runner selected by the supervisor
+        required: true
+        type: string
+      capture:
+        description: Emit a redacted binary-observed candidate fixture
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: ${{ inputs.agent }} (${{ inputs.platform }})
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Enable supported Cursor WSL runtime
+        if: inputs.agent == 'cursor' && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          wsl.exe --status
+          if (-not ((wsl.exe --list --quiet) -replace "`0", "" | Where-Object { $_.Trim() -eq "Ubuntu" })) {
+            wsl.exe --install --distribution Ubuntu --no-launch --web-download
+          }
+          $installScript = @'
+            set -euo pipefail
+            node_version=22.23.1
+            archive="node-v${node_version}-linux-x64.tar.xz"
+            curl -fsSLO "https://nodejs.org/dist/v${node_version}/${archive}"
+            curl -fsSLO "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
+            grep " ${archive}$" SHASUMS256.txt | sha256sum --check --strict
+            tar -xJf "${archive}" -C /usr/local --strip-components=1
+            test "$(node --version)" = "v${node_version}"
+            uname -a
+            command -v python3
+          '@
+          $installPath = Join-Path $env:RUNNER_TEMP "pitot-install-wsl-node.sh"
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($installPath, ($installScript -replace "`r`n", "`n"), $utf8NoBom)
+          $drive = $installPath.Substring(0, 1).ToLowerInvariant()
+          $tail = $installPath.Substring(2).Replace("\", "/")
+          $wslInstallPath = "/mnt/$drive$tail"
+          wsl.exe --distribution Ubuntu -- bash $wslInstallPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Resolve Bash runtime
+        shell: bash
+        run: |
+          bash_path="$(command -v bash)"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            bash_path="$(cygpath -m "$bash_path")"
+          fi
+          echo "PITOT_BASH=$bash_path" >> "$GITHUB_ENV"
+      - name: Install and attest pinned real agent
+        timeout-minutes: 5
+        shell: bash
+        run: >-
+          python3 tests/install_real_agent.py
+          --agent "${{ inputs.agent }}"
+          --platform "${{ inputs.platform }}"
+          --output "${{ runner.temp }}/pitot-e2e/install.json"
+      - name: Run ${{ inputs.agent }} E2E
+        id: e2e
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        env:
+          PITOT_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PITOT_E2E_PLATFORM: ${{ inputs.platform }}
+          PITOT_INSTALL_RECEIPT: ${{ runner.temp }}/pitot-e2e/install.json
+          PITOT_E2E_EVIDENCE: ${{ runner.temp }}/pitot-e2e/evidence.json
+          PITOT_CAPTURE_OUTPUT: ${{ inputs.capture && format('{0}/pitot-e2e/capture.json', runner.temp) || '' }}
+        run: >-
+          python tests/run_e2e_report.py
+          --agent "${{ inputs.agent }}"
+          --platform "${{ inputs.platform }}"
+          --output "${{ runner.temp }}/pitot-e2e/result.json"
+          --evidence "${{ runner.temp }}/pitot-e2e/evidence.json"
+          -- "$PITOT_BASH" "tests/e2e_${{ inputs.agent }}_cli_test.sh"
+          < /dev/null
+      - name: Upload structured E2E result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitot-e2e-${{ inputs.agent }}-${{ inputs.platform }}
+          path: ${{ runner.temp }}/pitot-e2e/result.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload endpoint provenance candidate
+        if: always() && inputs.capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}
+          path: ${{ runner.temp }}/pitot-e2e/capture.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce E2E result
+        if: always() && steps.e2e.outcome != 'success'
+        shell: bash
+        run: exit 1

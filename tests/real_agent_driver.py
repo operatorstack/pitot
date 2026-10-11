@@ -20,7 +20,7 @@ import urllib.parse
 
 
 LAB = Path(__file__).resolve().parent.parent
-ROOT = LAB.parents[1] if LAB.name == "15-pitot" else LAB
+ROOT = LAB
 MANIFEST = json.loads((LAB / "adapter-verification.json").read_text(encoding="utf-8"))
 ENDPOINT_PROVENANCE = json.loads((LAB / "tests/endpoint-provenance.json").read_text(encoding="utf-8"))
 
@@ -177,6 +177,9 @@ def configure(
         # model inference is still supplied only by the pinned local endpoint.
         env["CURSOR_AGENT_CLI_AUTHLESS_MODE"] = "true"
         env["CURSOR_AUTH_TOKEN"] = "pitot-local-only"
+        # The pinned CLI supports an in-memory store for this synthetic token.
+        # Endpoint/hook tests must not depend on or modify an OS login keychain.
+        env["AGENT_CLI_CREDENTIAL_STORE"] = "memory"
         prompt_flag = ["--endpoint", proxy, "--print", "--force"]
     elif agent == "gemini":
         hooks = home / ".gemini/hooks"
@@ -264,23 +267,6 @@ def configure(
     else:
         raise ValueError(f"unsupported agent {agent}")
     return prompt_flag, env
-
-
-def prepare_cursor_keychain(home: Path, environment: dict[str, str]) -> None:
-    """Provide Cursor an isolated unlocked macOS credential store."""
-    if sys.platform != "darwin":
-        return
-    keychain = home / "Library/Keychains/login.keychain-db"
-    keychain.parent.mkdir(parents=True, exist_ok=True)
-    password = "pitot-e2e-local-only"
-    for command in (
-        ["security", "create-keychain", "-p", password, str(keychain)],
-        ["security", "set-keychain-settings", "-lut", "900", str(keychain)],
-        ["security", "unlock-keychain", "-p", password, str(keychain)],
-        ["security", "list-keychains", "-d", "user", "-s", str(keychain)],
-        ["security", "default-keychain", "-d", "user", "-s", str(keychain)],
-    ):
-        subprocess.run(command, env=environment, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
 def capture_record(agent: dict[str, object], platform: str, installation: dict[str, object], proxy: dict[str, object]) -> dict[str, object]:
@@ -584,8 +570,6 @@ def main() -> int:
             )
             environment = {**os.environ, **extra_env, "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""), "PITOT_REAL_BIN": str(args.pitot.resolve()), "PITOT_WITNESS_RECEIPT": str(witness_receipt), "PITOT_E2E_NONCE": nonce, "PITOT_RUNTIME": str(runtime_descriptor)}
             executable = installation["executable"]
-            if args.agent == "cursor" and not host_controls_wsl:
-                prepare_cursor_keychain(home, environment)
             if host_controls_wsl:
                 wsl_environment = {
                     **extra_env,

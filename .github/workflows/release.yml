@@ -1,11 +1,5 @@
-# pitot release — rendered by distribution/render.mjs; hand-install into operatorstack/pitot's
-# .github/workflows/ (control plane can't be projected). Builds prebuilt binaries + bindings and
-# publishes them to GCP Artifact Registry (fronted by get.operatorstack.systems). No GitHub Releases.
-#
-# The AR project/location/repos come from repo VARIABLES (not hardcoded) so the private project id
-# never lands in public source. Set on operatorstack/pitot:
-#   vars: WIF_PROVIDER, DEPLOYER_SA_EMAIL (the pkg-deployer SA),
-#         AR_PROJECT, AR_LOCATION, AR_GENERIC_REPO, AR_NPM_REPO, AR_PYTHON_REPO
+# Builds prebuilt binaries and bindings from this repository and publishes
+# to Artifact Registry. Repository variables configure the existing release target.
 name: release-pitot
 
 on:

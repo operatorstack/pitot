@@ -12,10 +12,7 @@ fi
 : "${PITOT_E2E_EVIDENCE:?PITOT_E2E_EVIDENCE is required}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAB_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PITOT_MAIN="$LAB_DIR/pitot/cmd/pitot"
-if [[ ! -d "$PITOT_MAIN" ]]; then
-  PITOT_MAIN="$LAB_DIR/cmd/pitot"
-fi
+PITOT_MAIN="$LAB_DIR/cmd/pitot"
 
 BUILD_DIR="${RUNNER_TEMP:-$(mktemp -d)}/pitot-real-e2e-bin"
 mkdir -p "$BUILD_DIR"
@@ -39,11 +36,11 @@ fi
 if [[ "${RUNNER_OS:-}" == "Windows" && "$HOST" == "cursor" ]]; then
   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$PITOT_BINARY" "$PITOT_MAIN"
   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$WITNESS_BINARY" "$SCRIPT_DIR/witness/main.go"
-  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$TESTROLE_BINARY" "$LAB_DIR/pitot/internal/testrole"
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$TESTROLE_BINARY" "$LAB_DIR/internal/testrole"
 else
   go build -o "$PITOT_BINARY" "$PITOT_MAIN"
   go build -o "$WITNESS_BINARY" "$SCRIPT_DIR/witness/main.go"
-  go build -o "$TESTROLE_BINARY" "$LAB_DIR/pitot/internal/testrole"
+  go build -o "$TESTROLE_BINARY" "$LAB_DIR/internal/testrole"
 fi
 
 DRIVER_ARGS=(

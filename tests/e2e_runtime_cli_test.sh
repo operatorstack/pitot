@@ -13,8 +13,8 @@ if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
   PITOT_BINARY="${PITOT_BINARY}.exe"
   TESTROLE_BINARY="${TESTROLE_BINARY}.exe"
 fi
-go build -o "$PITOT_BINARY" "$LAB_DIR/pitot/cmd/pitot"
-go build -o "$TESTROLE_BINARY" "$LAB_DIR/pitot/internal/testrole"
+go build -o "$PITOT_BINARY" "$LAB_DIR/cmd/pitot"
+go build -o "$TESTROLE_BINARY" "$LAB_DIR/internal/testrole"
 PYTHON_COMMAND="python3"
 if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
   PYTHON_COMMAND="python"

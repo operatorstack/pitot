@@ -13,7 +13,7 @@ import sys
 
 
 LAB = Path(__file__).resolve().parent.parent
-ROOT = LAB.parents[1] if LAB.name == "15-pitot" else LAB
+ROOT = LAB
 MANIFEST = json.loads((LAB / "adapter-verification.json").read_text(encoding="utf-8"))
 AGENTS = {agent["id"] for agent in MANIFEST["agents"]}
 AGENT_RECORDS = {agent["id"]: agent for agent in MANIFEST["agents"]}

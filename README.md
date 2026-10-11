@@ -8,7 +8,7 @@
 
 <!-- pitot-adapter-supervisor:start -->
 <p align="center">
-  <a href="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/intelligence-flow/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/operatorstack/pitot/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/pitot/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>
 </p>
 
 <p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real action boundary → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>

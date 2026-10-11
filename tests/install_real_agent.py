@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform as host_platform
+import re
 import shutil
 import subprocess
 import tarfile
@@ -18,7 +19,7 @@ import zipfile
 
 
 LAB = Path(__file__).resolve().parent.parent
-ROOT = LAB.parents[1] if LAB.name == "15-pitot" else LAB
+ROOT = LAB
 MANIFEST = json.loads((LAB / "adapter-verification.json").read_text(encoding="utf-8"))
 
 
@@ -30,6 +31,33 @@ def npm_executable() -> str:
     """Resolve npm's platform launcher instead of relying on PATHEXT in Python."""
     name = "npm.cmd" if os.name == "nt" else "npm"
     return shutil.which(name) or name
+
+
+def install_kimi_macos(package: str, version: str) -> None:
+    machine = host_platform.machine().lower()
+    arch = "arm64" if machine in {"arm64", "aarch64"} else "x64"
+    base = f"{package}/binaries/{version}"
+    with urllib.request.urlopen(f"{base}/manifest.json", timeout=30) as response:
+        manifest = json.loads(response.read())
+    if manifest.get("version") != version:
+        raise RuntimeError("Kimi release manifest version does not match the supervised pin")
+    release = manifest["platforms"][f"darwin-{arch}"]
+    filename = f"kimi-code-darwin-{arch}"
+    if release.get("filename") != filename or not re.fullmatch(r"[0-9a-f]{64}", release.get("checksum", "")):
+        raise RuntimeError("Kimi release manifest has an invalid binary identity")
+    destination = Path.home() / ".local/bin"
+    destination.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destination) as directory:
+        binary = Path(directory) / "kimi"
+        archive = Path(directory) / "kimi.zip"
+        url = f"https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai/kimi-code%40{version}/{filename}.zip"
+        run(["curl", "-fsSL", "--connect-timeout", "20", "--max-time", "120", url, "-o", str(archive)])
+        with zipfile.ZipFile(archive) as bundle:
+            binary.write_bytes(bundle.read("kimi"))
+        if hashlib.sha256(binary.read_bytes()).hexdigest() != release["checksum"]:
+            raise RuntimeError("Kimi release checksum mismatch")
+        binary.chmod(0o755)
+        binary.replace(destination / "kimi")
 
 
 def install(agent: dict[str, object], platform: str, runtime: str) -> None:
@@ -53,7 +81,9 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
     if kind == "npm":
         run([npm_executable(), "install", "--global", "--ignore-scripts=false", f"{package}@{version}"])
     elif kind == "kimi_release":
-        if platform == "windows":
+        if platform == "macos":
+            install_kimi_macos(package, version)
+        elif platform == "windows":
             # Use the native Kimi Code installer. The legacy /install.ps1
             # endpoint installs the unrelated Python kimi-cli and ignores the
             # KIMI_VERSION contract used by the released Kimi Code binary.

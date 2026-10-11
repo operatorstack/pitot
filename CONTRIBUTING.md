@@ -72,3 +72,24 @@ python3 scripts/pitot_adapter_supervisor.py check
 The merge refuses partial, duplicate, mixed-version, unsuccessful, or
 fabricated captures. Review the redacted 30-cell wire diff before committing
 it; ordinary CI verifies the committed fixtures and never rewrites them.
+
+## Repository ownership
+
+This repository owns Pitot source, maintenance tooling, CI, and releases.
+`UPSTREAM.json` records the historical import; it is not an active sync contract.
+Changes are made directly here.
+
+Maintenance commands run from this repository root:
+
+```bash
+bash scripts/check_import_boundary.sh
+bash scripts/generate_types.sh
+python3 scripts/pitot_adapter_supervisor.py render
+python3 scripts/pitot_adapter_supervisor.py check
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 -m unittest discover -s sdk/tests -p 'test_*.py'
+```
+
+The Verify workflow installs the Go, Python, Node, and Rust toolchains for these
+checks. Pitot E2E verifies real pinned agents across the supported platforms.
+The release workflow continues using the existing repository variables.
