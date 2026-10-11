@@ -17,6 +17,76 @@ AGENTS = {agent["id"]: agent for agent in CATALOG["agents"]}
 
 
 class VersionAdmissionTests(unittest.TestCase):
+    def test_copilot_extraction_diagnostic_is_retained_without_changing_identity(self):
+        agent = AGENTS["copilot"]
+        output = (
+            f"GitHub Copilot CLI {agent['version']}.\n"
+            "Run 'copilot update' to check for updates.\n"
+        )
+        warning = b"Package extraction took 6148ms\n"
+        with (
+            mock.patch.object(identity, "entrypoint_digest", return_value="a" * 64),
+            mock.patch.object(
+                identity.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, output.encode(), warning
+                ),
+            ),
+            mock.patch.object(identity.sys, "stderr") as stream,
+        ):
+            self.assertEqual(
+                identity.probe_version(agent, "/owned", "native"),
+                (output, "a" * 64),
+            )
+            stream.buffer.write.assert_called_once_with(warning)
+            stream.buffer.flush.assert_called_once_with()
+
+    def test_extraction_diagnostic_does_not_bypass_other_identity_guards(self):
+        agent = AGENTS["copilot"]
+        warning = b"Package extraction took 6148ms\n"
+        for output, digests in [
+            (b"GitHub Copilot CLI 0.0.0.\n", ["a" * 64]),
+            (
+                f"GitHub Copilot CLI {agent['version']}.\n"
+                "Run 'copilot update' to check for updates.\n".encode(),
+                ["a" * 64, "b" * 64],
+            ),
+        ]:
+            with (
+                mock.patch.object(identity, "entrypoint_digest", side_effect=digests),
+                mock.patch.object(
+                    identity.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, output, warning),
+                ),
+                mock.patch.object(identity.sys, "stderr") as stream,
+                self.assertRaises(RuntimeError),
+            ):
+                identity.probe_version(agent, "/owned", "native")
+            stream.buffer.write.assert_not_called()
+
+    def test_extraction_diagnostic_has_a_closed_agent_and_output_shape(self):
+        for product in AGENTS:
+            self.assertTrue(identity.stderr_matches(AGENTS[product], ""))
+            self.assertEqual(
+                identity.stderr_matches(
+                    AGENTS[product], "Package extraction took 5001ms\n"
+                ),
+                product == "copilot",
+            )
+        self.assertFalse(identity.stderr_matches({"id": "unknown"}, ""))
+        for error in [
+            "Package extraction took 5000ms\n",
+            "Package extraction took 06148ms\n",
+            "Package extraction took 6148ms\r\n",
+            "Package extraction took 6148ms",
+            "Package extraction took 6148ms\nError extracting bundled package: bad\n",
+            "Error extracting bundled package: bad\n",
+        ]:
+            with self.subTest(error=error):
+                self.assertFalse(identity.stderr_matches(AGENTS["copilot"], error))
+
     def test_complete_product_banners(self):
         for product, agent in AGENTS.items():
             pin = agent["version"]
