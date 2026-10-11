@@ -29,6 +29,8 @@ jobs:
     runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -94,6 +96,7 @@ jobs:
           PITOT_INSTALL_RECEIPT: ${{ runner.temp }}/pitot-e2e/install.json
           PITOT_E2E_EVIDENCE: ${{ runner.temp }}/pitot-e2e/evidence.json
           PITOT_CAPTURE_OUTPUT: ${{ inputs.capture && format('{0}/pitot-e2e/capture.json', runner.temp) || '' }}
+          PITOT_CAPTURE_CHECK_RUN_ID: ${{ job.check_run_id }}
         run: >-
           python tests/run_e2e_report.py
           --agent "${{ inputs.agent }}"
@@ -114,8 +117,10 @@ jobs:
         if: always() && inputs.capture
         uses: actions/upload-artifact@v4
         with:
-          name: pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}
-          path: ${{ runner.temp }}/pitot-e2e/capture.json
+          name: pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}-${{ github.run_attempt }}-${{ job.check_run_id }}
+          path: |
+            ${{ runner.temp }}/pitot-e2e/capture.json
+            ${{ runner.temp }}/pitot-e2e/result.json
           if-no-files-found: error
           retention-days: 14
       - name: Enforce E2E result

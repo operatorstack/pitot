@@ -129,19 +129,40 @@ scope; this check does not upgrade their identity evidence.
 
 Protocol documentation is not a verification authority. When a pinned agent
 version changes, dispatch the existing **Pitot E2E** workflow with
-`capture_provenance=true`. Download all `pitot-endpoint-capture-*` artifacts,
-then merge the complete set locally:
+`capture_provenance=true` on the reviewed producer commit. Wait for the entire
+workflow to succeed, then select that exact run and source commit explicitly:
 
 ```bash
 python3 scripts/pitot_adapter_supervisor.py capture-merge \
-  --captures /path/to/downloaded-artifacts \
+  --repository operatorstack/pitot \
+  --run-id RUN_ID \
+  --source-sha FULL_REVIEWED_COMMIT_SHA \
   --output tests/endpoint-provenance.json
 python3 scripts/pitot_adapter_supervisor.py check
 ```
 
-The merge refuses partial, duplicate, mixed-version, unsuccessful, or
-fabricated captures. Review the redacted 30-cell wire diff before committing
-it; ordinary CI verifies the committed fixtures and never rewrites them.
+The merger uses `GITHUB_TOKEN` or your authenticated GitHub CLI session. It
+fetches the source files, current-attempt jobs and artifact metadata through
+GitHub, checks downloaded archive digests, and correlates each passing result
+with its capture and successful agent/platform job. All cells must come from
+the selected current attempt; a partial rerun cannot borrow earlier cells.
+Local JSON files cannot authorize a capture refresh. Acquisition or validation
+failure preserves the accepted file; success replaces it atomically.
+
+The new schema3 record keeps wire cells and their hash meaning, and adds an
+inline index of the source run, job/check-run IDs and artifact digests. Review
+the redacted wire diff and source index before committing. Ordinary CI checks
+the committed record's consistency and never rewrites it. Historical schema2
+captures remain readable at their original scope and gain no retrospective
+source authentication.
+
+Source acquisition trusts GitHub and the reviewed producer workflow on its
+runner. Artifact metadata does not cryptographically attest the producing
+job: the job association also depends on that workflow's unique artifact names
+and host-assigned check-run context. This does not authenticate agent
+publishers or every program loaded by an agent. A copied source index cannot
+authenticate itself; fresh acquisition requires the selected run to remain
+available through GitHub.
 
 ## Repository ownership
 

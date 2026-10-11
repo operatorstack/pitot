@@ -55,6 +55,7 @@ def validate_result(
     platform: str,
     expected_sha: str | None = None,
     expected_run_url: str | None = None,
+    capture_fixture: dict[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError("result must be an object")
@@ -82,7 +83,8 @@ def validate_result(
     if set(value) != required:
         raise ValueError("result fields do not match schema")
     if (
-        value["schema_version"] != 2
+        type(value["schema_version"]) is not int
+        or value["schema_version"] != 2
         or value["agent"] != agent
         or value["platform"] != platform
     ):
@@ -133,11 +135,17 @@ def validate_result(
             or cli["runtime"] != record["runtime"][platform]
         ):
             raise ValueError("CLI receipt does not match supervised manifest")
+        if not all(
+            isinstance(item, str) and item and "\0" not in item for item in cli.values()
+        ):
+            raise ValueError("invalid CLI receipt values")
         cells = [
             cell
             for cell in ENDPOINT_PROVENANCE["cells"]
             if cell["agent"] == agent and cell["platform"] == platform
         ]
+        if capture_fixture is not None:
+            cells = [capture_fixture]
         if len(cells) != 1:
             raise ValueError("missing supervised platform provenance")
         fixture = cells[0]
@@ -151,7 +159,9 @@ def validate_result(
         if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
             raise ValueError("invalid session nonce")
         expected_endpoint = {
-            "fixture": f"tests/endpoint-provenance.json#{agent}/{platform}",
+            "fixture": "candidate"
+            if capture_fixture is not None
+            else f"tests/endpoint-provenance.json#{agent}/{platform}",
             "fixture_sha256": fixture["capture_sha256"],
             "provenance": "pinned_real_cli_capture",
             "dialect": fixture["dialect"],
@@ -188,6 +198,7 @@ def validate_result(
         if (
             not isinstance(boundaries, list)
             or len(boundaries) != 2
+            or any(not isinstance(item, dict) for item in boundaries)
             or [item.get("decision") for item in boundaries] != ["allow", "deny"]
             or any(
                 item.get("host") != agent
@@ -199,6 +210,10 @@ def validate_result(
         ):
             raise ValueError("invalid Pitot allow/deny boundary receipts")
         action_ids = [item.get("action_id") for item in boundaries]
+        if any(
+            not isinstance(item, str) or not item or "\0" in item for item in action_ids
+        ):
+            raise ValueError("invalid action IDs")
         if len(set(action_ids)) != 2 or value["controller"] != {
             "id": "e2e-shell-controller",
             "action_ids": action_ids,
@@ -214,6 +229,8 @@ def validate_result(
         canary = value["canary"]
         if (
             not isinstance(canary, dict)
+            or set(canary) != {"denied_executions", "executions"}
+            or type(canary.get("denied_executions")) is not int
             or canary.get("denied_executions") != 0
             or canary.get("executions") != [f"PITOT_ALLOW {nonce}"]
         ):
@@ -223,7 +240,17 @@ def validate_result(
             not isinstance(runtime, dict)
             or set(runtime)
             != {"schema_version", "instance_id", "pid", "endpoint", "config_sha256"}
+            or type(runtime["schema_version"]) is not int
             or runtime["schema_version"] != 1
+            or type(runtime["pid"]) is not int
+            or runtime["pid"] <= 0
+            or not all(
+                isinstance(runtime[key], str)
+                and runtime[key]
+                and "\0" not in runtime[key]
+                for key in ("instance_id", "endpoint", "config_sha256")
+            )
+            or re.fullmatch(r"[0-9a-f]{64}", runtime["config_sha256"]) is None
         ):
             raise ValueError("invalid authenticated runtime receipt")
     if not isinstance(value["commit_sha"], str) or not re.fullmatch(
@@ -475,8 +502,11 @@ class GitHub:
                 "User-Agent": "pitot-e2e-reporter",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read(MAX_ARTIFACT_BYTES)
+        opener = urllib.request.build_opener(ArtifactRedirectHandler())
+        with opener.open(request, timeout=30) as response:
+            body = response.read(MAX_ARTIFACT_BYTES + 1)
+        if len(body) > MAX_ARTIFACT_BYTES:
+            raise ValueError("GitHub response exceeds size limit")
         return json.loads(body) if body else {}
 
     def download(self, url: str) -> bytes:

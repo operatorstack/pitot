@@ -287,6 +287,12 @@ def main() -> int:
             args.platform, completed.returncode, completed.stdout, args.evidence
         )
     )
+    capture_path = os.environ.get("PITOT_CAPTURE_OUTPUT")
+    if args.agent and capture_path and result["status"] == "pass":
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from pitot_capture_source import seal_capture
+
+        seal_capture(Path(capture_path), result, ROOT, dict(os.environ))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
