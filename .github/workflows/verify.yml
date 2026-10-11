@@ -37,6 +37,11 @@ jobs:
         env:
           GOWORK: "off"
         run: go test -race ./runtime
+      - name: Check startup readiness concurrency
+        if: runner.os == 'Linux'
+        env:
+          GOWORK: "off"
+        run: go test -race ./cmd/pitot -run '^TestRuntimeReadiness'
       - name: Build reference executable
         env:
           GOWORK: "off"
