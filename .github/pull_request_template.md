@@ -17,8 +17,8 @@
 <!-- Use observed results. Mark checks still pending; do not treat an expected result as an observation. Link CI or describe reproducible checks. -->
 
 | Scenario or check | Expected result | Observed result |
-| --- | --- | --- |
-| | | |
+| ----------------- | --------------- | --------------- |
+|                   |                 |                 |
 
 ## Failure and recovery
 

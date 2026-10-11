@@ -33,23 +33,27 @@ def go_module_dir() -> Path | None:
 
 
 def control_request(action_id: str) -> str:
-    return json.dumps({
-        "pitot_version": "1",
-        "type": "control.requested",
-        "kind": "test.approval",
-        "action_id": action_id,
-        "data": {"test_field": "value"},
-    })
+    return json.dumps(
+        {
+            "pitot_version": "1",
+            "type": "control.requested",
+            "kind": "test.approval",
+            "action_id": action_id,
+            "data": {"test_field": "value"},
+        }
+    )
 
 
 def action_event(action_id: str) -> str:
-    return json.dumps({
-        "pitot_version": "1",
-        "type": "action.requested",
-        "host": {"name": "test-host"},
-        "observation": {"fidelity": "full", "source": "test"},
-        "action": {"id": action_id, "kind": "shell"},
-    })
+    return json.dumps(
+        {
+            "pitot_version": "1",
+            "type": "action.requested",
+            "host": {"name": "test-host"},
+            "observation": {"fidelity": "full", "source": "test"},
+            "action": {"id": action_id, "kind": "shell"},
+        }
+    )
 
 
 def run_lines(command, cwd, env, lines):
@@ -196,27 +200,46 @@ class RunnerContract:
     def test_controller_stream_preserves_order(self):
         cmd, cwd, env = self.controller_command()
         ids = ["act_1", "act_2", "act_3"]
-        code, stdout, stderr = run_lines(cmd, cwd, env, [control_request(i) for i in ids])
+        code, stdout, stderr = run_lines(
+            cmd, cwd, env, [control_request(i) for i in ids]
+        )
         self.assertEqual(code, 0, f"{self.language}: process failed: {stderr}")
         lines = [l for l in stdout.strip().split("\n") if l]
-        self.assertEqual(len(lines), len(ids), f"{self.language}: expected one response per request:\n{stdout}\n{stderr}")
+        self.assertEqual(
+            len(lines),
+            len(ids),
+            f"{self.language}: expected one response per request:\n{stdout}\n{stderr}",
+        )
         for expected, raw in zip(ids, lines):
             resp = json.loads(raw)
             self.assertEqual(resp["pitot_version"], "1")
             self.assertEqual(resp["type"], "control.response")
             self.assertEqual(resp["controller_id"], "test-controller")
-            self.assertEqual(resp["action_id"], expected, f"{self.language}: responses out of order")
+            self.assertEqual(
+                resp["action_id"], expected, f"{self.language}: responses out of order"
+            )
             self.assertEqual(resp["outcome"], "allow")
             self.assertEqual(resp["message"], "test approved")
 
     def test_controller_skips_malformed_line(self):
         cmd, cwd, env = self.controller_command()
-        lines = [control_request("act_1"), "{ this is not valid json", control_request("act_2")]
+        lines = [
+            control_request("act_1"),
+            "{ this is not valid json",
+            control_request("act_2"),
+        ]
         code, stdout, stderr = run_lines(cmd, cwd, env, lines)
-        self.assertEqual(code, 0, f"{self.language}: malformed input must not crash the runner: {stderr}")
+        self.assertEqual(
+            code,
+            0,
+            f"{self.language}: malformed input must not crash the runner: {stderr}",
+        )
         responses = [json.loads(l) for l in stdout.strip().split("\n") if l]
-        self.assertEqual([r["action_id"] for r in responses], ["act_1", "act_2"],
-                         f"{self.language}: malformed line should be skipped, not emit a response:\n{stdout}")
+        self.assertEqual(
+            [r["action_id"] for r in responses],
+            ["act_1", "act_2"],
+            f"{self.language}: malformed line should be skipped, not emit a response:\n{stdout}",
+        )
 
     def test_controller_deny(self):
         cmd, cwd, env = self.controller_command()
@@ -233,10 +256,20 @@ class RunnerContract:
 
     def test_consumer_stream_keeps_stdout_clean(self):
         cmd, cwd, env = self.consumer_command()
-        code, stdout, stderr = run_lines(cmd, cwd, env, [action_event("act_1"), action_event("act_2")])
+        code, stdout, stderr = run_lines(
+            cmd, cwd, env, [action_event("act_1"), action_event("act_2")]
+        )
         self.assertEqual(code, 0, f"{self.language}: {stderr}")
-        self.assertEqual(stdout.strip(), "", f"{self.language}: consumer must not write to stdout:\n{stdout}")
-        self.assertEqual(stderr.count("consumed"), 2, f"{self.language}: expected two delivered events:\n{stderr}")
+        self.assertEqual(
+            stdout.strip(),
+            "",
+            f"{self.language}: consumer must not write to stdout:\n{stdout}",
+        )
+        self.assertEqual(
+            stderr.count("consumed"),
+            2,
+            f"{self.language}: expected two delivered events:\n{stderr}",
+        )
 
 
 def write_fixture(name: str, contents: str) -> Path:
@@ -319,11 +352,16 @@ class TestRustRunner(RunnerContract, unittest.TestCase):
         (project / "src").mkdir(parents=True)
         (project / "src" / "main.rs").write_text(contents)
         (project / "Cargo.toml").write_text(
-            "[package]\nname = \"conf\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n"
-            f"[dependencies]\npitot = {{ path = \"{crate}\" }}\n"
+            '[package]\nname = "conf"\nversion = "0.0.0"\nedition = "2021"\n\n'
+            f'[dependencies]\npitot = {{ path = "{crate}" }}\n'
         )
-        build = subprocess.run(["cargo", "build", "--quiet"], cwd=str(project),
-                               capture_output=True, text=True, timeout=300)
+        build = subprocess.run(
+            ["cargo", "build", "--quiet"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
         if build.returncode != 0:
             self.fail(f"rust build failed: {build.stderr}")
         return project / "target" / "debug" / "conf"

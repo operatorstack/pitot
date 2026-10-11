@@ -37,10 +37,14 @@ def envelope(payload: bytes, flags: int = 0) -> bytes:
 
 
 def tool_response(call_id: str, command: str) -> bytes:
-    call = field_string(1, call_id) + field_string(2, "exec") + field_string(
-        3, json.dumps({"command": command}, separators=(",", ":"))
+    call = (
+        field_string(1, call_id)
+        + field_string(2, "exec")
+        + field_string(3, json.dumps({"command": command}, separators=(",", ":")))
     )
-    message = field_string(1, f"msg-{call_id}") + field_enum(5, 10) + field_bytes(6, call)
+    message = (
+        field_string(1, f"msg-{call_id}") + field_enum(5, 10) + field_bytes(6, call)
+    )
     return envelope(message) + envelope(b"{}", 2)
 
 
@@ -68,6 +72,7 @@ def main() -> int:
         with log_lock, open(args.request_log, "a", encoding="utf-8") as fh:
             fh.write(f"{time.time():.6f} {line}\n")
             fh.flush()
+
     allow_id = f"pitot_tool_allow_{args.nonce}"
     deny_id = f"pitot_tool_deny_{args.nonce}"
     receipt: dict[str, object] = {
@@ -97,7 +102,9 @@ def main() -> int:
         with receipt_lock:
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             temporary = args.receipt.with_suffix(f".{threading.get_ident()}.tmp")
-            temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            temporary.write_text(
+                json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
             temporary.replace(args.receipt)
 
     class Handler(BaseHTTPRequestHandler):
@@ -154,7 +161,9 @@ def main() -> int:
             )
             raw = self._read_body()
             path = self.path.split("?", 1)[0]
-            content_type = self.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            content_type = (
+                self.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            )
             if not path.endswith("/GetChatMessage"):
                 receipt["auxiliary_requests"] = int(receipt["auxiliary_requests"]) + 1
                 save()
@@ -170,7 +179,9 @@ def main() -> int:
 
             lowered = raw.lower()
             is_title = b"session title generator" in lowered
-            allow_result = f"PITOT_CANARY_RESULT PITOT_ALLOW {args.nonce}".encode() in raw
+            allow_result = (
+                f"PITOT_CANARY_RESULT PITOT_ALLOW {args.nonce}".encode() in raw
+            )
             denied_result = deny_id.encode() in raw and any(
                 marker in lowered for marker in (b"reject", b"denied", b"permission")
             )
@@ -219,7 +230,8 @@ def main() -> int:
                     "allow_result": allow_result,
                     "deny_call_id": deny_id.encode() in raw,
                     "rejection_marker": any(
-                        marker in lowered for marker in (b"reject", b"denied", b"permission")
+                        marker in lowered
+                        for marker in (b"reject", b"denied", b"permission")
                     ),
                 }
                 save()
@@ -248,7 +260,9 @@ def main() -> int:
         daemon_threads = True
 
     server = BurstTolerantServer(("127.0.0.1", 0), Handler)
-    args.ready_file.write_text(f"http://127.0.0.1:{server.server_port}\n", encoding="utf-8")
+    args.ready_file.write_text(
+        f"http://127.0.0.1:{server.server_port}\n", encoding="utf-8"
+    )
     save()
     try:
         server.serve_forever()

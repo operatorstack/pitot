@@ -24,18 +24,72 @@ def _manifest() -> dict[str, object]:
 
 
 def _provenance(manifest: dict[str, object]) -> dict[str, object]:
-    dialects = {"claude": "anthropic_messages", "codex": "openai_responses", "gemini": "gemini_generate_content", "cursor": "cursor_connect_proto", "devin": "devin_connect_proto"}
-    paths = {"anthropic_messages": "/v1/messages", "openai_responses": "/v1/responses", "gemini_generate_content": "/v1beta/models/pitot-control:streamGenerateContent", "cursor_connect_proto": "/agent.v1.AgentService/Run", "devin_connect_proto": "/connectrpc.devin.api.ModelService/StreamResponse", "openai_chat": "/v1/chat/completions"}
+    dialects = {
+        "claude": "anthropic_messages",
+        "codex": "openai_responses",
+        "gemini": "gemini_generate_content",
+        "cursor": "cursor_connect_proto",
+        "devin": "devin_connect_proto",
+    }
+    paths = {
+        "anthropic_messages": "/v1/messages",
+        "openai_responses": "/v1/responses",
+        "gemini_generate_content": "/v1beta/models/pitot-control:streamGenerateContent",
+        "cursor_connect_proto": "/agent.v1.AgentService/Run",
+        "devin_connect_proto": "/connectrpc.devin.api.ModelService/StreamResponse",
+        "openai_chat": "/v1/chat/completions",
+    }
     cells = []
     for agent in manifest["agents"]:
         for platform in manifest["platforms"]:
             dialect = dialects.get(agent["id"], "openai_chat")
-            framing = "connect_envelope" if dialect in {"cursor_connect_proto", "devin_connect_proto"} else "sse"
-            request = {"transport": "http2" if dialect == "cursor_connect_proto" else "http1", "method": "POST", "path": paths[dialect], "media_type": "application/connect+proto" if dialect in {"cursor_connect_proto", "devin_connect_proto"} else "application/json", "framing": framing, "request_shape": {"fixture": "redacted"}}
-            response = {"encoder": dialect, "framing": framing, "tool_call": "native_shell", "acceptance": "nonce_tool_result_round_trip"}
-            core = {"agent": agent["id"], "platform": platform["id"], "runtime": agent["runtime"][platform["id"]], "version": agent["version"], "executable_sha256": hashlib.sha256(f"{agent['id']}/{platform['id']}".encode()).hexdigest(), "dialect": dialect, "request": request, "response": response, "provenance": "pinned_real_cli_capture"}
-            cells.append({**core, "capture_sha256": hashlib.sha256(json.dumps(core, sort_keys=True, separators=(",", ":")).encode()).hexdigest()})
-    return {"schema_version": 2, "capture_policy": "pinned_real_cli_capture", "cells": cells}
+            framing = (
+                "connect_envelope"
+                if dialect in {"cursor_connect_proto", "devin_connect_proto"}
+                else "sse"
+            )
+            request = {
+                "transport": "http2" if dialect == "cursor_connect_proto" else "http1",
+                "method": "POST",
+                "path": paths[dialect],
+                "media_type": "application/connect+proto"
+                if dialect in {"cursor_connect_proto", "devin_connect_proto"}
+                else "application/json",
+                "framing": framing,
+                "request_shape": {"fixture": "redacted"},
+            }
+            response = {
+                "encoder": dialect,
+                "framing": framing,
+                "tool_call": "native_shell",
+                "acceptance": "nonce_tool_result_round_trip",
+            }
+            core = {
+                "agent": agent["id"],
+                "platform": platform["id"],
+                "runtime": agent["runtime"][platform["id"]],
+                "version": agent["version"],
+                "executable_sha256": hashlib.sha256(
+                    f"{agent['id']}/{platform['id']}".encode()
+                ).hexdigest(),
+                "dialect": dialect,
+                "request": request,
+                "response": response,
+                "provenance": "pinned_real_cli_capture",
+            }
+            cells.append(
+                {
+                    **core,
+                    "capture_sha256": hashlib.sha256(
+                        json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+                    ).hexdigest(),
+                }
+            )
+    return {
+        "schema_version": 2,
+        "capture_policy": "pinned_real_cli_capture",
+        "cells": cells,
+    }
 
 
 def _fixture(root: Path) -> tuple[Path, list[str]]:
@@ -45,7 +99,9 @@ def _fixture(root: Path) -> tuple[Path, list[str]]:
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     tests = root / "tests"
     tests.mkdir(parents=True, exist_ok=True)
-    (tests / "endpoint-provenance.json").write_text(json.dumps(_provenance(manifest)), encoding="utf-8")
+    (tests / "endpoint-provenance.json").write_text(
+        json.dumps(_provenance(manifest)), encoding="utf-8"
+    )
     ids = [agent["id"] for agent in manifest["agents"]]
     for agent_id in ids:
         (tests / f"e2e_{agent_id}_cli_test.sh").write_text("#!/usr/bin/env bash\n")
@@ -93,31 +149,59 @@ class AdapterSupervisorTests(unittest.TestCase):
         matrix = supervisor.matrix(manifest)
         self.assertEqual(len(matrix), 30)
         self.assertEqual(
-            {(item["agent"], item["platform"]) for item in matrix if item["agent"] == "kimi"},
+            {
+                (item["agent"], item["platform"])
+                for item in matrix
+                if item["agent"] == "kimi"
+            },
             {("kimi", "ubuntu"), ("kimi", "macos"), ("kimi", "windows")},
         )
         self.assertEqual(
-            {(item["agent"], item["platform"]) for item in matrix if item["agent"] in {"copilot", "pi", "qwen"}},
-            {(agent, platform) for agent in {"copilot", "pi", "qwen"} for platform in {"ubuntu", "macos", "windows"}},
+            {
+                (item["agent"], item["platform"])
+                for item in matrix
+                if item["agent"] in {"copilot", "pi", "qwen"}
+            },
+            {
+                (agent, platform)
+                for agent in {"copilot", "pi", "qwen"}
+                for platform in {"ubuntu", "macos", "windows"}
+            },
         )
         runtime = supervisor.runtime_matrix(manifest)
         self.assertEqual(
             runtime,
             [
-                {"capability": "explicit_request", "platform": "ubuntu", "runner": "ubuntu-latest"},
-                {"capability": "explicit_request", "platform": "macos", "runner": "macos-latest"},
-                {"capability": "explicit_request", "platform": "windows", "runner": "windows-latest"},
+                {
+                    "capability": "explicit_request",
+                    "platform": "ubuntu",
+                    "runner": "ubuntu-latest",
+                },
+                {
+                    "capability": "explicit_request",
+                    "platform": "macos",
+                    "runner": "macos-latest",
+                },
+                {
+                    "capability": "explicit_request",
+                    "platform": "windows",
+                    "runner": "windows-latest",
+                },
             ],
         )
 
     def test_capability_inventory_is_exact(self):
         manifest = copy.deepcopy(_manifest())
         manifest["capabilities"] = manifest["capabilities"][:-1]
-        with self.assertRaisesRegex(supervisor.ContractError, "capabilities must exactly supervise"):
+        with self.assertRaisesRegex(
+            supervisor.ContractError, "capabilities must exactly supervise"
+        ):
             supervisor.validate_manifest(manifest)
         manifest = copy.deepcopy(_manifest())
         manifest["capabilities"].append({"id": "phantom", "matrix": "platform"})
-        with self.assertRaisesRegex(supervisor.ContractError, "capabilities must exactly supervise"):
+        with self.assertRaisesRegex(
+            supervisor.ContractError, "capabilities must exactly supervise"
+        ):
             supervisor.validate_manifest(manifest)
 
     def test_missing_integration_artifact_fails(self):
@@ -129,7 +213,10 @@ class AdapterSupervisorTests(unittest.TestCase):
             artifact = agent["artifacts"][0]
             (root / artifact).unlink()
             errors = supervisor.contract_errors(root, ids)
-            self.assertIn(f"adapter {agent['id']} is missing supervised artifact {artifact}", errors)
+            self.assertIn(
+                f"adapter {agent['id']} is missing supervised artifact {artifact}",
+                errors,
+            )
 
     def test_missing_and_extra_inventory_entries_fail(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -141,19 +228,27 @@ class AdapterSupervisorTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(value))
             provenance_path = root / supervisor.ENDPOINT_PROVENANCE
             provenance = json.loads(provenance_path.read_text())
-            provenance["cells"] = [cell for cell in provenance["cells"] if cell["agent"] != removed]
+            provenance["cells"] = [
+                cell for cell in provenance["cells"] if cell["agent"] != removed
+            ]
             provenance_path.write_text(json.dumps(provenance))
             errors = supervisor.contract_errors(root, ids)
             self.assertTrue(any("missing from manifest" in error for error in errors))
 
             phantom = copy.deepcopy(value["agents"][0])
-            phantom.update({
-                "id": "phantom",
-                "label": "Phantom",
-                "executable": "phantom",
-                "artifacts": [],
-                "runtime": {"ubuntu": "native", "macos": "native", "windows": "native"},
-            })
+            phantom.update(
+                {
+                    "id": "phantom",
+                    "label": "Phantom",
+                    "executable": "phantom",
+                    "artifacts": [],
+                    "runtime": {
+                        "ubuntu": "native",
+                        "macos": "native",
+                        "windows": "native",
+                    },
+                }
+            )
             value["agents"].append(phantom)
             manifest_path.write_text(json.dumps(value))
             provenance = _provenance(value)
@@ -187,11 +282,18 @@ class AdapterSupervisorTests(unittest.TestCase):
 
     def test_matrix_carries_install_protocol_and_runtime_contract(self):
         matrix = supervisor.matrix(_manifest())
-        cursor_windows = next(item for item in matrix if item["agent"] == "cursor" and item["platform"] == "windows")
+        cursor_windows = next(
+            item
+            for item in matrix
+            if item["agent"] == "cursor" and item["platform"] == "windows"
+        )
         self.assertEqual(cursor_windows["runtime"], "wsl")
         self.assertEqual(cursor_windows["version"], "2026.07.20-8cc9c0b")
         self.assertNotIn("protocol", cursor_windows)
-        self.assertEqual(cursor_windows["endpoint_fixture"], "tests/endpoint-provenance.json#cursor/windows")
+        self.assertEqual(
+            cursor_windows["endpoint_fixture"],
+            "tests/endpoint-provenance.json#cursor/windows",
+        )
 
     def test_stale_or_missing_endpoint_provenance_fails(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -199,11 +301,17 @@ class AdapterSupervisorTests(unittest.TestCase):
             _, ids = _fixture(root)
             fixture_path = root / supervisor.ENDPOINT_PROVENANCE
             fixture = json.loads(fixture_path.read_text())
-            cell = next(item for item in fixture["cells"] if item["agent"] == "cursor" and item["platform"] == "windows")
+            cell = next(
+                item
+                for item in fixture["cells"]
+                if item["agent"] == "cursor" and item["platform"] == "windows"
+            )
             cell["version"] = "0.0.0"
             fixture_path.write_text(json.dumps(fixture))
             errors = supervisor.contract_errors(root, ids)
-            self.assertTrue(any("stale for its pinned CLI" in error for error in errors))
+            self.assertTrue(
+                any("stale for its pinned CLI" in error for error in errors)
+            )
 
     def test_platform_swap_and_fabricated_capture_digest_fail(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -211,14 +319,28 @@ class AdapterSupervisorTests(unittest.TestCase):
             _, ids = _fixture(root)
             fixture_path = root / supervisor.ENDPOINT_PROVENANCE
             fixture = json.loads(fixture_path.read_text())
-            cell = next(item for item in fixture["cells"] if item["agent"] == "cursor" and item["platform"] == "windows")
+            cell = next(
+                item
+                for item in fixture["cells"]
+                if item["agent"] == "cursor" and item["platform"] == "windows"
+            )
             cell["runtime"] = "native"
             fixture_path.write_text(json.dumps(fixture))
-            self.assertTrue(any("stale for its pinned CLI" in error for error in supervisor.contract_errors(root, ids)))
+            self.assertTrue(
+                any(
+                    "stale for its pinned CLI" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
             fixture = _provenance(_manifest())
             fixture["cells"][0]["capture_sha256"] = "0" * 64
             fixture_path.write_text(json.dumps(fixture))
-            self.assertTrue(any("fabricated capture digest" in error for error in supervisor.contract_errors(root, ids)))
+            self.assertTrue(
+                any(
+                    "fabricated capture digest" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
 
     def test_capture_merge_requires_all_30_accepted_unique_cells(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -229,7 +351,9 @@ class AdapterSupervisorTests(unittest.TestCase):
             captures = root / "captures"
             captures.mkdir()
             for cell in provenance["cells"]:
-                (captures / f"{cell['agent']}-{cell['platform']}.json").write_text(json.dumps({"schema_version": 1, "accepted": True, "cell": cell}))
+                (captures / f"{cell['agent']}-{cell['platform']}.json").write_text(
+                    json.dumps({"schema_version": 1, "accepted": True, "cell": cell})
+                )
             output = root / "merged.json"
             supervisor.merge_captures(root, captures, output)
             self.assertEqual(len(json.loads(output.read_text())["cells"]), 30)
@@ -245,9 +369,13 @@ class AdapterSupervisorTests(unittest.TestCase):
             captures = root / "captures"
             captures.mkdir()
             for index, cell in enumerate(provenance["cells"]):
-                (captures / f"{index}.json").write_text(json.dumps({"schema_version": 1, "accepted": True, "cell": cell}))
+                (captures / f"{index}.json").write_text(
+                    json.dumps({"schema_version": 1, "accepted": True, "cell": cell})
+                )
             duplicate = provenance["cells"][0]
-            (captures / "duplicate.json").write_text(json.dumps({"schema_version": 1, "accepted": True, "cell": duplicate}))
+            (captures / "duplicate.json").write_text(
+                json.dumps({"schema_version": 1, "accepted": True, "cell": duplicate})
+            )
             with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
                 supervisor.merge_captures(root, captures, root / "merged.json")
             (captures / "duplicate.json").unlink()
@@ -255,7 +383,9 @@ class AdapterSupervisorTests(unittest.TestCase):
             value = json.loads(first.read_text())
             value["cell"]["version"] = "0.0.0"
             first.write_text(json.dumps(value))
-            with self.assertRaisesRegex(supervisor.ContractError, "stale for its pinned CLI"):
+            with self.assertRaisesRegex(
+                supervisor.ContractError, "stale for its pinned CLI"
+            ):
                 supervisor.merge_captures(root, captures, root / "merged.json")
 
     def test_missing_script_fails(self):
@@ -263,20 +393,37 @@ class AdapterSupervisorTests(unittest.TestCase):
             root = Path(temp)
             _, ids = _fixture(root)
             (root / "tests/e2e_kimi_cli_test.sh").unlink()
-            self.assertTrue(any("adapter kimi is missing" in error for error in supervisor.contract_errors(root, ids)))
+            self.assertTrue(
+                any(
+                    "adapter kimi is missing" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
 
     def test_readme_and_workflow_drift_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             _, ids = _fixture(root)
             readme = root / supervisor.README
-            readme.write_text(readme.read_text().replace("Every supervised", "Some supervised"))
-            self.assertTrue(any("README.md" in error for error in supervisor.contract_errors(root, ids)))
+            readme.write_text(
+                readme.read_text().replace("Every supervised", "Some supervised")
+            )
+            self.assertTrue(
+                any(
+                    "README.md" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
 
             supervisor.render(root)
             workflow = root / supervisor.UNIFIED_WORKFLOW
             workflow.write_text(workflow.read_text() + "# drift\n")
-            self.assertTrue(any("pitot-e2e.yml" in error for error in supervisor.contract_errors(root, ids)))
+            self.assertTrue(
+                any(
+                    "pitot-e2e.yml" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
 
     def test_reusable_workflow_cannot_select_its_own_platforms(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -284,7 +431,12 @@ class AdapterSupervisorTests(unittest.TestCase):
             _, ids = _fixture(root)
             workflow = root / supervisor.REUSABLE_WORKFLOW
             workflow.write_text(workflow.read_text() + "matrix.platform\n")
-            self.assertTrue(any("escaped supervisor" in error for error in supervisor.contract_errors(root, ids)))
+            self.assertTrue(
+                any(
+                    "escaped supervisor" in error
+                    for error in supervisor.contract_errors(root, ids)
+                )
+            )
 
 
 if __name__ == "__main__":

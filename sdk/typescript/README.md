@@ -26,13 +26,18 @@ A Controller receives a typed `ControlRequested` and returns an `Outcome`. Retur
 in request order.
 
 ```typescript
-import { runController, allow, deny, ControlRequested } from "@operatorstack/pitot";
+import {
+  runController,
+  allow,
+  deny,
+  ControlRequested,
+} from "@operatorstack/pitot";
 
 runController("my-controller", async (req: ControlRequested) => {
-    if (req.kind === "shell" && String(req.data).includes("rm -rf")) {
-        return deny("blocked a destructive shell command");
-    }
-    return allow("approved");
+  if (req.kind === "shell" && String(req.data).includes("rm -rf")) {
+    return deny("blocked a destructive shell command");
+  }
+  return allow("approved");
 });
 ```
 
@@ -45,7 +50,7 @@ never write to stdout (the conformance suite enforces this); log to stderr.
 import { runConsumer, Event } from "@operatorstack/pitot";
 
 runConsumer(async (event: Event) => {
-    console.error("observed", event.type);
+  console.error("observed", event.type);
 });
 ```
 

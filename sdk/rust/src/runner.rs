@@ -1,7 +1,7 @@
-use std::io::{self, BufRead, Write};
 use serde_json;
+use std::io::{self, BufRead, Write};
 
-use crate::types::{Event, ControlRequested, ControlResponse};
+use crate::types::{ControlRequested, ControlResponse, Event};
 
 pub type ConsumerHandler = Box<dyn Fn(Event) + Send + Sync>;
 

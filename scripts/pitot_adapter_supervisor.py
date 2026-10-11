@@ -24,7 +24,14 @@ README_END = "<!-- pitot-adapter-supervisor:end -->"
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .+_-]{0,39}$")
 VERSION_PATTERN = re.compile(r"^(?:[0-9]+\.){2}[0-9]+(?:-[0-9A-Za-z.-]+)?$")
-DIALECTS = {"anthropic_messages", "openai_chat", "openai_responses", "gemini_generate_content", "cursor_connect_proto", "devin_connect_proto"}
+DIALECTS = {
+    "anthropic_messages",
+    "openai_chat",
+    "openai_responses",
+    "gemini_generate_content",
+    "cursor_connect_proto",
+    "devin_connect_proto",
+}
 INTEGRATIONS = {"native_command_hook", "pi_extension", "opencode_plugin", "acp_client"}
 INSTALLERS = {"npm", "kimi_release", "cursor_release", "devin_release"}
 
@@ -44,8 +51,15 @@ def load_manifest(root: Path = ROOT) -> dict[str, object]:
 
 
 def validate_manifest(value: object) -> None:
-    if not isinstance(value, dict) or set(value) != {"schema_version", "capabilities", "platforms", "agents"}:
-        raise ContractError("manifest must contain schema_version, capabilities, platforms, and agents")
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "capabilities",
+        "platforms",
+        "agents",
+    }:
+        raise ContractError(
+            "manifest must contain schema_version, capabilities, platforms, and agents"
+        )
     if value["schema_version"] != 7:
         raise ContractError("unsupported manifest schema_version")
     expected_capabilities = [
@@ -54,7 +68,9 @@ def validate_manifest(value: object) -> None:
         {"id": "explicit_request", "matrix": "platform"},
     ]
     if value["capabilities"] != expected_capabilities:
-        raise ContractError("capabilities must exactly supervise action control, Consumer delivery, and explicit request")
+        raise ContractError(
+            "capabilities must exactly supervise action control, Consumer delivery, and explicit request"
+        )
     platforms = value["platforms"]
     agents = value["agents"]
     if not isinstance(platforms, list) or not isinstance(agents, list) or not agents:
@@ -65,25 +81,43 @@ def validate_manifest(value: object) -> None:
         {"id": "windows", "runner": "windows-latest"},
     ]
     if platforms != expected_platforms:
-        raise ContractError("platforms must be the required Ubuntu, macOS, and Windows matrix")
+        raise ContractError(
+            "platforms must be the required Ubuntu, macOS, and Windows matrix"
+        )
     ids: list[str] = []
     labels: list[str] = []
     for agent in agents:
         required = {
-            "id", "label", "version", "executable", "installer",
-            "integration", "artifacts", "runtime", "driver", "required_mode",
+            "id",
+            "label",
+            "version",
+            "executable",
+            "installer",
+            "integration",
+            "artifacts",
+            "runtime",
+            "driver",
+            "required_mode",
         }
         if not isinstance(agent, dict) or set(agent) != required:
-            raise ContractError(f"each agent must contain exactly {', '.join(sorted(required))}")
+            raise ContractError(
+                f"each agent must contain exactly {', '.join(sorted(required))}"
+            )
         agent_id, label = agent["id"], agent["label"]
         if not isinstance(agent_id, str) or not ID_PATTERN.fullmatch(agent_id):
             raise ContractError(f"invalid agent id: {agent_id!r}")
         if not isinstance(label, str) or not LABEL_PATTERN.fullmatch(label):
             raise ContractError(f"agent {agent_id} has an invalid label")
         version = agent["version"]
-        if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version) or "latest" in version.lower():
+        if (
+            not isinstance(version, str)
+            or not VERSION_PATTERN.fullmatch(version)
+            or "latest" in version.lower()
+        ):
             raise ContractError(f"agent {agent_id} must pin an immutable CLI version")
-        if not isinstance(agent["executable"], str) or not ID_PATTERN.fullmatch(agent["executable"]):
+        if not isinstance(agent["executable"], str) or not ID_PATTERN.fullmatch(
+            agent["executable"]
+        ):
             raise ContractError(f"agent {agent_id} has an invalid executable")
         installer = agent["installer"]
         if (
@@ -93,17 +127,26 @@ def validate_manifest(value: object) -> None:
             or not isinstance(installer["package"], str)
             or not installer["package"]
         ):
-            raise ContractError(f"agent {agent_id} has invalid pinned installer metadata")
+            raise ContractError(
+                f"agent {agent_id} has invalid pinned installer metadata"
+            )
         if agent["integration"] not in INTEGRATIONS:
-            raise ContractError(f"agent {agent_id} has an unsupported integration mechanism")
+            raise ContractError(
+                f"agent {agent_id} has an unsupported integration mechanism"
+            )
         artifacts = agent["artifacts"]
         artifact_prefix = f"integrations/{agent_id}/"
         if (
             not isinstance(artifacts, list)
             or len(artifacts) != len(set(artifacts))
-            or any(not isinstance(path, str) or not path.startswith(artifact_prefix) for path in artifacts)
+            or any(
+                not isinstance(path, str) or not path.startswith(artifact_prefix)
+                for path in artifacts
+            )
         ):
-            raise ContractError(f"agent {agent_id} has invalid supervised integration artifacts")
+            raise ContractError(
+                f"agent {agent_id} has invalid supervised integration artifacts"
+            )
         expected_runtime_keys = {platform["id"] for platform in platforms}
         runtime = agent["runtime"]
         if not isinstance(runtime, dict) or set(runtime) != expected_runtime_keys:
@@ -114,8 +157,13 @@ def validate_manifest(value: object) -> None:
             raise ContractError("Cursor must use its supported WSL runtime on Windows")
         if agent_id != "cursor" and "wsl" in runtime.values():
             raise ContractError(f"agent {agent_id} must run natively on every platform")
-        if agent["driver"] != "real_agent_driver.py" or agent["required_mode"] != "real_cli":
-            raise ContractError(f"agent {agent_id} must require the canonical real-CLI driver")
+        if (
+            agent["driver"] != "real_agent_driver.py"
+            or agent["required_mode"] != "real_cli"
+        ):
+            raise ContractError(
+                f"agent {agent_id} must require the canonical real-CLI driver"
+            )
         ids.append(agent_id)
         labels.append(label)
     if len(ids) != len(set(ids)):
@@ -134,56 +182,153 @@ def validate_endpoint_provenance(root: Path, manifest: dict[str, object]) -> Non
 
 
 def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
-    if not isinstance(value, dict) or set(value) != {"schema_version", "capture_policy", "cells"}:
-        raise ContractError("endpoint provenance must contain schema_version, capture_policy, and cells")
-    if value["schema_version"] != 2 or value["capture_policy"] != "pinned_real_cli_capture":
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "capture_policy",
+        "cells",
+    }:
+        raise ContractError(
+            "endpoint provenance must contain schema_version, capture_policy, and cells"
+        )
+    if (
+        value["schema_version"] != 2
+        or value["capture_policy"] != "pinned_real_cli_capture"
+    ):
         raise ContractError("endpoint provenance must require pinned real-CLI capture")
     cells = value["cells"]
     if not isinstance(cells, list):
         raise ContractError("endpoint provenance cells must be a list")
     declared = {agent["id"]: agent for agent in manifest["agents"]}
     platforms = [platform["id"] for platform in manifest["platforms"]]
-    expected_keys = {(agent_id, platform) for agent_id in declared for platform in platforms}
-    actual_keys = {(cell.get("agent"), cell.get("platform")) for cell in cells if isinstance(cell, dict)}
+    expected_keys = {
+        (agent_id, platform) for agent_id in declared for platform in platforms
+    }
+    actual_keys = {
+        (cell.get("agent"), cell.get("platform"))
+        for cell in cells
+        if isinstance(cell, dict)
+    }
     if len(cells) != len(expected_keys) or actual_keys != expected_keys:
         raise ContractError(
             f"endpoint provenance must contain exactly all {len(expected_keys)} agent/platform cells"
         )
-    required = {"agent", "platform", "runtime", "version", "executable_sha256", "dialect", "request", "response", "provenance", "capture_sha256"}
+    required = {
+        "agent",
+        "platform",
+        "runtime",
+        "version",
+        "executable_sha256",
+        "dialect",
+        "request",
+        "response",
+        "provenance",
+        "capture_sha256",
+    }
     for cell in cells:
         agent_id, platform = cell["agent"], cell["platform"]
         if set(cell) != required:
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has an invalid schema")
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has an invalid schema"
+            )
         agent = declared[agent_id]
-        if cell["version"] != agent["version"] or cell["runtime"] != agent["runtime"][platform]:
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} is stale for its pinned CLI")
-        if cell["dialect"] not in DIALECTS or cell["provenance"] != "pinned_real_cli_capture":
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} lacks binary-observed provenance")
+        if (
+            cell["version"] != agent["version"]
+            or cell["runtime"] != agent["runtime"][platform]
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} is stale for its pinned CLI"
+            )
+        if (
+            cell["dialect"] not in DIALECTS
+            or cell["provenance"] != "pinned_real_cli_capture"
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} lacks binary-observed provenance"
+            )
         if not re.fullmatch(r"[0-9a-f]{64}", str(cell["executable_sha256"])):
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} lacks an executable digest")
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} lacks an executable digest"
+            )
         request, response = cell["request"], cell["response"]
-        request_keys = {"transport", "method", "path", "media_type", "framing", "request_shape"}
+        request_keys = {
+            "transport",
+            "method",
+            "path",
+            "media_type",
+            "framing",
+            "request_shape",
+        }
         response_keys = {"encoder", "framing", "tool_call", "acceptance"}
-        if not isinstance(request, dict) or set(request) != request_keys or not isinstance(response, dict) or set(response) != response_keys:
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has invalid request/response receipts")
-        if request["transport"] not in {"http1", "http2"} or request["method"] != "POST" or not str(request["path"]).startswith("/"):
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has an invalid observed endpoint")
-        if request["framing"] not in {"json", "sse", "connect_envelope"} or not isinstance(request["request_shape"], dict):
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has an invalid redacted request shape")
-        if cell["dialect"] == "cursor_connect_proto" and (request["transport"], request["framing"]) != ("http2", "connect_envelope"):
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has invalid Cursor wire provenance")
-        if cell["dialect"] == "devin_connect_proto" and (request["transport"], request["framing"]) != ("http1", "connect_envelope"):
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has invalid Devin wire provenance")
-        if cell["dialect"] in {"cursor_connect_proto", "devin_connect_proto"} and request["media_type"] != "application/connect+proto":
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has invalid Connect wire provenance")
-        if cell["dialect"] not in {"cursor_connect_proto", "devin_connect_proto"} and request["media_type"] != "application/json":
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has invalid JSON wire provenance")
-        if response != {"encoder": cell["dialect"], "framing": request["framing"], "tool_call": "native_shell", "acceptance": "nonce_tool_result_round_trip"}:
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} lacks accepted response provenance")
+        if (
+            not isinstance(request, dict)
+            or set(request) != request_keys
+            or not isinstance(response, dict)
+            or set(response) != response_keys
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has invalid request/response receipts"
+            )
+        if (
+            request["transport"] not in {"http1", "http2"}
+            or request["method"] != "POST"
+            or not str(request["path"]).startswith("/")
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has an invalid observed endpoint"
+            )
+        if request["framing"] not in {
+            "json",
+            "sse",
+            "connect_envelope",
+        } or not isinstance(request["request_shape"], dict):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has an invalid redacted request shape"
+            )
+        if cell["dialect"] == "cursor_connect_proto" and (
+            request["transport"],
+            request["framing"],
+        ) != ("http2", "connect_envelope"):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has invalid Cursor wire provenance"
+            )
+        if cell["dialect"] == "devin_connect_proto" and (
+            request["transport"],
+            request["framing"],
+        ) != ("http1", "connect_envelope"):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has invalid Devin wire provenance"
+            )
+        if (
+            cell["dialect"] in {"cursor_connect_proto", "devin_connect_proto"}
+            and request["media_type"] != "application/connect+proto"
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has invalid Connect wire provenance"
+            )
+        if (
+            cell["dialect"] not in {"cursor_connect_proto", "devin_connect_proto"}
+            and request["media_type"] != "application/json"
+        ):
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has invalid JSON wire provenance"
+            )
+        if response != {
+            "encoder": cell["dialect"],
+            "framing": request["framing"],
+            "tool_call": "native_shell",
+            "acceptance": "nonce_tool_result_round_trip",
+        }:
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} lacks accepted response provenance"
+            )
         core = {key: value for key, value in cell.items() if key != "capture_sha256"}
-        digest = hashlib.sha256(json.dumps(core, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        digest = hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
         if cell["capture_sha256"] != digest:
-            raise ContractError(f"endpoint fixture {agent_id}/{platform} has a fabricated capture digest")
+            raise ContractError(
+                f"endpoint fixture {agent_id}/{platform} has a fabricated capture digest"
+            )
 
 
 def built_in_inventory(root: Path = ROOT) -> dict[str, list[str]]:
@@ -199,7 +344,9 @@ def built_in_inventory(root: Path = ROOT) -> dict[str, list[str]]:
     if not isinstance(value, dict) or set(value) != {"adapters", "capabilities"}:
         raise ContractError("Go runtime inventory returned an invalid result")
     for name in ("adapters", "capabilities"):
-        if not isinstance(value[name], list) or not all(isinstance(item, str) for item in value[name]):
+        if not isinstance(value[name], list) or not all(
+            isinstance(item, str) for item in value[name]
+        ):
             raise ContractError(f"Go {name} inventory returned an invalid result")
     return value
 
@@ -231,7 +378,11 @@ def matrix(manifest: dict[str, object]) -> list[dict[str, str]]:
 
 def runtime_matrix(manifest: dict[str, object]) -> list[dict[str, str]]:
     return [
-        {"capability": "explicit_request", "platform": platform["id"], "runner": platform["runner"]}
+        {
+            "capability": "explicit_request",
+            "platform": platform["id"],
+            "runner": platform["runner"],
+        }
         for platform in manifest["platforms"]
     ]
 
@@ -256,7 +407,9 @@ def readme_block(manifest: dict[str, object]) -> str:
 
 
 def replace_readme_block(text: str, manifest: dict[str, object]) -> str:
-    pattern = re.compile(re.escape(README_START) + r".*?" + re.escape(README_END), re.DOTALL)
+    pattern = re.compile(
+        re.escape(README_START) + r".*?" + re.escape(README_END), re.DOTALL
+    )
     if len(pattern.findall(text)) != 1:
         raise ContractError("README must contain exactly one supervisor marker block")
     return pattern.sub(readme_block(manifest), text)
@@ -416,9 +569,13 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
     if extra:
         errors.append(f"manifest agents are not built-in adapters: {', '.join(extra)}")
     declared_capabilities = [item["id"] for item in manifest["capabilities"]]
-    capability_inventory = declared_capabilities if adapters is not None else go_inventory["capabilities"]
+    capability_inventory = (
+        declared_capabilities if adapters is not None else go_inventory["capabilities"]
+    )
     if declared_capabilities != capability_inventory:
-        errors.append("manifest capabilities do not exactly match the Go runtime inventory")
+        errors.append(
+            "manifest capabilities do not exactly match the Go runtime inventory"
+        )
     for agent_id in declared:
         script = root / f"tests/e2e_{agent_id}_cli_test.sh"
         if not script.is_file():
@@ -427,16 +584,30 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         for artifact in agent["artifacts"]:
             path = root / artifact
             if not path.is_file():
-                errors.append(f"adapter {agent['id']} is missing supervised artifact {artifact}")
+                errors.append(
+                    f"adapter {agent['id']} is missing supervised artifact {artifact}"
+                )
     driver = root / "tests/real_agent_driver.py"
     if not driver.is_file():
         errors.append("missing canonical real-agent prompt driver")
-    elif any(fragment not in driver.read_text(encoding="utf-8") for fragment in ("consumer_observed", "controller_deny_observed", "deny_canary_absent", "final_output_observed")):
-        errors.append("real-agent driver does not require the complete runtime capability receipts")
+    elif any(
+        fragment not in driver.read_text(encoding="utf-8")
+        for fragment in (
+            "consumer_observed",
+            "controller_deny_observed",
+            "deny_canary_absent",
+            "final_output_observed",
+        )
+    ):
+        errors.append(
+            "real-agent driver does not require the complete runtime capability receipts"
+        )
     runtime_driver = root / "tests/runtime_capability_driver.py"
     runtime_script = root / "tests/e2e_runtime_cli_test.sh"
     if not runtime_driver.is_file() or not runtime_script.is_file():
-        errors.append("explicit request capability is missing its canonical runtime driver")
+        errors.append(
+            "explicit request capability is missing its canonical runtime driver"
+        )
     proxy = root / "tests/model_control_proxy.py"
     if not proxy.is_file():
         errors.append("missing local model-control proxy")
@@ -449,12 +620,23 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
     if not devin_proxy.is_file():
         errors.append("missing pinned Devin endpoint proxy")
     reporter_path = root / ".github/scripts/pitot_e2e_report.py"
-    reporter_text = reporter_path.read_text(encoding="utf-8") if reporter_path.is_file() else ""
-    if "artifacts?per_page=100" not in reporter_text or "total != len(artifacts)" not in reporter_text:
-        errors.append("reporter does not fail closed over the complete supervised artifact page")
+    reporter_text = (
+        reporter_path.read_text(encoding="utf-8") if reporter_path.is_file() else ""
+    )
+    if (
+        "artifacts?per_page=100" not in reporter_text
+        or "total != len(artifacts)" not in reporter_text
+    ):
+        errors.append(
+            "reporter does not fail closed over the complete supervised artifact page"
+        )
     runner = root / "tests/e2e_unified_runner.sh"
     runner_text = runner.read_text(encoding="utf-8") if runner.is_file() else ""
-    forbidden = ("hook_subprocess", "Falling back", "active subprocess hook verification")
+    forbidden = (
+        "hook_subprocess",
+        "Falling back",
+        "active subprocess hook verification",
+    )
     if any(fragment in runner_text for fragment in forbidden):
         errors.append("unified runner permits synthetic E2E success")
     if "real_agent_driver.py" not in runner_text or "--test-role" not in runner_text:
@@ -465,10 +647,13 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         or "pitot-witness-linux" not in runner_text
         or "pitot-testrole-linux" not in runner_text
         or "wsl.exe --distribution Ubuntu -- env" not in runner_text
-        or 'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"' not in runner_text
+        or 'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"'
+        not in runner_text
         or "MSYS2_ARG_CONV_EXCL='*'" not in runner_text
     ):
-        errors.append("unified runner does not preserve Cursor's native WSL controller boundary")
+        errors.append(
+            "unified runner does not preserve Cursor's native WSL controller boundary"
+        )
     expected_files = {
         UNIFIED_WORKFLOW: unified_workflow(),
     }
@@ -481,7 +666,9 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
     if legacy_report.exists():
         errors.append("legacy Pitot report workflow escaped the unified supervisor")
     reusable_path = root / REUSABLE_WORKFLOW
-    reusable = reusable_path.read_text(encoding="utf-8") if reusable_path.is_file() else ""
+    reusable = (
+        reusable_path.read_text(encoding="utf-8") if reusable_path.is_file() else ""
+    )
     required_reusable_contract = (
         "platform:\n        description: Canonical Pitot platform identifier",
         "runner:\n        description: GitHub-hosted runner selected by the supervisor",
@@ -490,7 +677,7 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         '--agent "${{ inputs.agent }}"',
         '--platform "${{ inputs.platform }}"',
         '--evidence "${{ runner.temp }}/pitot-e2e/evidence.json"',
-        'install_real_agent.py',
+        "install_real_agent.py",
         "PITOT_CAPTURE_OUTPUT:",
         "node_version=22.23.1",
         "SHASUMS256.txt",
@@ -499,8 +686,13 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         "pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}",
         "name: pitot-e2e-${{ inputs.agent }}-${{ inputs.platform }}",
     )
-    if any(fragment not in reusable for fragment in required_reusable_contract) or "matrix.platform" in reusable:
-        errors.append(f"reusable workflow escaped supervisor inputs: {REUSABLE_WORKFLOW}")
+    if (
+        any(fragment not in reusable for fragment in required_reusable_contract)
+        or "matrix.platform" in reusable
+    ):
+        errors.append(
+            f"reusable workflow escaped supervisor inputs: {REUSABLE_WORKFLOW}"
+        )
     readme_path = root / README
     if readme_path.is_file():
         actual = readme_path.read_text(encoding="utf-8")
@@ -530,13 +722,24 @@ def merge_captures(root: Path, captures: Path, output: Path) -> None:
     cells: list[dict[str, object]] = []
     for path in sorted(captures.rglob("*.json")):
         value = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict) or set(value) != {"schema_version", "accepted", "cell"} or value["schema_version"] != 1 or value["accepted"] is not True:
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"schema_version", "accepted", "cell"}
+            or value["schema_version"] != 1
+            or value["accepted"] is not True
+        ):
             raise ContractError(f"invalid capture artifact: {path.name}")
         cells.append(value["cell"])
-    candidate = {"schema_version": 2, "capture_policy": "pinned_real_cli_capture", "cells": sorted(cells, key=lambda item: (item["agent"], item["platform"]))}
+    candidate = {
+        "schema_version": 2,
+        "capture_policy": "pinned_real_cli_capture",
+        "cells": sorted(cells, key=lambda item: (item["agent"], item["platform"])),
+    }
     validate_endpoint_value(candidate, manifest)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(candidate, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def load_manifest_without_provenance(root: Path) -> dict[str, object]:
@@ -547,7 +750,17 @@ def load_manifest_without_provenance(root: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("check", "matrix", "runtime-matrix", "render", "capture", "capture-merge"))
+    parser.add_argument(
+        "operation",
+        choices=(
+            "check",
+            "matrix",
+            "runtime-matrix",
+            "render",
+            "capture",
+            "capture-merge",
+        ),
+    )
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--captures", type=Path)
     parser.add_argument("--output", type=Path)
@@ -582,9 +795,13 @@ def main() -> int:
             print(json.dumps({"include": values}, separators=(",", ":")))
         elif args.operation == "runtime-matrix":
             manifest = load_manifest(root)
-            print(json.dumps({"include": runtime_matrix(manifest)}, separators=(",", ":")))
+            print(
+                json.dumps({"include": runtime_matrix(manifest)}, separators=(",", ":"))
+            )
         else:
-            print(f"PASS: supervised {len(load_manifest(root)['agents'])} Pitot adapters")
+            print(
+                f"PASS: supervised {len(load_manifest(root)['agents'])} Pitot adapters"
+            )
         return 0
     except (ContractError, subprocess.CalledProcessError) as error:
         print(f"BLOCKED: {error}", file=sys.stderr)

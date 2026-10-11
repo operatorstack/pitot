@@ -16,11 +16,11 @@ LAB = pathlib.Path(__file__).resolve().parents[1]
 class SDKVersionLockstep(unittest.TestCase):
     def test_sdk_manifests_and_scaffold_constant_agree(self):
         pyproject = (LAB / "sdk/python/pyproject.toml").read_text()
-        python_version = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.M).group(1)
-
-        package_json = json.loads(
-            (LAB / "sdk/typescript/package.json").read_text()
+        python_version = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.M).group(
+            1
         )
+
+        package_json = json.loads((LAB / "sdk/typescript/package.json").read_text())
 
         cargo = (LAB / "sdk/rust/Cargo.toml").read_text()
         rust_version = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M).group(1)

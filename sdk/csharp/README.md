@@ -3,7 +3,7 @@
 **Status: types-only preview. Not a shipping SDK.** `Pitot/Types.cs` holds the
 generated C# data types for the Pitot wire protocol, emitted by
 [`scripts/generate_types.sh`](../../../scripts/generate_types.sh) from the same
-schema as every other binding. They let you *read the shapes* — they do **not** yet
+schema as every other binding. They let you _read the shapes_ — they do **not** yet
 give you a runnable Controller or Consumer.
 
 What is **not** here yet, and what a first-class SDK requires:

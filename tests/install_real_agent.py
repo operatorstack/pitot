@@ -40,10 +40,14 @@ def install_kimi_macos(package: str, version: str) -> None:
     with urllib.request.urlopen(f"{base}/manifest.json", timeout=30) as response:
         manifest = json.loads(response.read())
     if manifest.get("version") != version:
-        raise RuntimeError("Kimi release manifest version does not match the supervised pin")
+        raise RuntimeError(
+            "Kimi release manifest version does not match the supervised pin"
+        )
     release = manifest["platforms"][f"darwin-{arch}"]
     filename = f"kimi-code-darwin-{arch}"
-    if release.get("filename") != filename or not re.fullmatch(r"[0-9a-f]{64}", release.get("checksum", "")):
+    if release.get("filename") != filename or not re.fullmatch(
+        r"[0-9a-f]{64}", release.get("checksum", "")
+    ):
         raise RuntimeError("Kimi release manifest has an invalid binary identity")
     destination = Path.home() / ".local/bin"
     destination.mkdir(parents=True, exist_ok=True)
@@ -51,7 +55,19 @@ def install_kimi_macos(package: str, version: str) -> None:
         binary = Path(directory) / "kimi"
         archive = Path(directory) / "kimi.zip"
         url = f"https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai/kimi-code%40{version}/{filename}.zip"
-        run(["curl", "-fsSL", "--connect-timeout", "20", "--max-time", "120", url, "-o", str(archive)])
+        run(
+            [
+                "curl",
+                "-fsSL",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "120",
+                url,
+                "-o",
+                str(archive),
+            ]
+        )
         with zipfile.ZipFile(archive) as bundle:
             binary.write_bytes(bundle.read("kimi"))
         if hashlib.sha256(binary.read_bytes()).hexdigest() != release["checksum"]:
@@ -79,7 +95,15 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
         run([*wsl, "/usr/local/bin/agent", "--version"])
         return
     if kind == "npm":
-        run([npm_executable(), "install", "--global", "--ignore-scripts=false", f"{package}@{version}"])
+        run(
+            [
+                npm_executable(),
+                "install",
+                "--global",
+                "--ignore-scripts=false",
+                f"{package}@{version}",
+            ]
+        )
     elif kind == "kimi_release":
         if platform == "macos":
             install_kimi_macos(package, version)
@@ -95,7 +119,15 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
         else:
             with tempfile.TemporaryDirectory() as directory:
                 target = Path(directory) / "install.sh"
-                run(["curl", "-fsSL", "https://code.kimi.com/kimi-code/install.sh", "-o", str(target)])
+                run(
+                    [
+                        "curl",
+                        "-fsSL",
+                        "https://code.kimi.com/kimi-code/install.sh",
+                        "-o",
+                        str(target),
+                    ]
+                )
                 environment = {**os.environ, "KIMI_VERSION": version}
                 run(["bash", str(target)], env=environment)
     elif kind == "cursor_release":
@@ -109,9 +141,13 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
             archive = Path(directory) / "cursor.tar.gz"
             run(["curl", "-fsSL", url, "-o", str(archive)])
             run(["tar", "-xzf", str(archive), "-C", directory])
-            candidates = [path for path in Path(directory).rglob("cursor-agent") if path.is_file()]
+            candidates = [
+                path for path in Path(directory).rglob("cursor-agent") if path.is_file()
+            ]
             if len(candidates) != 1:
-                raise RuntimeError(f"Cursor archive contained {len(candidates)} agent executables")
+                raise RuntimeError(
+                    f"Cursor archive contained {len(candidates)} agent executables"
+                )
             release = Path.home() / ".local" / "share" / "pitot-cursor" / version
             shutil.copytree(candidates[0].parent, release, dirs_exist_ok=True)
             installed = release / "cursor-agent"
@@ -127,16 +163,24 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
         with urllib.request.urlopen(manifest_url, timeout=30) as response:
             manifest = json.loads(response.read())
         if manifest.get("version") != version:
-            raise RuntimeError("Devin release manifest version does not match the supervised pin")
+            raise RuntimeError(
+                "Devin release manifest version does not match the supervised pin"
+            )
         machine = host_platform.machine().lower()
         arch = "aarch64" if machine in {"arm64", "aarch64"} else "x86_64"
-        suffix = {"ubuntu": "unknown-linux", "macos": "apple-darwin", "windows": "pc-windows"}[platform]
+        suffix = {
+            "ubuntu": "unknown-linux",
+            "macos": "apple-darwin",
+            "windows": "pc-windows",
+        }[platform]
         target = f"{arch}-{suffix}"
         release = manifest.get("platforms", {}).get(target)
         if not isinstance(release, dict) or set(release) != {"url", "sha256"}:
             raise RuntimeError(f"Devin release manifest omitted {target}")
         with tempfile.TemporaryDirectory() as directory:
-            archive = Path(directory) / ("devin.zip" if platform == "windows" else "devin.tar.gz")
+            archive = Path(directory) / (
+                "devin.zip" if platform == "windows" else "devin.tar.gz"
+            )
             with urllib.request.urlopen(release["url"], timeout=120) as response:
                 archive.write_bytes(response.read())
             if hashlib.sha256(archive.read_bytes()).hexdigest() != release["sha256"]:
@@ -144,15 +188,27 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
             executable_name = "devin.exe" if platform == "windows" else "devin"
             if platform == "windows":
                 with zipfile.ZipFile(archive) as bundle:
-                    matches = [name for name in bundle.namelist() if Path(name).name == executable_name]
+                    matches = [
+                        name
+                        for name in bundle.namelist()
+                        if Path(name).name == executable_name
+                    ]
                     if len(matches) != 1:
-                        raise RuntimeError(f"Devin archive contained {len(matches)} executables")
+                        raise RuntimeError(
+                            f"Devin archive contained {len(matches)} executables"
+                        )
                     executable_bytes = bundle.read(matches[0])
             else:
                 with tarfile.open(archive, "r:gz") as bundle:
-                    matches = [member for member in bundle.getmembers() if member.isfile() and Path(member.name).name == executable_name]
+                    matches = [
+                        member
+                        for member in bundle.getmembers()
+                        if member.isfile() and Path(member.name).name == executable_name
+                    ]
                     if len(matches) != 1:
-                        raise RuntimeError(f"Devin archive contained {len(matches)} executables")
+                        raise RuntimeError(
+                            f"Devin archive contained {len(matches)} executables"
+                        )
                     source = bundle.extractfile(matches[0])
                     if source is None:
                         raise RuntimeError("Devin executable could not be extracted")
@@ -171,7 +227,9 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> None:
         raise ValueError(f"unsupported installer: {kind}")
 
 
-def executable_receipt(agent: dict[str, object], platform: str, runtime: str) -> dict[str, object]:
+def executable_receipt(
+    agent: dict[str, object], platform: str, runtime: str
+) -> dict[str, object]:
     executable, version = str(agent["executable"]), str(agent["version"])
     if runtime == "wsl":
         resolve = (
@@ -179,14 +237,36 @@ def executable_receipt(agent: dict[str, object], platform: str, runtime: str) ->
             f'elif [ -x "$HOME/.local/bin/{executable}" ]; then printf "%s\\n" "$HOME/.local/bin/{executable}"; '
             "else exit 1; fi"
         )
-        path = run(["wsl.exe", "--distribution", "Ubuntu", "--", "bash", "-lc", resolve], stdout=subprocess.PIPE).stdout.strip()
-        output = run(["wsl.exe", "--distribution", "Ubuntu", "--", "bash", "-lc", f"{path} --version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.strip()
+        path = run(
+            ["wsl.exe", "--distribution", "Ubuntu", "--", "bash", "-lc", resolve],
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        output = run(
+            [
+                "wsl.exe",
+                "--distribution",
+                "Ubuntu",
+                "--",
+                "bash",
+                "-lc",
+                f"{path} --version",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        ).stdout.strip()
     else:
         path = ""
         if agent["installer"]["kind"] == "npm":
-            prefix = Path(run([npm_executable(), "prefix", "--global"], stdout=subprocess.PIPE).stdout.strip())
-            candidate = prefix / (f"{executable}.cmd" if os.name == "nt" else f"bin/{executable}")
-            if candidate.is_file(): path = str(candidate)
+            prefix = Path(
+                run(
+                    [npm_executable(), "prefix", "--global"], stdout=subprocess.PIPE
+                ).stdout.strip()
+            )
+            candidate = prefix / (
+                f"{executable}.cmd" if os.name == "nt" else f"bin/{executable}"
+            )
+            if candidate.is_file():
+                path = str(candidate)
         path = path or shutil.which(executable) or ""
         if not path:
             suffix = f"{executable}.exe" if os.name == "nt" else executable
@@ -194,15 +274,34 @@ def executable_receipt(agent: dict[str, object], platform: str, runtime: str) ->
                 Path.home() / ".local" / "bin" / suffix,
                 Path.home() / ".kimi-code" / "bin" / suffix,
             )
-            path = next((str(candidate) for candidate in home_candidates if candidate.is_file()), "")
+            path = next(
+                (
+                    str(candidate)
+                    for candidate in home_candidates
+                    if candidate.is_file()
+                ),
+                "",
+            )
         if not path:
             raise RuntimeError(f"installed executable {executable!r} is not on PATH")
-        output = run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.strip()
+        output = run(
+            [path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        ).stdout.strip()
     if version not in output:
-        raise RuntimeError(f"{executable} reported {output!r}, expected pinned version {version}")
+        raise RuntimeError(
+            f"{executable} reported {output!r}, expected pinned version {version}"
+        )
     if runtime == "wsl":
         digest = run(
-            ["wsl.exe", "--distribution", "Ubuntu", "--", "bash", "-lc", f"sha256sum {path} | cut -d' ' -f1"],
+            [
+                "wsl.exe",
+                "--distribution",
+                "Ubuntu",
+                "--",
+                "bash",
+                "-lc",
+                f"sha256sum {path} | cut -d' ' -f1",
+            ],
             stdout=subprocess.PIPE,
         ).stdout.strip()
     else:
@@ -226,7 +325,9 @@ def main() -> int:
     parser.add_argument("--platform", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    agent = next((item for item in MANIFEST["agents"] if item["id"] == args.agent), None)
+    agent = next(
+        (item for item in MANIFEST["agents"] if item["id"] == args.agent), None
+    )
     if agent is None:
         raise SystemExit(f"unknown supervised agent: {args.agent}")
     runtime = agent["runtime"].get(args.platform)
@@ -235,8 +336,12 @@ def main() -> int:
     install(agent, args.platform, runtime)
     receipt = executable_receipt(agent, args.platform, runtime)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Installed {args.agent} {agent['version']} at {receipt['executable']} ({runtime})")
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Installed {args.agent} {agent['version']} at {receipt['executable']} ({runtime})"
+    )
     return 0
 
 
