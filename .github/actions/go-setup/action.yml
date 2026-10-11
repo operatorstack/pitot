@@ -1,0 +1,47 @@
+name: "Go setup (cached, Windows-tuned)"
+description: >-
+  Set up Go with module + build caching and, on Windows, Microsoft Defender
+  exclusions for the Go caches and workspace. Windows `go test`/`go build` is
+  dominated by Defender real-time scanning of the many small object files the Go
+  toolchain writes during compile/link; excluding the cache dirs, the workspace,
+  and the go process reduces runner overhead.
+inputs:
+  go-version-file:
+    description: "Path to the go.mod that pins the toolchain version."
+    required: true
+  cache-dependency-path:
+    description: >-
+      Path to go.sum (preferred) or go.mod used to key the module/build cache.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # Runs BEFORE setup-go so the cache tarball is extracted into already-excluded
+    # directories. Uses the fixed Windows runner defaults (GOCACHE =
+    # %LOCALAPPDATA%\go-build, GOPATH/GOMODCACHE under %USERPROFILE%\go) rather
+    # than `go env`, which is unavailable until the toolchain is installed.
+    - name: Exclude Go caches from Microsoft Defender (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $targets = @(
+          "$env:LOCALAPPDATA\go-build",   # GOCACHE (build cache)
+          "$env:USERPROFILE\go",          # GOPATH incl. pkg\mod (GOMODCACHE)
+          $env:GITHUB_WORKSPACE,          # sources + compiled test binaries
+          $env:RUNNER_TEMP
+        ) | Where-Object { $_ -and $_.Trim() -ne '' } | Select-Object -Unique
+        foreach ($t in $targets) {
+          try {
+            Add-MpPreference -ExclusionPath $t -ErrorAction Stop
+            Write-Host "Defender exclusion added: $t"
+          } catch {
+            Write-Host "::warning::Defender exclusion failed for $t : $($_.Exception.Message)"
+          }
+        }
+        try { Add-MpPreference -ExclusionProcess 'go.exe' -ErrorAction Stop } catch {}
+    - name: Set up Go (with module + build cache)
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}

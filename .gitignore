@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+schema.json
+.venv/
+node_modules/
+target/
