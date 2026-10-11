@@ -185,15 +185,13 @@ func (s *Server) handleRequest(w http.ResponseWriter, request *http.Request) {
 
 func decodeRequest(w http.ResponseWriter, request *http.Request, target any) error {
 	request.Body = http.MaxBytesReader(w, request.Body, maxRequestBytes)
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
+	raw, err := io.ReadAll(request.Body)
+	if err == nil {
+		err = schema.DecodeEnvelope(raw, target)
+	}
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "trailing request data"})
-		return errors.New("trailing request data")
 	}
 	return nil
 }

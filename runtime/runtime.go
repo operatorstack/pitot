@@ -246,7 +246,7 @@ func (w *controllerWorker) readResponses(reader io.Reader) {
 	scanner := protocol.NewReader(reader)
 	for scanner.Scan() {
 		var response schema.ControlResponse
-		if err := protocol.DecodeLine(scanner.Bytes(), &response); err != nil {
+		if err := schema.DecodeEnvelope(scanner.Bytes(), &response); err != nil {
 			select {
 			case w.responses <- controllerResult{err: err}:
 			case <-w.ctx.Done():

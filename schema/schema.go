@@ -1,9 +1,10 @@
 // Package schema defines Pitot's public event, control, and fault envelopes.
 //
-// These types are the language-neutral contract expressed in Go. The canonical
-// definition is the versioned JSON Schema corpus; this package mirrors it so the
-// reference implementation and its fixtures stay in lockstep. Field names and
-// omitempty rules are part of the wire contract and must not drift casually.
+// The canonical value constraints are in v1.json, with the transport profile
+// documented in README.md. These types mirror its structural shape. Generated
+// convenience types are not admission validators; DecodeEnvelope checks raw
+// input before constructing typed values. Field names and omitempty rules are
+// part of the wire contract and must not drift casually.
 package schema
 
 import "encoding/json"

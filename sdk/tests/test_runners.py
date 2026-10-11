@@ -70,14 +70,41 @@ def run_lines(command, cwd, env, lines):
     return proc.returncode, stdout, stderr
 
 
+def wire_rows():
+    path = SDK_DIR.parent / "conformance" / "fixtures" / "wire.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def wire_bytes(row):
+    return row["raw"].encode("utf-8") if "raw" in row else bytes.fromhex(row["raw_hex"])
+
+
+def run_bytes(command, cwd, env, payload):
+    result = subprocess.run(
+        command, cwd=str(cwd), env=env, input=payload, capture_output=True, timeout=120
+    )
+    return (
+        result.returncode,
+        result.stdout.decode("utf-8", errors="replace"),
+        result.stderr.decode("utf-8", errors="replace"),
+    )
+
+
 # Fixture sources. Handlers key their outcome off PITOT_TEST_OUTCOME so a single
 # fixture serves both allow and deny cases.
 
 PY_CONTROLLER = """import os
-from pitot.runner import run_controller, allow, deny
+from pitot.runner import run_controller, allow, deny, Outcome
 from pitot.types import ControlRequested
 
 def handler(req: ControlRequested):
+    print("handled", file=__import__("sys").stderr)
+    if os.environ.get("PITOT_TEST_OUTCOME") == "invalid":
+        return Outcome("invalid")
+    if os.environ.get("PITOT_TEST_OUTCOME") == "oversize":
+        return allow("x" * (4 * 1024 * 1024))
+    if os.environ.get("PITOT_TEST_OUTCOME") == "no-message":
+        return allow()
     if os.environ.get("PITOT_TEST_OUTCOME") == "deny":
         return deny("test denied")
     return allow("test approved")
@@ -101,6 +128,10 @@ TS_CONTROLLER = """import { runController, allow, deny } from '../../typescript/
 import { ControlRequested } from '../../typescript/src/pitot';
 
 runController("test-controller", async (req: ControlRequested) => {
+    console.error("handled");
+    if (process.env.PITOT_TEST_OUTCOME === "invalid") return { outcome: "invalid" } as any;
+    if (process.env.PITOT_TEST_OUTCOME === "oversize") return allow("x".repeat(4 * 1024 * 1024));
+    if (process.env.PITOT_TEST_OUTCOME === "no-message") return allow();
     if (process.env.PITOT_TEST_OUTCOME === "deny") return deny("test denied");
     return allow("test approved");
 });
@@ -118,6 +149,8 @@ GO_CONTROLLER = """package main
 
 import (
 \t"os"
+\t"fmt"
+\t"strings"
 
 \t"github.com/operatorstack/pitot/schema"
 \t"github.com/operatorstack/pitot/sdk"
@@ -125,6 +158,10 @@ import (
 
 func main() {
 \tsdk.RunController("test-controller", func(req schema.ControlRequested) sdk.Outcome {
+\t\tfmt.Fprintln(os.Stderr, "handled")
+\t\tif os.Getenv("PITOT_TEST_OUTCOME") == "invalid" { return sdk.Outcome{Outcome:"invalid"} }
+\t\tif os.Getenv("PITOT_TEST_OUTCOME") == "oversize" { return sdk.Allow(strings.Repeat("x", 4 * 1024 * 1024)) }
+\t\tif os.Getenv("PITOT_TEST_OUTCOME") == "no-message" { return sdk.Allow("") }
 \t\tif os.Getenv("PITOT_TEST_OUTCOME") == "deny" {
 \t\t\treturn sdk.Deny("test denied")
 \t\t}
@@ -153,6 +190,12 @@ func main() {
 RUST_CONTROLLER = """use pitot::{run_controller, allow, deny, ControlRequested, Outcome};
 
 fn handler(_req: ControlRequested) -> Outcome {
+    eprintln!("handled");
+    if std::env::var("PITOT_TEST_OUTCOME").as_deref() == Ok("invalid") {
+        return Outcome{outcome: "invalid".to_string(),message:None};
+    }
+    if std::env::var("PITOT_TEST_OUTCOME").as_deref() == Ok("oversize") { return allow(Some("x".repeat(4 * 1024 * 1024))); }
+    if std::env::var("PITOT_TEST_OUTCOME").as_deref() == Ok("no-message") { return allow(None); }
     if std::env::var("PITOT_TEST_OUTCOME").as_deref() == Ok("deny") {
         return deny(Some("test denied".to_string()));
     }
@@ -194,6 +237,85 @@ class RunnerContract:
         # Generated fixtures must never linger under the published sdk/ tree, or
         # they would show up as projection drift in UPSTREAM.json.
         shutil.rmtree(FIXTURES_DIR, ignore_errors=True)
+
+    def _wire_cases(self, envelope):
+        return [row for row in wire_rows() if row["envelope"] == envelope]
+
+    def test_raw_consumer_admission(self):
+        cmd, cwd, env = self.consumer_command()
+        for accepted in (False, True):
+            rows = [
+                row for row in self._wire_cases("event") if row["valid"] == accepted
+            ]
+            payload = b"\n".join(wire_bytes(row) for row in rows)
+            payload += b"\n" + action_event("sentinel").encode() + b"\n"
+            code, stdout, stderr = run_bytes(cmd, cwd, env, payload)
+            self.assertEqual(code, 0, stderr)
+            self.assertEqual(stdout, "", stderr)
+            self.assertEqual(
+                stderr.count("consumed"), len(rows) + 1 if accepted else 1, stderr
+            )
+            self.assertNotIn("sample command", stderr)
+
+    def test_raw_controller_admission(self):
+        cmd, cwd, env = self.controller_command()
+        for accepted in (False, True):
+            rows = [
+                row for row in self._wire_cases("request") if row["valid"] == accepted
+            ]
+            payload = b"\n".join(wire_bytes(row) for row in rows)
+            payload += b"\n" + control_request("sentinel").encode() + b"\n"
+            code, stdout, stderr = run_bytes(cmd, cwd, env, payload)
+            self.assertEqual(code, 0, stderr)
+            expected = len(rows) + 1 if accepted else 1
+            self.assertEqual(stderr.count("handled"), expected, stderr)
+            self.assertEqual(len(stdout.splitlines()), expected, stdout + stderr)
+            self.assertEqual(
+                json.loads(stdout.splitlines()[-1])["action_id"], "sentinel"
+            )
+
+    def test_invalid_decision_never_reaches_stdout(self):
+        cmd, cwd, env = self.controller_command()
+        env = dict(env, PITOT_TEST_OUTCOME="invalid")
+        code, stdout, stderr = run_lines(cmd, cwd, env, [control_request("test")])
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stderr.count("handled"), 1, stderr)
+        self.assertEqual(stdout, "", stdout)
+        self.assertIn("error", stderr)
+
+    def test_oversized_response_never_reaches_stdout(self):
+        cmd, cwd, env = self.controller_command()
+        env = dict(env, PITOT_TEST_OUTCOME="oversize")
+        code, stdout, stderr = run_lines(cmd, cwd, env, [control_request("test")])
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stderr.count("handled"), 1, stderr)
+        self.assertEqual(stdout, "")
+        self.assertIn("error", stderr)
+
+    def test_absent_response_message_is_omitted(self):
+        cmd, cwd, env = self.controller_command()
+        env = dict(env, PITOT_TEST_OUTCOME="no-message")
+        code, stdout, stderr = run_lines(cmd, cwd, env, [control_request("test")])
+        self.assertEqual(code, 0, stderr)
+        self.assertNotIn("message", json.loads(stdout))
+
+    def test_frame_limits_and_final_eof(self):
+        cmd, cwd, env = self.controller_command()
+        prefix = b'{"pitot_version":"1","type":"control.requested","kind":"test","action_id":"boundary","data":"'
+        suffix = b'"}'
+        boundary = (
+            prefix + b"x" * (4 * 1024 * 1024 - len(prefix) - len(suffix)) + suffix
+        )
+        payload = (
+            boundary + b"\n" + boundary + b" \n" + control_request("sentinel").encode()
+        )
+        code, stdout, stderr = run_bytes(cmd, cwd, env, payload)
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stderr.count("handled"), 2, stderr)
+        self.assertEqual(
+            [json.loads(line)["action_id"] for line in stdout.splitlines()],
+            ["boundary", "sentinel"],
+        )
 
     # --- Controller cases -------------------------------------------------
 
@@ -297,6 +419,18 @@ class TestPythonRunner(RunnerContract, unittest.TestCase):
     def consumer_command(self):
         path = write_fixture("py_consumer.py", PY_CONSUMER)
         return ["python3", str(path)], FIXTURES_DIR, self._env()
+
+
+class TestOptimizedPythonRunner(TestPythonRunner):
+    language = "python-optimized"
+
+    def controller_command(self):
+        cmd, cwd, env = super().controller_command()
+        return [cmd[0], "-O", *cmd[1:]], cwd, env
+
+    def consumer_command(self):
+        cmd, cwd, env = super().consumer_command()
+        return [cmd[0], "-O", *cmd[1:]], cwd, env
 
 
 class TestTypeScriptRunner(RunnerContract, unittest.TestCase):

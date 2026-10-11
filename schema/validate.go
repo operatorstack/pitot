@@ -59,7 +59,7 @@ func ValidateEvent(event Event) error {
 	if event.Action != nil && (event.Action.ID == "" || event.Action.Kind == "") {
 		return ErrInvalidEvent
 	}
-	if event.Usage != nil && (event.Usage.InputTokens < 0 || event.Usage.OutputTokens < 0) {
+	if event.Usage != nil && (event.Usage.InputTokens < 0 || event.Usage.OutputTokens < 0 || int64(event.Usage.InputTokens) > MaxTokens || int64(event.Usage.OutputTokens) > MaxTokens) {
 		return ErrInvalidEvent
 	}
 	switch event.Type {
