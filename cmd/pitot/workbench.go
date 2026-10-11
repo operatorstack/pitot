@@ -875,7 +875,18 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 
 	srv := runtime.NewServer(manager, loaded.SHA256, runtimePath, stdout, stderr)
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.Serve(devCtx) }()
+	serveDone := make(chan struct{})
+	go func() {
+		defer close(serveDone)
+		serveErr <- srv.Serve(devCtx)
+	}()
+	// Keep the private runtime directory until descriptor cleanup and ownership
+	// release finish, including early startup failures.
+	defer func() {
+		cancel()
+		manager.Close()
+		<-serveDone
+	}()
 
 	// Wait for the runtime to publish a usable descriptor before starting the agent.
 	if err := waitForRuntime(devCtx, runtimePath, serveErr, 5*time.Second); err != nil {

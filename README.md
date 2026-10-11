@@ -382,6 +382,15 @@ With no `--config`, `pitot run` discovers and merges the repository's
 `.pitot/conf.d/` fragments. Pass `--config PATH` to override discovery with one
 explicit file (useful for tests and ad-hoc runtimes).
 
+One runtime owns each descriptor path. Pitot holds an operating-system lock on
+the owner-only `PATH.lock` companion through startup, serving and cleanup. Leave
+that empty file in place; the lock is released automatically on shutdown or a
+process crash. Competing starters fail without changing the owner's descriptor.
+An uncertain health result (including a timeout) also refuses takeover. A stale
+descriptor is recovered only after a direct loopback connection refusal.
+Older Pitot versions do not share this lock, so stop them before starting a new
+runtime at the same path.
+
 Start coding-agent CLIs from the same environment. Their `pitot hook HOST`
 commands discover the authenticated runtime through `PITOT_RUNTIME`. Without
 that variable or `--runtime PATH`, hooks remain observation-only for backwards
