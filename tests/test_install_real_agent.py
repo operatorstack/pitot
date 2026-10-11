@@ -131,6 +131,9 @@ class NpmInstallerTests(unittest.TestCase):
         with (
             mock.patch.object(installer, "run") as run,
             mock.patch.object(installer, "npm_executable", return_value="npm"),
+            mock.patch.object(
+                installer, "owned_entrypoint", return_value="/owned/claude"
+            ),
         ):
             installer.install(agent, "ubuntu", "native")
         run.assert_called_once_with(

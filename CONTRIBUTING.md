@@ -107,6 +107,26 @@ name/export errors (E9, F821, F822, F823); formatting remains a separate gate.
 
 ## Refreshing agent endpoint provenance
 
+The installer selects its own release location or npm global launcher rather
+than rediscovering the agent on PATH. It records the raw version output only
+after the complete product banner matches the literal catalog pin and the
+entrypoint bytes stay unchanged across the version probe. An unexpected banner
+is a verification failure that needs investigation; mentioning the pin is
+insufficient.
+
+Before creating runtime or fixture effects, the driver checks the receipt's
+schema, selected agent/platform/runtime/installer, owned absolute path, current
+file digest and freshly observed version output. It checks the file digest
+again immediately before and after the verification session. A failed or
+timed-out version probe, malformed receipt or changed file cannot produce a
+successful verification result.
+
+These are observations of the entrypoint and its self-reported version on a
+trusted runner. They do not authenticate a publisher, freeze the file against
+concurrent changes, or cover all programs and package files delegated to by an
+npm or Windows launcher. Historical endpoint captures retain their original
+scope; this check does not upgrade their identity evidence.
+
 Protocol documentation is not a verification authority. When a pinned agent
 version changes, dispatch the existing **Pitot E2E** workflow with
 `capture_provenance=true`. Download all `pitot-endpoint-capture-*` artifacts,

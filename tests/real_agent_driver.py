@@ -18,6 +18,8 @@ import tempfile
 import time
 import urllib.parse
 
+from agent_identity import inspect_receipt, verify_live_entrypoint
+
 
 LAB = Path(__file__).resolve().parent.parent
 ROOT = LAB
@@ -729,7 +731,9 @@ def main() -> int:
     parser.add_argument("--expect-incompatible-response", action="store_true")
     args = parser.parse_args()
     agent = next(item for item in MANIFEST["agents"] if item["id"] == args.agent)
-    installation = json.loads(args.installation.read_text(encoding="utf-8"))
+    installation = inspect_receipt(
+        json.loads(args.installation.read_text(encoding="utf-8")), agent, args.platform
+    )
     nonce = secrets.token_hex(16)
     prompt = f"Pitot E2E session {nonce}: execute the requested verification command"
     with tempfile.TemporaryDirectory(
@@ -1079,6 +1083,7 @@ def main() -> int:
                     if args.agent in {"copilot", "kimi"}
                     else [executable, *flags, prompt]
                 )
+            verify_live_entrypoint(installation)
             try:
                 completed = subprocess.run(
                     command,
@@ -1107,6 +1112,8 @@ def main() -> int:
                     f"released agent timed out; proxy={proxy_state}; witness={witness_state}; "
                     f"output={partial_output[-4000:]}"
                 ) from error
+            finally:
+                verify_live_entrypoint(installation)
             # GitHub's Windows Python console defaults to CP-1252 while several
             # released CLIs emit Unicode status glyphs. Emit UTF-8 bytes so the
             # reporting layer cannot fail after a successful agent session.
