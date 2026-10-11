@@ -32,6 +32,11 @@ jobs:
         env:
           GOWORK: "off"
         run: go test ./...
+      - name: Check runtime concurrency
+        if: runner.os == 'Linux'
+        env:
+          GOWORK: "off"
+        run: go test -race ./runtime
       - name: Build reference executable
         env:
           GOWORK: "off"

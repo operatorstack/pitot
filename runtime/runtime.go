@@ -181,26 +181,31 @@ type controllerResult struct {
 
 type controllerWorker struct {
 	ctx          context.Context
+	cancel       context.CancelFunc
 	router       *bridge.Router
 	registration bridge.Registration
 	stdin        io.WriteCloser
 	responses    chan controllerResult
 	done         chan error
 	startErr     error
-	mu           sync.Mutex
+	slot         chan struct{}
+	pending      sync.Map
 	resolved     map[string]struct{}
 	resolvedFIFO []string
 	closeOnce    sync.Once
 }
 
 func newControllerWorker(ctx context.Context, router *bridge.Router, registration bridge.Registration, declared config.ControllerConfig, stderr io.Writer) *controllerWorker {
+	ctx, cancel := context.WithCancel(ctx)
 	worker := &controllerWorker{
 		ctx:          ctx,
+		cancel:       cancel,
 		router:       router,
 		registration: registration,
 		responses:    make(chan controllerResult, 16),
 		done:         make(chan error, 1),
 		resolved:     map[string]struct{}{},
+		slot:         make(chan struct{}, 1),
 	}
 	cmd := exec.CommandContext(ctx, declared.Command[0], declared.Command[1:]...)
 	cmd.Dir = declared.Dir
@@ -208,15 +213,18 @@ func newControllerWorker(ctx context.Context, router *bridge.Router, registratio
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		worker.startErr = err
+		cancel()
 		return worker
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		worker.startErr = err
+		cancel()
 		return worker
 	}
 	if err := cmd.Start(); err != nil {
 		worker.startErr = err
+		cancel()
 		return worker
 	}
 	worker.stdin = stdin
@@ -230,7 +238,10 @@ func (w *controllerWorker) readResponses(reader io.Reader) {
 	for scanner.Scan() {
 		var response schema.ControlResponse
 		if err := protocol.DecodeLine(scanner.Bytes(), &response); err != nil {
-			w.responses <- controllerResult{err: err}
+			select {
+			case w.responses <- controllerResult{err: err}:
+			case <-w.ctx.Done():
+			}
 			return
 		}
 		select {
@@ -248,24 +259,97 @@ func (w *controllerWorker) readResponses(reader io.Reader) {
 }
 
 func (w *controllerWorker) resolve(ctx context.Context, request schema.ControlRequested) (schema.ControlResponse, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	// A cancelled duplicate must not resolve the action owned by another caller.
+	if _, pending := w.pending.LoadOrStore(request.ActionID, struct{}{}); pending {
+		return schema.ControlResponse{}, bridge.ErrDuplicate
+	}
+	defer w.pending.Delete(request.ActionID)
+	// The budget starts at admission, including time spent behind another request.
+	expires := time.Now().Add(time.Duration(w.registration.DeadlineMS) * time.Millisecond)
+	deadline := time.NewTimer(time.Until(expires))
+	defer deadline.Stop()
+	timeout := func(cause error) (schema.ControlResponse, error) {
+		response, err := w.router.TimeoutResponse(request)
+		return response, errors.Join(cause, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return timeout(err)
+	}
+	select {
+	case w.slot <- struct{}{}:
+	default:
+		select {
+		case w.slot <- struct{}{}:
+		case <-deadline.C:
+			return timeout(nil)
+		case <-ctx.Done():
+			return timeout(ctx.Err())
+		case <-w.ctx.Done():
+			response, err := w.router.Resolve(request, nil)
+			return response, errors.Join(w.ctx.Err(), err)
+		}
+	}
+	defer func() { <-w.slot }()
+	// A ready slot must not let an already expired request reach the child pipe.
+	if err := ctx.Err(); err != nil {
+		return timeout(err)
+	}
+	if !time.Now().Before(expires) {
+		return timeout(nil)
+	}
 	if w.startErr != nil || w.stdin == nil {
 		response, err := w.router.Resolve(request, nil)
 		return response, errors.Join(w.startErr, err)
 	}
-	if err := protocol.WriteLine(w.stdin, request); err != nil {
-		w.startErr = err
+	if err := w.ctx.Err(); err != nil {
 		response, resolveErr := w.router.Resolve(request, nil)
 		return response, errors.Join(err, resolveErr)
 	}
-	deadline := time.NewTimer(time.Duration(w.registration.DeadlineMS) * time.Millisecond)
-	defer deadline.Stop()
+	// Closing the owned pipe interrupts a stalled write. Join the writer before
+	// releasing the slot, and retire this transport because its frame may be partial.
+	written := make(chan error, 1)
+	go func() { written <- protocol.WriteLine(w.stdin, request) }()
+	interruptWrite := func(cause error) {
+		w.startErr = errors.Join(errors.New("controller request write interrupted"), cause)
+		w.close()
+		<-written
+		w.remember(request.ActionID)
+	}
+	select {
+	case err := <-written:
+		if err != nil {
+			w.startErr = err
+			w.close()
+			response, resolveErr := w.router.Resolve(request, nil)
+			w.remember(request.ActionID)
+			return response, errors.Join(err, resolveErr)
+		}
+	case <-deadline.C:
+		interruptWrite(context.DeadlineExceeded)
+		return timeout(nil)
+	case <-ctx.Done():
+		interruptWrite(ctx.Err())
+		return timeout(ctx.Err())
+	case <-w.ctx.Done():
+		interruptWrite(w.ctx.Err())
+		response, err := w.router.Resolve(request, nil)
+		return response, errors.Join(w.ctx.Err(), err)
+	}
 	for {
+		// A stream of stale responses cannot keep an expired request alive.
+		if err := ctx.Err(); err != nil {
+			w.remember(request.ActionID)
+			return timeout(err)
+		}
+		if !time.Now().Before(expires) {
+			w.remember(request.ActionID)
+			return timeout(nil)
+		}
 		select {
 		case result := <-w.responses:
 			if result.err != nil {
 				w.startErr = result.err
+				w.close()
 				response, resolveErr := w.router.Resolve(request, nil)
 				w.remember(request.ActionID)
 				return response, errors.Join(result.err, resolveErr)
@@ -286,6 +370,7 @@ func (w *controllerWorker) resolve(ctx context.Context, request schema.ControlRe
 				err = errors.New("controller exited")
 			}
 			w.startErr = err
+			w.close()
 			response, resolveErr := w.router.Resolve(request, nil)
 			w.remember(request.ActionID)
 			return response, errors.Join(err, resolveErr)
@@ -316,6 +401,9 @@ func (w *controllerWorker) remember(actionID string) {
 
 func (w *controllerWorker) close() {
 	w.closeOnce.Do(func() {
+		if w.cancel != nil {
+			w.cancel()
+		}
 		if w.stdin != nil {
 			_ = w.stdin.Close()
 		}

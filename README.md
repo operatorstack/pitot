@@ -681,6 +681,13 @@ answer. Pitot makes that privilege explicit.
 - Exactly one Controller may register for a request kind.
 - Registration is static, auditable configuration.
 - The registration declares a deadline and unavailable/timeout defaults.
+- The Controller deadline covers waiting for a busy Controller, writing its
+  request, and waiting for the response. A caller deadline can shorten that
+  budget; canceled requests do not wait indefinitely behind another request.
+- If a write is interrupted, Pitot stops that Controller because its input may
+  contain a partial frame. Later requests use `on_unavailable` until the runtime
+  is restarted. A timeout after a complete write leaves the Controller running;
+  late replies cannot resolve a different action.
 - Every response is bound to its pending action and Controller identity.
 - Late, stale, duplicate, mismatched, and malformed responses are rejected.
 - A pending action receives exactly one terminal resolution.
