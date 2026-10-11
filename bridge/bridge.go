@@ -178,16 +178,7 @@ func (r *Router) TimeoutResponse(req schema.ControlRequested) (schema.ControlRes
 }
 
 func validateRequest(req schema.ControlRequested) error {
-	if req.PitotVersion != schema.Version {
-		return fmt.Errorf("pitot: request has unsupported version %q", req.PitotVersion)
-	}
-	if req.Type != schema.TypeControlRequested {
-		return fmt.Errorf("pitot: request has unexpected type %q", req.Type)
-	}
-	if req.Kind == "" || req.ActionID == "" {
-		return errors.New("pitot: request requires kind and action id")
-	}
-	return nil
+	return schema.ValidateRequest(req)
 }
 
 func (r *Router) defaultResponse(reg Registration, req schema.ControlRequested, outcome string) schema.ControlResponse {
@@ -201,20 +192,14 @@ func (r *Router) defaultResponse(reg Registration, req schema.ControlRequested, 
 }
 
 func validateResponse(reg Registration, req schema.ControlRequested, resp schema.ControlResponse) error {
-	if resp.PitotVersion != schema.Version {
-		return fmt.Errorf("pitot: response for %q has unsupported version %q", req.Kind, resp.PitotVersion)
-	}
-	if resp.Type != schema.TypeControlResponse {
-		return fmt.Errorf("pitot: response for %q has unexpected type %q", req.Kind, resp.Type)
+	if err := schema.ValidateResponse(resp); err != nil {
+		return err
 	}
 	if resp.ControllerID != reg.ControllerID {
 		return fmt.Errorf("pitot: response for %q came from unregistered controller %q", req.Kind, resp.ControllerID)
 	}
 	if resp.ActionID != req.ActionID {
 		return fmt.Errorf("pitot: response action id %q does not match pending action %q", resp.ActionID, req.ActionID)
-	}
-	if !validOutcome(resp.Outcome) {
-		return fmt.Errorf("pitot: response for %q has invalid outcome %q", req.Kind, resp.Outcome)
 	}
 	return nil
 }

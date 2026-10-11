@@ -142,7 +142,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, request *http.Request) {
 	if err := decodeRequest(w, request, &event); err != nil {
 		return
 	}
-	if event.PitotVersion != schema.Version || event.Type != schema.TypeActionRequested || event.Action == nil || event.Action.ID == "" || event.Action.Kind == "" {
+	if schema.ValidateEvent(event) != nil || event.Type != schema.TypeActionRequested {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid action event"})
 		return
 	}
@@ -168,7 +168,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, request *http.Request) {
 	if err := decodeRequest(w, request, &control); err != nil {
 		return
 	}
-	if control.PitotVersion != schema.Version || control.Type != schema.TypeControlRequested || control.Kind == "" || control.ActionID == "" || !validJSON(control.Data) {
+	if schema.ValidateRequest(control) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid control request"})
 		return
 	}
@@ -196,10 +196,6 @@ func decodeRequest(w http.ResponseWriter, request *http.Request, target any) err
 		return errors.New("trailing request data")
 	}
 	return nil
-}
-
-func validJSON(value json.RawMessage) bool {
-	return len(value) == 0 || json.Valid(value)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
