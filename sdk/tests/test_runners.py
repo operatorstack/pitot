@@ -50,7 +50,7 @@ def action_event(action_id: str) -> str:
             "pitot_version": "1",
             "type": "action.requested",
             "host": {"name": "test-host"},
-            "observation": {"fidelity": "full", "source": "test"},
+            "observation": {"fidelity": "direct", "source": "host_hook"},
             "action": {"id": action_id, "kind": "shell"},
         }
     )

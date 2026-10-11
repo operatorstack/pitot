@@ -682,6 +682,32 @@ Every event identifies its schema, source, session, and observation quality:
 Adapters preserve host capability differences. A normalized field is never
 presented as directly observed when the host omitted it or Pitot inferred it.
 
+## Runtime envelope admission
+
+The reference runtime validates event semantics before any Consumer delivery.
+Events require version `1`, a nonempty host name, and an observation source of
+`host_hook` or `host_event` with fidelity `direct` or `estimated`. Action events
+also require a nonempty action ID and kind. Optional event metadata and
+Controller-owned request data retain their existing meaning.
+
+Content representations are mutually exclusive:
+
+- `full` carries one JSON string containing the measured bytes, with no digest;
+- `sha256` carries a 64-digit hexadecimal digest, with no full content;
+- `omit` carries neither representation.
+
+Contradictory or malformed content is rejected before fanout, including events
+submitted directly through the Go Manager. Projection validates content again
+before using an already-projected representation. Validation errors contain no
+payload or envelope identifiers. Valid envelopes retain the existing projection,
+Controller correlation, timeout and unavailable-default behavior.
+
+The shared typed-envelope vectors are in
+`conformance/fixtures/envelopes.jsonl`. This admission gate does not enable new
+event delivery capabilities: runtime ingress still accepts only
+`action.requested`. SDK raw-line decoding and generated schema constraints are
+separate conformance boundaries.
+
 ## Controller guarantees
 
 Synchronous hooks are control channels: the host is blocked waiting for an

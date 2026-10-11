@@ -69,3 +69,29 @@ func load(path string) ([]Case, error) {
 	}
 	return cases, nil
 }
+
+// EnvelopeCase is a shared semantic vector, independent of host adapter input.
+// Valid describes typed v1 semantics; raw decoder policy is tested separately.
+type EnvelopeCase struct {
+	Name     string          `json:"name"`
+	Envelope string          `json:"envelope"`
+	Valid    bool            `json:"valid"`
+	Message  json.RawMessage `json:"message"`
+}
+
+func Envelopes() ([]EnvelopeCase, error) {
+	data, err := fixtures.ReadFile("fixtures/envelopes.jsonl")
+	if err != nil {
+		return nil, err
+	}
+	var cases []EnvelopeCase
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		var c EnvelopeCase
+		if err := json.Unmarshal(scanner.Bytes(), &c); err != nil {
+			return nil, err
+		}
+		cases = append(cases, c)
+	}
+	return cases, scanner.Err()
+}

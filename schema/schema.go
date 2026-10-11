@@ -61,7 +61,8 @@ type Action struct {
 }
 
 // Content carries the projected representation of a payload. Exactly one of the
-// Full/SHA256 representations is populated according to Mode; Omit populates
+// Full/SHA256 representations is populated according to Mode. Full contains a
+// JSON string of the measured bytes; Omit populates
 // neither.
 type Content struct {
 	Mode   string          `json:"mode"`

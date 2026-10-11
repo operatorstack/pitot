@@ -125,6 +125,12 @@ func (m *Manager) Close() {
 // the synchronous action through its Controller. A nil response means the
 // action kind is observation-only.
 func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema.ControlResponse, error) {
+	if err := schema.ValidateEvent(event); err != nil {
+		return nil, err
+	}
+	if event.Type != schema.TypeActionRequested {
+		return nil, errors.New("pitot: unsupported runtime event type")
+	}
 	for _, consumer := range m.consumers {
 		if err := consumer.offer(event); err != nil {
 			fmt.Fprintf(m.stderr, "pitot: consumer %q delivery fault: %v\n", consumer.id, err)
@@ -165,6 +171,9 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 
 // Request routes an explicit request through the same Controller worker used by hooks.
 func (m *Manager) Request(ctx context.Context, request schema.ControlRequested) (schema.ControlResponse, error) {
+	if err := schema.ValidateRequest(request); err != nil {
+		return schema.ControlResponse{}, err
+	}
 	worker, exists := m.controllers[request.Kind]
 	if !exists {
 		return schema.ControlResponse{}, bridge.ErrNoController
@@ -497,6 +506,14 @@ func (w *consumerWorker) close() {
 }
 
 func projectEvent(event schema.Event, mode projection.Mode) (schema.Event, error) {
+	if !mode.Valid() {
+		return schema.Event{}, errors.New("pitot: invalid content projection")
+	}
+	if event.Content != nil {
+		if err := schema.ValidateContent(*event.Content); err != nil {
+			return schema.Event{}, err
+		}
+	}
 	copyEvent := event
 	if event.Content == nil {
 		return copyEvent, nil
