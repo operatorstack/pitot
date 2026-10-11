@@ -158,7 +158,10 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
     output = result.stdout.decode("utf-8", errors="strict")
     error = result.stderr.decode("utf-8", errors="strict")
     if error or not version_matches(agent, output):
-        raise RuntimeError("agent did not report the exact supervised version")
+        raise RuntimeError(
+            "agent did not report the exact supervised version; "
+            f"stdout={output[:4096]!r}; stderr={error[:4096]!r}"
+        )
     if entrypoint_digest(path, runtime) != before:
         raise RuntimeError("agent entrypoint changed during version probe")
     return output, before
