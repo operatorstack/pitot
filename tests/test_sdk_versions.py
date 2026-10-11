@@ -25,7 +25,7 @@ class SDKVersionLockstep(unittest.TestCase):
         cargo = (LAB / "sdk/rust/Cargo.toml").read_text()
         rust_version = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M).group(1)
 
-        workbench = (LAB / "pitot/cmd/pitot/workbench.go").read_text()
+        workbench = (LAB / "cmd/pitot/workbench.go").read_text()
         scaffold_version = re.search(
             r'pitotPackageVersion = "([^"]+)"', workbench
         ).group(1)
