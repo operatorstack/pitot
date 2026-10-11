@@ -1,0 +1,11 @@
+{
+  "name": "pitot-maintenance",
+  "private": true,
+  "scripts": {
+    "format": "python3 scripts/format.py",
+    "format:check": "python3 scripts/format.py --check"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}
