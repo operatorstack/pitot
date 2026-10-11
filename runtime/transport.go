@@ -148,7 +148,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, request *http.Request) {
 	}
 	response, err := s.manager.DeliverEvent(request.Context(), event)
 	if err != nil {
-		fmt.Fprintf(s.stderr, "pitot: action %s resolved with boundary fault: %v\n", event.Action.ID, err)
+		fmt.Fprintln(s.stderr, "pitot: action resolved with boundary fault")
 		if response == nil {
 			// An errored delivery with no resolution must never read as an
 			// observation-only allow (204): fail closed so the hook blocks.
@@ -178,7 +178,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if err != nil {
-		fmt.Fprintf(s.stderr, "pitot: request %s resolved with boundary fault: %v\n", control.ActionID, err)
+		fmt.Fprintln(s.stderr, "pitot: request resolved with boundary fault")
 	}
 	writeJSON(w, http.StatusOK, response)
 }

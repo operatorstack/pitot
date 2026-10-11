@@ -2,6 +2,8 @@ package protocol_test
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -55,5 +57,14 @@ func TestReadFramesDrainsOversizedRecord(t *testing.T) {
 	})
 	if err != nil || rejected != 1 || len(values) != 2 || values[0] != "{}\r" || values[1] != "{}" {
 		t.Fatalf("err=%v, rejected=%d, values=%v", err, rejected, values)
+	}
+}
+
+type shortFrameWriter struct{}
+
+func (shortFrameWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
+func TestWriteLineRejectsShortWrite(t *testing.T) {
+	if err := protocol.WriteLine(shortFrameWriter{}, map[string]string{"record": "value"}); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("error=%v", err)
 	}
 }

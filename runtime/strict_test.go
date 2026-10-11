@@ -10,8 +10,7 @@ import (
 	"github.com/operatorstack/pitot/config"
 )
 
-// require_controller converts the silent observation-only allow into a fault
-// (Locus strict-mode candidate strict-config-v1 / strict-flag-v1).
+// require_controller converts observation-only allow into a fault.
 func TestRequireControllerFaultsInsteadOfAllowing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

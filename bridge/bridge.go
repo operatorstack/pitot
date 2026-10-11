@@ -196,10 +196,10 @@ func validateResponse(reg Registration, req schema.ControlRequested, resp schema
 		return err
 	}
 	if resp.ControllerID != reg.ControllerID {
-		return fmt.Errorf("pitot: response for %q came from unregistered controller %q", req.Kind, resp.ControllerID)
+		return errors.New("pitot: response controller mismatch")
 	}
 	if resp.ActionID != req.ActionID {
-		return fmt.Errorf("pitot: response action id %q does not match pending action %q", resp.ActionID, req.ActionID)
+		return errors.New("pitot: response action mismatch")
 	}
 	return nil
 }

@@ -145,3 +145,27 @@ func TestResolveRejectsMalformedRequest(t *testing.T) {
 		t.Fatal("expected malformed request to fail")
 	}
 }
+
+func TestCorrelationErrorsDoNotEchoEnvelopeIdentifiers(t *testing.T) {
+	for _, wrongController := range []bool{true, false} {
+		r := NewRouter()
+		_ = r.Register(reg())
+		req := request()
+		req.ActionID = "CONTROLLED_SECRET_REQUEST"
+		candidate := &schema.ControlResponse{PitotVersion: schema.Version, Type: schema.TypeControlResponse, ControllerID: reg().ControllerID, ActionID: req.ActionID, Outcome: schema.OutcomeAllow}
+		want := "pitot: response action mismatch"
+		if wrongController {
+			candidate.ControllerID = "CONTROLLED_SECRET_CONTROLLER"
+			want = "pitot: response controller mismatch"
+		} else {
+			candidate.ActionID = "CONTROLLED_SECRET_RESPONSE"
+		}
+		response, err := r.Resolve(req, candidate)
+		if err == nil || err.Error() != want {
+			t.Fatalf("error=%v want=%s", err, want)
+		}
+		if response.Outcome != schema.OutcomeDeny || response.ActionID != req.ActionID {
+			t.Fatalf("default/correlation changed: %+v", response)
+		}
+	}
+}

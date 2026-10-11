@@ -116,8 +116,7 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		return fmt.Errorf("pitot: emit normalized event: %w", err)
 	}
 	if runtimePath == "" {
-		// Observation-only is a feature; silence about it is not (Locus
-		// root-cause: silent-mode-degradation). Exit 0 is preserved.
+		// Announce observation-only operation while preserving exit 0.
 		fmt.Fprintln(stderr, "pitot: observe-only (no --runtime/PITOT_RUNTIME); this action is recorded, not supervised")
 		return nil
 	}
