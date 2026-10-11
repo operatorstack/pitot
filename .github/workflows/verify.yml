@@ -88,10 +88,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Generate Types
-        run: bash scripts/generate_types.sh
-      - name: Verify generated SDK stability
-        run: git diff --exit-code -- sdk
+      - name: Install locked maintenance tools
+        run: npm ci --ignore-scripts
+      - name: Install pinned Python checks
+        run: python -m pip install -r requirements-format.txt
+      - name: Check generated SDK stability
+        run: npm run generate:check
+      - name: Check authored-source correctness
+        run: npm run check:static
       - name: Verify generated Python SDK syntax
         run: python -m py_compile sdk/python/pitot/types.py
       - name: Supervise adapter verification boundary

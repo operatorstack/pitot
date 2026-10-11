@@ -3,9 +3,18 @@
   "private": true,
   "scripts": {
     "format": "python3 scripts/format.py",
-    "format:check": "python3 scripts/format.py --check"
+    "format:check": "python3 scripts/format.py --check",
+    "generate": "bash scripts/generate_types.sh",
+    "generate:check": "bash scripts/generate_types.sh --check",
+    "check:static": "python3 scripts/check_static.py"
   },
   "devDependencies": {
-    "prettier": "3.9.10"
+    "prettier": "3.9.10",
+    "quicktype": "26.0.0"
+  },
+  "overrides": {
+    "quicktype": {
+      "stream-json": "3.7.0"
+    }
   }
 }

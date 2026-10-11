@@ -86,6 +86,25 @@ separate CI check. Rust formatting uses stdin so formatting an authored module
 cannot traverse into generated types. TOML manifests and JSON Lines conformance
 fixtures are outside this initial formatting gate.
 
+## Generation and static checks
+
+After installing the locked npm dependencies and the pinned Python tools above:
+
+```bash
+npm run generate        # regenerate SDK types using the locked quicktype tool
+npm run generate:check  # compare with staged output without writing SDK files
+npm run check:static    # Go vet, Python correctness, shell and JavaScript syntax
+```
+
+Generation uses quicktype 26.0.0 and its locked dependency graph. It does not
+resolve packages or download tools. All language outputs are staged successfully
+before the write command copies them into the SDKs; check mode reports missing
+or changed outputs without modifying them. The schema and generated SDK bytes
+remain the contract; regeneration is checked in CI.
+
+The static gate checks authored files. Python checks select syntax and unresolved
+name/export errors (E9, F821, F822, F823); formatting remains a separate gate.
+
 ## Refreshing agent endpoint provenance
 
 Protocol documentation is not a verification authority. When a pinned agent
