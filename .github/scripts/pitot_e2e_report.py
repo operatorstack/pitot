@@ -621,18 +621,39 @@ def load_artifact(
     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
         names = bundle.namelist()
         if (
-            names != ["result.json"]
+            len(names) != len(set(names))
+            or "result.json" not in names
+            or set(names) - {"result.json", "deepseek-native-session.zstd"}
             or bundle.getinfo("result.json").file_size > MAX_ARTIFACT_BYTES
         ):
-            raise ValueError("artifact must contain one bounded result.json")
+            raise ValueError("artifact has unexpected, duplicate or oversized entries")
         value = json.loads(bundle.read("result.json"))
-    return validate_result(
-        value,
-        agent=agent,
-        platform=platform,
-        expected_sha=expected_sha,
-        expected_run_url=expected_run_url,
-    )
+        result = validate_result(
+            value,
+            agent=agent,
+            platform=platform,
+            expected_sha=expected_sha,
+            expected_run_url=expected_run_url,
+        )
+        if agent == "deepseek" and result["status"] == "pass":
+            session_name = "deepseek-native-session.zstd"
+            if set(names) != {"result.json", session_name}:
+                raise ValueError("passing DeepSeek artifact lacks native session")
+            if not 0 < bundle.getinfo(session_name).file_size <= MAX_ARTIFACT_BYTES:
+                raise ValueError(
+                    "DeepSeek native session exceeds size limit or is empty"
+                )
+            session = bundle.read(session_name)
+            if (
+                hashlib.sha256(session).hexdigest()
+                != result["controller"]["native_tool_results"]["session_sha256"]
+            ):
+                raise ValueError(
+                    "DeepSeek native session digest does not match receipt"
+                )
+        elif names != ["result.json"]:
+            raise ValueError("artifact must contain only result.json")
+    return result
 
 
 def load_inventory(github: GitHub, artifact: dict[str, object]) -> dict[str, object]:
@@ -702,8 +723,13 @@ def collect_results(
                         expected_run_url=run_url,
                     )
                     continue
-                except (ValueError, json.JSONDecodeError, zipfile.BadZipFile):
-                    pass
+                except (ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+                    print(
+                        f"Rejected {agent}/{platform} artifact: {error}",
+                        file=sys.stderr,
+                    )
+            else:
+                print(f"Missing {agent}/{platform} artifact", file=sys.stderr)
             results[agent][platform] = failed_result(agent, platform, head_sha, run_url)
     return results
 
@@ -747,8 +773,10 @@ def collect_runtime_results(
                     expected_run_url=run_url,
                 )
                 continue
-            except (ValueError, json.JSONDecodeError, zipfile.BadZipFile):
-                pass
+            except (ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+                print(f"Rejected runtime/{platform} artifact: {error}", file=sys.stderr)
+        else:
+            print(f"Missing runtime/{platform} artifact", file=sys.stderr)
         results[platform] = failed_runtime_result(platform, head_sha, run_url)
     return results
 
@@ -837,6 +865,14 @@ def main() -> int:
     else:
         github.request("POST", f"/issues/{issue_number}/comments", {"body": body})
         print(f"Created Pitot E2E report on PR #{issue_number}")
+    failed = any(
+        result["status"] != "pass"
+        for cells in results.values()
+        for result in cells.values()
+    ) or any(result["status"] != "pass" for result in runtime_results.values())
+    if failed:
+        print("E2E report contains failed evidence cells", file=sys.stderr)
+        return 1
     return 0
 
 
