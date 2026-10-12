@@ -63,6 +63,19 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 			}
 		}
 	}
+	sessionID := event.SessionID
+	if host == adapters.Cursor && len(event.ConversationID) != 0 {
+		var conversationID string
+		if err := json.Unmarshal(event.ConversationID, &conversationID); err != nil {
+			return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
+		}
+		if conversationID != "" {
+			if sessionID != "" && sessionID != conversationID {
+				return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
+			}
+			sessionID = conversationID
+		}
+	}
 
 	// An empty or mismatched event name is a malformed boundary, not a decision.
 	eventName := host.EventNameFor(event)
@@ -94,6 +107,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 	normalized := schema.Event{
 		PitotVersion: schema.Version,
 		Type:         schema.TypeActionRequested,
+		SessionID:    sessionID,
 		Host: schema.Host{
 			Name:           string(host),
 			AdapterVersion: adapters.AdapterVersion,
@@ -104,9 +118,6 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 			Source:   source,
 			Fidelity: schema.FidelityDirect,
 		},
-	}
-	if host == adapters.DeepSeek {
-		normalized.SessionID = event.SessionID
 	}
 	return normalized, nil
 }

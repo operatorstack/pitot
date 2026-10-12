@@ -15,6 +15,7 @@ export default {
             hook_event_name: "PreToolUse",
             tool_name: "Bash",
             tool_input: { command: typeof command === "string" ? command : "" },
+            session_id: event.sessionID,
           }),
           encoding: "utf8",
           maxBuffer: 1024 * 1024,

@@ -5,6 +5,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,7 +18,12 @@ import (
 )
 
 type event struct {
-	Type string `json:"type"`
+	Type        string `json:"type"`
+	SessionID   string `json:"session_id"`
+	Observation struct {
+		Source   string `json:"source"`
+		Fidelity string `json:"fidelity"`
+	} `json:"observation"`
 	Host struct {
 		Name string `json:"name"`
 	} `json:"host"`
@@ -80,9 +87,35 @@ func main() {
 	var observed event
 	valid := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &observed) == nil &&
 		observed.Type == "action.requested" && observed.Host.Name == host &&
+		observed.Observation.Source == "host_hook" && observed.Observation.Fidelity == "direct" &&
 		observed.Action != nil && observed.Action.Kind == "shell" &&
 		observed.Content != nil && observed.Content.Mode == "full" &&
 		strings.Contains(string(observed.Content.Full), nonce)
+	var suppliedSession string
+	if host != "deepseek" {
+		var input struct {
+			SessionID      string          `json:"session_id"`
+			ConversationID json.RawMessage `json:"conversation_id"`
+		}
+		inputErr := json.Unmarshal(in, &input)
+		suppliedSession = input.SessionID
+		if host == "cursor" && len(input.ConversationID) != 0 {
+			var conversation string
+			if err := json.Unmarshal(input.ConversationID, &conversation); err != nil {
+				inputErr = err
+			} else if conversation != "" {
+				if suppliedSession != "" && suppliedSession != conversation {
+					inputErr = fmt.Errorf("conflicting session identities")
+				}
+				suppliedSession = conversation
+			}
+		}
+		var output map[string]json.RawMessage
+		outputErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &output)
+		_, hasSession := output["session_id"]
+		valid = valid && inputErr == nil && outputErr == nil && observed.SessionID == suppliedSession &&
+			((suppliedSession != "" && hasSession) || (suppliedSession == "" && !hasSession))
+	}
 	actionID := ""
 	var nativeSession, nativeCall, nativeRequest string
 	if observed.Action != nil {
@@ -121,6 +154,14 @@ func main() {
 	}
 	if host == "deepseek" {
 		record["session_id"], record["tool_call_id"], record["request_id"] = nativeSession, nativeCall, nativeRequest
+	} else {
+		state := "unavailable"
+		if suppliedSession != "" {
+			state = "supplied"
+			digest := sha256.Sum256([]byte(suppliedSession))
+			record["session_id_sha256"] = hex.EncodeToString(digest[:])
+		}
+		record["session_id_state"] = state
 	}
 	encoded, _ := json.Marshal(record)
 	if valid {
