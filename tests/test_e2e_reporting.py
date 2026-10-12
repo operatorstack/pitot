@@ -403,17 +403,9 @@ class ReporterContractTests(unittest.TestCase):
         self.assertIn("pitot-e2e-runtime-${{ matrix.platform }}", unified)
         self.assertIn('-- "$PITOT_BASH" tests/e2e_runtime_cli_test.sh', unified)
         self.assertIn("name: pitot-e2e-inventory", unified)
-        self.assertEqual(
-            runner_script.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build"), 3
-        )
-        self.assertIn("pitot-linux", runner_script)
-        self.assertIn("pitot-witness-linux", runner_script)
-        self.assertIn("pitot-testrole-linux", runner_script)
-        self.assertIn("wsl.exe --distribution Ubuntu -- env", runner_script)
-        self.assertIn(
-            'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"', runner_script
-        )
-        self.assertIn("MSYS2_ARG_CONV_EXCL='*'", runner_script)
+        self.assertEqual(runner_script.count("go build -o"), 3)
+        self.assertNotIn("GOOS=linux", runner_script)
+        self.assertNotIn("wsl.exe", runner_script)
 
     def test_inventory_schema_rejects_identity_injection(self):
         inventory = json.loads((ROOT / "adapter-verification.json").read_text())

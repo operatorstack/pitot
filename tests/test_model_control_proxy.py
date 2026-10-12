@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,6 +36,118 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_cursor_carrier_rejects_unrelated_or_corrupt_snapshots(self):
+        nonce = "a" * 32
+        context = {
+            "PITOT_CURSOR_CANDIDATE": "b" * 40,
+            "PITOT_CURSOR_CARRIER_TEMP": "C:/owned/ct",
+            "PITOT_CURSOR_PARENT_SHELL": "C:/PowerShell/pwsh.exe",
+            "PITOT_CURSOR_PARENT_SHELL_SHA256": "c" * 64,
+            "PITOT_CURSOR_RELEASE_NODE": "C:/release/node.exe",
+            "PITOT_CURSOR_RELEASE_NODE_SHA256": "d" * 64,
+            "PITOT_CURSOR_VERIFICATION_HOOK_COMMAND": "& 'C:/PowerShell/pwsh.exe' -File 'C:/owned/bridge.ps1' -VerifyCarrier",
+        }
+        commands = [
+            f"& 'C:/工具 path/canary.exe' PITOT_{phase} {nonce}"
+            for phase in ("ALLOW", "DENY")
+        ]
+        records = []
+        for index, phase in enumerate(("allow", "deny")):
+            payload_path = f"C:/owned/ct/cursor-hooks-abc{index}/payload.json"
+            payload = json.dumps(
+                {"command": commands[index]}, ensure_ascii=False
+            ).encode("utf-8")
+            script = (
+                "\ufeff$OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content -LiteralPath '"
+                + payload_path
+                + "' -Raw | & { $input | "
+                + context["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"]
+                + " }"
+            ).encode("utf-8")
+            records.append(
+                {
+                    "schema_version": 1,
+                    "status": "observed",
+                    "nonce": nonce,
+                    "source_candidate_sha": context["PITOT_CURSOR_CANDIDATE"],
+                    "phase": phase,
+                    "action_id": f"act_{index}",
+                    "observed_command": commands[index],
+                    "expected_command": commands[index],
+                    "owned_temp_root": context["PITOT_CURSOR_CARRIER_TEMP"],
+                    "elapsed_ms": 100,
+                    "inner": {
+                        "pid": 10 + index,
+                        "parent_pid": 20 + index,
+                        "image_path": context["PITOT_CURSOR_PARENT_SHELL"],
+                        "image_sha256": "c" * 64,
+                        "creation_date": "2026-10-12T12:00:00Z",
+                    },
+                    "parent": {
+                        "pid": 20 + index,
+                        "parent_pid": 30,
+                        "image_path": context["PITOT_CURSOR_PARENT_SHELL"],
+                        "image_sha256": "c" * 64,
+                        "creation_date": "2026-10-12T11:59:59Z",
+                        "file_major_part": 7,
+                        "argv": 'C:/PowerShell/pwsh.exe -ExecutionPolicy Bypass -NonInteractive -File "C:/owned/ct/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1"',
+                    },
+                    "grandparent": {
+                        "pid": 30,
+                        "creation_date": "2026-10-12T11:59:58Z",
+                        "image_path": context["PITOT_CURSOR_RELEASE_NODE"],
+                        "image_sha256": "d" * 64,
+                        "version_prefix": "C:/release",
+                    },
+                    "carrier": {
+                        "path": "C:/owned/ct/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1",
+                        "bytes_base64": base64.b64encode(script).decode(),
+                        "sha256": hashlib.sha256(script).hexdigest(),
+                    },
+                    "payload": {
+                        "path": payload_path,
+                        "bytes_base64": base64.b64encode(payload).decode(),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    },
+                }
+            )
+        driver.validate_cursor_carrier(
+            records, context, nonce, commands, ["act_0", "act_1"]
+        )
+        mutations = [
+            lambda r: r[0].update(status="draft"),
+            lambda r: r[0].update(source_candidate_sha="f" * 40),
+            lambda r: r[0].update(nonce="0" * 32),
+            lambda r: r[0].update(action_id="act_other"),
+            lambda r: r[0].update(elapsed_ms=5001),
+            lambda r: r[0]["parent"].update(file_major_part=5),
+            lambda r: r[0]["parent"].update(image_sha256="0" * 64),
+            lambda r: r[0]["inner"].update(parent_pid=999),
+            lambda r: r[0]["grandparent"].update(image_path="C:/other/node.exe"),
+            lambda r: r[0]["carrier"].update(
+                path="C:/foreign/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1"
+            ),
+            lambda r: r[0]["payload"].update(
+                path="C:/owned/ct/../escaped/payload.json"
+            ),
+            lambda r: r[0]["payload"].update(sha256="0" * 64),
+            lambda r: r[0]["carrier"].update(bytes_base64="not base64"),
+            lambda r: r[0]["parent"].update(argv="pwsh -File unrelated.ps1"),
+            lambda r: r[0]["parent"].update(argv="echo " + r[0]["carrier"]["path"]),
+            lambda r: r[0]["parent"].update(creation_date="not a date"),
+            lambda r: r[0]["parent"].update(creation_date="2026-10-12T12:00:01Z"),
+            lambda r: r[0]["grandparent"].pop("creation_date"),
+            lambda r: r.reverse(),
+            lambda r: r.pop(),
+        ]
+        for mutation in mutations:
+            broken = copy.deepcopy(records)
+            mutation(broken)
+            with self.assertRaises(RuntimeError):
+                driver.validate_cursor_carrier(
+                    broken, context, nonce, commands, ["act_0", "act_1"]
+                )
+
     def test_cursor_windows_requires_modern_powershell_without_legacy_fallback(self):
         with (
             mock.patch.object(driver.shutil, "which", return_value=None),
@@ -544,6 +659,47 @@ class ModelControlProtocolTests(unittest.TestCase):
         self.assertIn(b"call-nonce", payload)
         self.assertIn(b"exec", payload)
         self.assertIn(b'{"command":"echo nonce"}', payload)
+
+    def test_cursor_controller_command_proof_rejects_corruption_and_wrong_projection(
+        self,
+    ):
+        expected = [
+            "& 'C:/工具 path/canary.exe' PITOT_ALLOW nonce",
+            "& 'C:/工具 path/canary.exe' PITOT_DENY nonce",
+        ]
+        requests = [
+            {
+                "action_id": f"act_{index}",
+                "data": {
+                    "type": "action.requested",
+                    "host": {"name": "cursor"},
+                    "action": {"id": f"act_{index}", "kind": "shell"},
+                    "content": {"mode": "full", "full": command},
+                },
+            }
+            for index, command in enumerate(expected)
+        ]
+        hashes = driver.validate_cursor_commands(requests, expected)
+        self.assertEqual(len(hashes), 2)
+        self.assertNotEqual(hashes[0], hashes[1])
+        for mutation in (
+            lambda value: value[0]["data"]["content"].update(full="corrupted 工具"),
+            lambda value: value[0]["data"]["content"].update(
+                full=expected[0].encode("utf-8").decode("latin1")
+            ),
+            lambda value: value[0]["data"]["content"].update(mode="sha256"),
+            lambda value: value[0]["data"].update(command=expected[0], content={}),
+            lambda value: value[0]["data"]["action"].update(id="act_unrelated"),
+            lambda value: value[0]["data"].update(host=None),
+            lambda value: value[0]["data"].update(host={"name": "copilot"}),
+            lambda value: value[0].update(action_id=None),
+            lambda value: value.reverse(),
+            lambda value: value.pop(),
+        ):
+            broken = copy.deepcopy(requests)
+            mutation(broken)
+            with self.assertRaises(RuntimeError):
+                driver.validate_cursor_commands(broken, expected)
 
     def test_cursor_windows_canary_uses_powershell_literal_invocation(self):
         command = driver.render_cursor_canary_command(

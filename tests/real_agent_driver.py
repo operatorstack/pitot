@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
+from datetime import datetime
 from contextlib import ExitStack
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import secrets
 import re
 import shlex
@@ -132,6 +134,7 @@ def configure(
     witness_receipt: str,
     nonce: str,
     runtime_path: str,
+    cursor_carrier: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     env: dict[str, str] = {
         "HOME": str(home),
@@ -301,6 +304,14 @@ def configure(
                 str(Path(shell).parent) + os.pathsep + os.environ.get("PATH", "")
             )
             env["SHELL"] = shell
+            if cursor_carrier is not None:
+                hook_command += " -VerifyCarrier"
+                env.update(cursor_carrier)
+                env["PITOT_CURSOR_PARENT_SHELL"] = shell
+                env["PITOT_CURSOR_PARENT_SHELL_SHA256"] = hashlib.sha256(
+                    Path(shell).read_bytes()
+                ).hexdigest()
+                env["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"] = hook_command
         else:
             hook_command = (
                 f'"{target}" "{witness_command}" "{pitot_command}" '
@@ -603,6 +614,196 @@ def json_lines(path: Path) -> list[dict[str, object]]:
     ]
 
 
+def validate_cursor_commands(
+    requests: list[dict[str, object]], expected: list[str]
+) -> list[str]:
+    """Match the measured hook command, including Unicode, at the Controller."""
+    if len(requests) != 2 or len(expected) != 2:
+        raise RuntimeError("Cursor command proof requires both boundary actions")
+    digests = []
+    for request, command in zip(requests, expected):
+        if not isinstance(request, dict) or not isinstance(command, str) or not command:
+            raise RuntimeError("Cursor command proof is malformed")
+        event = request.get("data")
+        if not isinstance(event, dict):
+            raise RuntimeError("Cursor Controller request has no measured event")
+        action, content, host = (
+            event.get("action"),
+            event.get("content"),
+            event.get("host"),
+        )
+        if (
+            event.get("type") != "action.requested"
+            or not isinstance(host, dict)
+            or host.get("name") != "cursor"
+            or not isinstance(request.get("action_id"), str)
+            or not request["action_id"].startswith("act_")
+            or not isinstance(action, dict)
+            or action.get("id") != request.get("action_id")
+            or action.get("kind") != "shell"
+            or not isinstance(content, dict)
+            or content.get("mode") != "full"
+            or content.get("full") != command
+        ):
+            raise RuntimeError("Cursor hook command changed before the Controller")
+        digests.append(hashlib.sha256(command.encode("utf-8")).hexdigest())
+    return digests
+
+
+def validate_cursor_carrier(
+    records: list[dict[str, object]],
+    context: dict[str, str],
+    nonce: str,
+    commands: list[str],
+    action_ids: list[str],
+) -> None:
+    """Check snapshots made by the actual Windows hook's bounded observer."""
+    if len(records) != 2 or len(commands) != 2 or len(action_ids) != 2:
+        raise RuntimeError("Cursor carrier proof requires both actions")
+
+    def same_path(left, right):
+        return isinstance(left, str) and PureWindowsPath(left) == PureWindowsPath(right)
+
+    def owned_path(value):
+        if not isinstance(value, str):
+            raise RuntimeError("Cursor carrier path is missing")
+        path = PureWindowsPath(value)
+        root = PureWindowsPath(context["PITOT_CURSOR_CARRIER_TEMP"])
+        if not path.is_absolute() or not path.drive.endswith(":") or ".." in path.parts:
+            raise RuntimeError("Cursor carrier path is unsafe")
+        try:
+            path.relative_to(root)
+        except ValueError as error:
+            raise RuntimeError("Cursor carrier escaped its owned directory") from error
+        return path
+
+    for index, (record, command, action_id) in enumerate(
+        zip(records, commands, action_ids)
+    ):
+        try:
+            if (
+                record["schema_version"] != 1
+                or record["status"] != "observed"
+                or record["source_candidate_sha"] != context["PITOT_CURSOR_CANDIDATE"]
+                or record["nonce"] != nonce
+                or record["phase"] != ("allow" if index == 0 else "deny")
+                or record["action_id"] != action_id
+                or record["observed_command"] != command
+                or record["expected_command"] != command
+                or not same_path(
+                    record["owned_temp_root"], context["PITOT_CURSOR_CARRIER_TEMP"]
+                )
+                or type(record["elapsed_ms"]) is not int
+                or not 0 <= record["elapsed_ms"] <= 5000
+            ):
+                raise RuntimeError("Cursor carrier identity mismatch")
+            inner, parent, node = (
+                record["inner"],
+                record["parent"],
+                record["grandparent"],
+            )
+            pids = [item["pid"] for item in (inner, parent, node)]
+            if len(set(pids)) != 3 or any(
+                type(pid) is not int or pid <= 0 for pid in pids
+            ):
+                raise RuntimeError("Cursor carrier ancestry is missing")
+            if (
+                inner["parent_pid"] != parent["pid"]
+                or parent["parent_pid"] != node["pid"]
+            ):
+                raise RuntimeError("Cursor carrier parent relationship is wrong")
+            dates = [
+                datetime.fromisoformat(item["creation_date"])
+                for item in (inner, parent, node)
+            ]
+            if (
+                any(date.tzinfo is None for date in dates)
+                or not dates[2] <= dates[1] <= dates[0]
+            ):
+                raise RuntimeError("Cursor carrier ancestry dates are invalid")
+            for shell in (inner, parent):
+                if (
+                    not same_path(
+                        shell["image_path"], context["PITOT_CURSOR_PARENT_SHELL"]
+                    )
+                    or shell["image_sha256"]
+                    != context["PITOT_CURSOR_PARENT_SHELL_SHA256"]
+                    or not isinstance(shell["creation_date"], str)
+                    or not shell["creation_date"]
+                ):
+                    raise RuntimeError("Cursor carrier shell image mismatch")
+            if (
+                type(parent["file_major_part"]) is not int
+                or parent["file_major_part"] < 7
+            ):
+                raise RuntimeError("Cursor carrier did not use PowerShell 7")
+            if (
+                not same_path(node["image_path"], context["PITOT_CURSOR_RELEASE_NODE"])
+                or node["image_sha256"] != context["PITOT_CURSOR_RELEASE_NODE_SHA256"]
+                or not same_path(
+                    node["version_prefix"],
+                    str(PureWindowsPath(context["PITOT_CURSOR_RELEASE_NODE"]).parent),
+                )
+            ):
+                raise RuntimeError("Cursor carrier released node mismatch")
+            snapshots = {}
+            for kind in ("carrier", "payload"):
+                snapshot = record[kind]
+                path = owned_path(snapshot["path"])
+                raw = base64.b64decode(snapshot["bytes_base64"], validate=True)
+                if (
+                    len(raw) > 1048576
+                    or hashlib.sha256(raw).hexdigest() != snapshot["sha256"]
+                ):
+                    raise RuntimeError("Cursor carrier snapshot digest mismatch")
+                snapshots[kind] = (path, raw)
+            script_path, script_bytes = snapshots["carrier"]
+            payload_path, payload_bytes = snapshots["payload"]
+            if not re.fullmatch(
+                r"ps-script-[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\.ps1",
+                script_path.name,
+            ):
+                raise RuntimeError("Cursor carrier script name mismatch")
+            if payload_path.name != "payload.json" or not re.fullmatch(
+                r"cursor-hooks-[A-Za-z0-9]+", payload_path.parent.name
+            ):
+                raise RuntimeError("Cursor carrier payload name mismatch")
+            if not script_bytes.startswith(b"\xef\xbb\xbf"):
+                raise RuntimeError(
+                    "Cursor carrier script is missing its UTF8 signature"
+                )
+            script = script_bytes[3:].decode("utf-8", errors="strict")
+            payload = json.loads(payload_bytes.decode("utf-8", errors="strict"))
+            if not isinstance(payload, dict) or payload.get("command") != command:
+                raise RuntimeError("Cursor vendor payload changed the command")
+            wrappers = re.findall(
+                r"\$OutputEncoding = \[System.Text.Encoding\]::UTF8; Get-Content -LiteralPath '((?:[^']|'')*)' -Raw \| & \{ \$input \| "
+                + re.escape(context["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"])
+                + r" \}",
+                script,
+            )
+            if len(wrappers) != 1 or not same_path(
+                wrappers[0].replace("''", "'"), record["payload"]["path"]
+            ):
+                raise RuntimeError("Cursor vendor wrapper is unrelated")
+            executable = re.escape(context["PITOT_CURSOR_PARENT_SHELL"])
+            argv = re.fullmatch(
+                r'\s*(?:"'
+                + executable
+                + '"|'
+                + executable
+                + r')\s+-ExecutionPolicy\s+Bypass\s+(?:-NonInteractive\s+)?-File\s+(?:"(?P<quoted>[^"\r\n]+)"|(?P<bare>[^\s"]+))\s*',
+                parent["argv"],
+                flags=re.IGNORECASE,
+            )
+            if argv is None or not same_path(
+                argv.group("quoted") or argv.group("bare"), record["carrier"]["path"]
+            ):
+                raise RuntimeError("Cursor parent did not execute the observed carrier")
+        except (KeyError, TypeError, ValueError, UnicodeError) as error:
+            raise RuntimeError("Cursor carrier proof is malformed") from error
+
+
 def validate_receipts(
     agent: dict[str, object],
     platform: str,
@@ -618,6 +819,9 @@ def validate_receipts(
     output: str,
     prompt: str,
     capture_output: Path | None = None,
+    expected_cursor_commands: list[str] | None = None,
+    cursor_carrier_records: list[dict[str, object]] | None = None,
+    cursor_carrier_context: dict[str, str] | None = None,
 ) -> dict[str, object]:
     proxy = (
         json.loads(proxy_path.read_text(encoding="utf-8"))
@@ -713,6 +917,25 @@ def validate_receipts(
         raise RuntimeError(
             f"Controller did not receive and resolve both boundary actions: {controller}"
         )
+    cursor_command_digests = None
+    if agent["id"] == "cursor" and platform == "windows":
+        if not expected_cursor_commands or not all(
+            any(ord(char) > 127 for char in command)
+            for command in expected_cursor_commands
+        ):
+            raise RuntimeError("Cursor Windows proof requires Unicode commands")
+        cursor_command_digests = validate_cursor_commands(
+            requests, expected_cursor_commands
+        )
+        if cursor_carrier_records is None or cursor_carrier_context is None:
+            raise RuntimeError("Cursor Windows carrier snapshots are missing")
+        validate_cursor_carrier(
+            cursor_carrier_records,
+            cursor_carrier_context,
+            nonce,
+            expected_cursor_commands,
+            [request.get("action_id") for request in requests],
+        )
     action_ids = [item.get("action_id") for item in requests]
     if len(set(action_ids)) != 2 or not all(
         isinstance(item, str) and item.startswith("act_") for item in action_ids
@@ -780,6 +1003,14 @@ def validate_receipts(
         endpoint_evidence = validate_capture_fixture(captured)
     return {
         "schema_version": 2,
+        **(
+            {
+                "cursor_command_sha256": cursor_command_digests,
+                "cursor_carrier": cursor_carrier_records,
+            }
+            if cursor_command_digests is not None
+            else {}
+        ),
         "agent": agent["id"],
         "cli": {
             "version": installation["version"],
@@ -861,6 +1092,12 @@ def main() -> int:
         bin_dir.mkdir()
         canary_receipt = base / "canary.jsonl"
         canary_executable = args.test_role.resolve()
+        if args.agent == "cursor" and windows_host() and not host_controls_wsl:
+            canary_dir = base / "cursor 工具 path"
+            canary_dir.mkdir()
+            canary_executable = canary_dir / args.test_role.name
+            shutil.copy2(args.test_role.resolve(), canary_executable)
+            canary_receipt = canary_dir / "résult.jsonl"
         cursor_system_canary = False
         if args.agent == "cursor" and host_controls_wsl:
             occupied = subprocess.run(
@@ -1131,6 +1368,22 @@ def main() -> int:
             receipt_command = (
                 wsl_path(witness_receipt) if host_controls_wsl else str(witness_receipt)
             )
+            cursor_carrier = None
+            if args.agent == "cursor" and windows_host():
+                carrier_temp, carrier_root = base / "ct", base / "cp"
+                carrier_temp.mkdir()
+                carrier_root.mkdir()
+                released_node = Path(installation["executable"]).parent / "node.exe"
+                cursor_carrier = {
+                    "PITOT_CURSOR_CARRIER_TEMP": str(carrier_temp),
+                    "PITOT_CURSOR_CARRIER_ROOT": str(carrier_root),
+                    "PITOT_CURSOR_RELEASE_NODE": str(released_node),
+                    "PITOT_CURSOR_RELEASE_NODE_SHA256": hashlib.sha256(
+                        released_node.read_bytes()
+                    ).hexdigest(),
+                    "PITOT_CURSOR_CANDIDATE": os.environ.get("PITOT_SOURCE_SHA", ""),
+                    "PITOT_CURSOR_ISSUED_COMMAND": canary_command,
+                }
             flags, extra_env = configure(
                 args.agent,
                 home,
@@ -1141,6 +1394,7 @@ def main() -> int:
                 witness_receipt=receipt_command,
                 nonce=nonce,
                 runtime_path=str(runtime_descriptor),
+                cursor_carrier=cursor_carrier,
             )
             if args.agent == "cursor":
                 extra_env["CURSOR_DATA_DIR"] = cleanup.enter_context(
@@ -1148,6 +1402,9 @@ def main() -> int:
                         prefix="pcd-", dir="/tmp" if os.name != "nt" else None
                     )
                 )
+                if windows_host():
+                    extra_env["TMP"] = str(carrier_temp)
+                    extra_env["TEMP"] = str(carrier_temp)
             environment = {
                 **os.environ,
                 **extra_env,
@@ -1297,6 +1554,21 @@ def main() -> int:
                     )
                 print("PITOT_INCOMPATIBLE_RESPONSE_REJECTED evidence=binary-observed")
                 return 0
+            carrier_records = None
+            if cursor_carrier is not None:
+                carrier_records = []
+                for phase in ("allow", "deny"):
+                    proof_path = carrier_root / f"{nonce}-{phase}.json"
+                    if (
+                        not proof_path.is_file()
+                        or proof_path.stat().st_size > 3 * 1048576
+                    ):
+                        raise RuntimeError(
+                            "Cursor carrier snapshot is missing or oversized"
+                        )
+                    carrier_records.append(
+                        json.loads(proof_path.read_text(encoding="utf-8"))
+                    )
             evidence = validate_receipts(
                 agent,
                 args.platform,
@@ -1312,6 +1584,16 @@ def main() -> int:
                 completed.stdout,
                 prompt,
                 args.capture_output,
+                expected_cursor_commands=[
+                    f"{canary_command} PITOT_ALLOW {nonce}",
+                    f"{canary_command} PITOT_DENY {nonce}",
+                ]
+                if args.agent == "cursor" and windows_host()
+                else None,
+                cursor_carrier_records=carrier_records,
+                cursor_carrier_context=extra_env
+                if cursor_carrier is not None
+                else None,
             )
             args.evidence.parent.mkdir(parents=True, exist_ok=True)
             args.evidence.write_text(
