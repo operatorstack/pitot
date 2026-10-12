@@ -98,7 +98,7 @@
     {
       "id": "kimi",
       "label": "Kimi Code",
-      "version": "0.29.0",
+      "version": "2.1.1",
       "executable": "kimi",
       "installer": {
         "kind": "kimi_release",

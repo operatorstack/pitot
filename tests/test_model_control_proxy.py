@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
@@ -32,6 +33,70 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_kimi_uses_owned_provider_and_native_cache_despite_ambient_settings(self):
+        for native_windows in (False, True):
+            with (
+                self.subTest(native_windows=native_windows),
+                tempfile.TemporaryDirectory() as temporary,
+                mock.patch.object(driver, "windows_host", return_value=native_windows),
+            ):
+                home = Path(temporary) / "owned home"
+                flags, extra_env = driver.configure(
+                    "kimi",
+                    home,
+                    Path(temporary) / "project",
+                    "witness",
+                    "http://127.0.0.1:9123",
+                    pitot_command="pitot",
+                    witness_receipt="witness.jsonl",
+                    nonce="nonce",
+                    runtime_path="runtime.json",
+                )
+                environment = driver.agent_environment(
+                    "kimi",
+                    {
+                        "KIMI_CODE_HOME": "/ambient/.kimi-code",
+                        "KIMI_CODE_CACHE_DIR": "/ambient/cache",
+                        "LOCALAPPDATA": "/ambient/local-app-data",
+                        "KIMI_MODEL_NAME": "ambient-model",
+                        "KIMI_MODEL_BASE_URL": "http://127.0.0.1:1/v1",
+                        "KIMI_MODEL_TEMPERATURE": "1.5",
+                        **extra_env,
+                    },
+                )
+                self.assertEqual(
+                    environment["KIMI_CODE_HOME"], str(home / ".kimi-code")
+                )
+                self.assertEqual(
+                    environment["KIMI_CODE_CACHE_DIR"],
+                    str(home / ".cache" / "kimi-code"),
+                )
+                self.assertEqual(environment["KIMI_CODE_NO_AUTO_UPDATE"], "1")
+                self.assertEqual(environment["LOCALAPPDATA"], "/ambient/local-app-data")
+                self.assertNotIn("KIMI_MODEL_NAME", environment)
+                self.assertNotIn("KIMI_MODEL_BASE_URL", environment)
+                self.assertNotIn("KIMI_MODEL_TEMPERATURE", environment)
+                config = tomllib.loads((home / ".kimi-code/config.toml").read_text())
+                self.assertEqual(config["default_model"], "pitot-control")
+                self.assertEqual(
+                    config["providers"]["pitot"],
+                    {
+                        "type": "openai",
+                        "base_url": "http://127.0.0.1:9123/v1",
+                        "api_key": "pitot-local-only",
+                    },
+                )
+                self.assertEqual(config["models"]["pitot-control"]["provider"], "pitot")
+                self.assertEqual(
+                    config["models"]["pitot-control"]["model"], "pitot-control"
+                )
+                self.assertEqual(
+                    config["models"]["pitot-control"]["capabilities"], ["tool_use"]
+                )
+                self.assertEqual(config["hooks"][0]["event"], "PreToolUse")
+                self.assertIn("hook kimi --runtime", config["hooks"][0]["command"])
+                self.assertEqual(flags, [])
+
     def test_qwen_uses_its_owned_settings_and_clean_child_environment(self):
         for native_windows in (False, True):
             with (

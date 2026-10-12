@@ -318,6 +318,7 @@ def configure(
             encoding="utf-8",
         )
         env["KIMI_CODE_HOME"] = str(home / ".kimi-code")
+        env["KIMI_CODE_CACHE_DIR"] = str(home / ".cache" / "kimi-code")
         env["KIMI_CODE_NO_AUTO_UPDATE"] = "1"
         prompt_flag = []
     elif agent == "qwen":

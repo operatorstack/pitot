@@ -32,8 +32,160 @@ class VersionAdmissionTests(unittest.TestCase):
         self.assertEqual(filtered, {"QWEN_HOME": "/owned/.qwen", "KEEP": "unchanged"})
         self.assertEqual(original, before)
         self.assertIsNot(filtered, original)
-        for product in AGENTS.keys() - {"qwen"}:
+        for product in AGENTS.keys() - {"qwen", "kimi"}:
             self.assertIs(identity.agent_environment(product, original), original)
+        self.assertEqual(identity.agent_environment("kimi", original), original)
+
+    def test_kimi_environment_keeps_the_authored_model_and_request_controls(self):
+        inherited = {
+            "KIMI_MODEL_NAME": "ambient-model",
+            "KIMI_MODEL_API_KEY": "ambient-fake-key",
+            "KIMI_MODEL_BASE_URL": "http://127.0.0.1:1/v1",
+            "KIMI_MODEL_PROVIDER_TYPE": "anthropic",
+            "KIMI_MODEL_CAPABILITIES": "vision",
+            "KIMI_MODEL_DISPLAY_NAME": "ambient-display",
+            "KIMI_MODEL_MAX_CONTEXT_SIZE": "1",
+            "KIMI_MODEL_MAX_OUTPUT_SIZE": "1",
+            "KIMI_MODEL_MAX_COMPLETION_TOKENS": "1",
+            "KIMI_MODEL_MAX_TOKENS": "1",
+            "KIMI_MODEL_TEMPERATURE": "1.5",
+            "KIMI_MODEL_TOP_P": "0.1",
+            "KIMI_MODEL_THINKING_KEEP": "all",
+            "KIMI_MODEL_REASONING_KEY": "ambient-reasoning",
+            "KIMI_MODEL_ADAPTIVE_THINKING": "true",
+            "KIMI_MODEL_THINKING_EFFORT": "high",
+        }
+        preserved = {
+            "KEEP": "unchanged",
+            "KIMI_MODEL_CUSTOM_EXTENSION": "not-a-known-override",
+            "KIMI_CODE_HOME": "/owned/.kimi-code",
+            "KIMI_CODE_CACHE_DIR": "/owned/cache",
+            "CLI_VERSION": "9.9.9",
+        }
+        original = {**inherited, **preserved}
+        before = dict(original)
+        self.assertEqual(identity.agent_environment("kimi", original), preserved)
+        self.assertEqual(original, before)
+        self.assertEqual(
+            identity.agent_environment("qwen", original),
+            {key: value for key, value in original.items() if key != "CLI_VERSION"},
+        )
+        for product in AGENTS.keys() - {"kimi", "qwen"}:
+            self.assertIs(identity.agent_environment(product, original), original)
+        # Sampling overrides also apply when no environment model is selected.
+        without_name = {
+            key: value for key, value in original.items() if key != "KIMI_MODEL_NAME"
+        }
+        self.assertEqual(identity.agent_environment("kimi", without_name), preserved)
+
+    def test_kimi_version_probe_cleans_owned_state_and_cache_on_all_exits(self):
+        agent = AGENTS["kimi"]
+        success = subprocess.CompletedProcess(
+            [], 0, f"{agent['version']}\n".encode(), b""
+        )
+        outcomes = [
+            (success, None, ["a" * 64, "a" * 64]),
+            (subprocess.TimeoutExpired([], 30), subprocess.TimeoutExpired, ["a" * 64]),
+            (
+                subprocess.CalledProcessError(1, []),
+                subprocess.CalledProcessError,
+                ["a" * 64],
+            ),
+            (
+                subprocess.CompletedProcess([], 0, b"x" * 65537, b""),
+                RuntimeError,
+                ["a" * 64],
+            ),
+            (
+                subprocess.CompletedProcess([], 0, b"0.0.0\n", b""),
+                RuntimeError,
+                ["a" * 64],
+            ),
+            (
+                subprocess.CompletedProcess([], 0, b"\xff", b""),
+                UnicodeDecodeError,
+                ["a" * 64],
+            ),
+            (
+                subprocess.CompletedProcess([], 0, success.stdout, b"warning"),
+                RuntimeError,
+                ["a" * 64],
+            ),
+            (success, RuntimeError, ["a" * 64, "b" * 64]),
+        ]
+        seen = []
+        for outcome, expected_error, digests in outcomes:
+            with self.subTest(
+                outcome=type(outcome).__name__, error=expected_error, digests=digests
+            ):
+                homes = []
+
+                def observe(command, **options):
+                    self.assertEqual(command, ["/owned/kimi", "--version"])
+                    self.assertEqual(options["timeout"], identity.VERSION_TIMEOUT)
+                    environment = options["env"]
+                    self.assertNotIn("KIMI_MODEL_NAME", environment)
+                    self.assertNotIn("KIMI_MODEL_TEMPERATURE", environment)
+                    home = Path(environment["HOME"])
+                    self.assertTrue(home.is_absolute() and home.is_dir())
+                    self.assertEqual(environment["USERPROFILE"], str(home))
+                    self.assertEqual(
+                        environment["KIMI_CODE_HOME"], str(home / ".kimi-code")
+                    )
+                    cache = Path(environment["KIMI_CODE_CACHE_DIR"])
+                    self.assertEqual(cache, home / ".cache" / "kimi-code")
+                    self.assertEqual(environment["KIMI_CODE_NO_AUTO_UPDATE"], "1")
+                    self.assertEqual(
+                        environment["XDG_CACHE_HOME"], "/ambient/xdg-cache"
+                    )
+                    self.assertEqual(
+                        environment["LOCALAPPDATA"], "/ambient/local-app-data"
+                    )
+                    self.assertEqual(environment["KEEP"], "unchanged")
+                    # Native startup materializes assets before printing a version.
+                    cache.mkdir(parents=True)
+                    (cache / "native-asset").write_bytes(b"owned")
+                    state = home / ".kimi-code"
+                    state.mkdir()
+                    (state / "state.json").write_text("{}")
+                    homes.append(home)
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {
+                            "HOME": "/ambient/home",
+                            "USERPROFILE": "/ambient/profile",
+                            "KIMI_CODE_HOME": "/ambient/.kimi-code",
+                            "KIMI_CODE_CACHE_DIR": "/ambient/cache",
+                            "KIMI_CODE_NO_AUTO_UPDATE": "0",
+                            "KIMI_MODEL_NAME": "ambient-model",
+                            "KIMI_MODEL_TEMPERATURE": "1.5",
+                            "XDG_CACHE_HOME": "/ambient/xdg-cache",
+                            "LOCALAPPDATA": "/ambient/local-app-data",
+                            "KEEP": "unchanged",
+                        },
+                    ),
+                    mock.patch.object(
+                        identity, "entrypoint_digest", side_effect=digests
+                    ),
+                    mock.patch.object(identity, "require_kimi_ready"),
+                    mock.patch.object(identity.subprocess, "run", side_effect=observe),
+                ):
+                    before = dict(os.environ)
+                    if expected_error:
+                        with self.assertRaises(expected_error):
+                            identity.probe_version(agent, "/owned/kimi", "native")
+                    else:
+                        identity.probe_version(agent, "/owned/kimi", "native")
+                    self.assertEqual(dict(os.environ), before)
+                self.assertEqual(len(homes), 1)
+                self.assertFalse(homes[0].exists())
+                seen.extend(homes)
+        self.assertEqual(len(set(seen)), len(outcomes))
 
     def test_qwen_version_probe_owns_and_cleans_its_configuration(self):
         agent = AGENTS["qwen"]
@@ -299,17 +451,136 @@ class OwnedEntrypointTests(unittest.TestCase):
             mock.patch.object(
                 identity.subprocess,
                 "run",
-                return_value=subprocess.CompletedProcess([], 0, b"0.29.0\n", b""),
+                return_value=subprocess.CompletedProcess(
+                    [], 0, (AGENTS["cursor"]["version"] + "\n").encode(), b""
+                ),
             ) as run,
         ):
             self.assertEqual(
-                identity.probe_version(AGENTS["kimi"], path, "wsl"),
-                ("0.29.0\n", digest),
+                identity.probe_version(AGENTS["cursor"], path, "wsl"),
+                (AGENTS["cursor"]["version"] + "\n", digest),
             )
             self.assertEqual(
                 run.call_args.args[0],
                 ["wsl.exe", "--distribution", "Ubuntu", "--", path, "--version"],
             )
+
+
+class KimiUpdateStateTests(unittest.TestCase):
+    def test_updater_artifacts_refuse_both_launch_checks_without_mutation(self):
+        for name in (".staging", "kimi.bak", "kimi.123.bak"):
+            for directory in (False, True):
+                with (
+                    self.subTest(name=name, directory=directory),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    executable = Path(temporary) / "kimi"
+                    executable.write_bytes(b"selected entrypoint")
+                    artifact = executable.parent / name
+                    if directory:
+                        artifact.mkdir()
+                        (artifact / "sentinel").write_bytes(b"keep")
+                    else:
+                        artifact.write_bytes(b"keep")
+                    before = sorted(
+                        (p.name, p.is_dir()) for p in executable.parent.iterdir()
+                    )
+                    with mock.patch.object(identity.subprocess, "run") as run:
+                        with self.assertRaisesRegex(
+                            RuntimeError, "adjacent native update"
+                        ):
+                            identity.probe_version(
+                                AGENTS["kimi"], str(executable), "native"
+                            )
+                        with self.assertRaisesRegex(
+                            RuntimeError, "adjacent native update"
+                        ):
+                            identity.verify_live_entrypoint(
+                                {
+                                    "agent": "kimi",
+                                    "executable": str(executable),
+                                    "runtime": "native",
+                                    "executable_sha256": "a" * 64,
+                                }
+                            )
+                        run.assert_not_called()
+                    self.assertEqual(
+                        before,
+                        sorted(
+                            (p.name, p.is_dir()) for p in executable.parent.iterdir()
+                        ),
+                    )
+                    self.assertEqual(executable.read_bytes(), b"selected entrypoint")
+                    self.assertEqual(
+                        (artifact / "sentinel" if directory else artifact).read_bytes(),
+                        b"keep",
+                    )
+
+    def test_user_backups_and_non_ascii_pid_names_remain_allowed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "kimi"
+            executable.write_bytes(b"selected")
+            for name in (
+                "kimi.config.bak",
+                "kimi.12x.bak",
+                "kimi.\u0661.bak",
+                "another.bak",
+            ):
+                (executable.parent / name).write_bytes(b"keep")
+            identity.require_kimi_ready(str(executable), "native")
+            self.assertTrue(
+                all(
+                    p.read_bytes() == b"keep"
+                    for p in executable.parent.iterdir()
+                    if p != executable
+                )
+            )
+
+    def test_resolved_target_and_dangling_updater_links_are_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target_dir = base / "target"
+            target_dir.mkdir()
+            target = target_dir / "kimi"
+            target.write_bytes(b"selected")
+            alias = base / "alias"
+            try:
+                alias.symlink_to(target)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+            identity.require_kimi_ready(str(alias), "native")
+            for name in (".staging", "kimi.bak", "kimi.123.bak"):
+                with self.subTest(name=name):
+                    artifact = target_dir / name
+                    artifact.symlink_to(target_dir / "missing")
+                    with self.assertRaisesRegex(RuntimeError, "adjacent native update"):
+                        identity.require_kimi_ready(str(alias), "native")
+                    self.assertTrue(artifact.is_symlink())
+                    artifact.unlink()
+            self.assertEqual(target.read_bytes(), b"selected")
+
+    def test_inspection_errors_and_unsupported_runtime_refuse_before_spawn(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "kimi"
+            executable.write_bytes(b"selected")
+            for operation in ("resolve", "iterdir"):
+                with (
+                    self.subTest(operation=operation),
+                    mock.patch.object(
+                        Path, operation, side_effect=PermissionError("blocked")
+                    ),
+                    mock.patch.object(identity.subprocess, "run") as run,
+                    self.assertRaisesRegex(RuntimeError, "cannot inspect"),
+                ):
+                    identity.probe_version(AGENTS["kimi"], str(executable), "native")
+                run.assert_not_called()
+            with (
+                mock.patch.object(identity, "host_controls_wsl", return_value=True),
+                mock.patch.object(identity.subprocess, "run") as run,
+                self.assertRaisesRegex(RuntimeError, "native entrypoint"),
+            ):
+                identity.probe_version(AGENTS["kimi"], str(executable), "wsl")
+            run.assert_not_called()
 
 
 class ReceiptAdmissionTests(unittest.TestCase):
@@ -404,16 +675,15 @@ class ReceiptAdmissionTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "portable POSIX controlled executable")
     def test_real_probe_preserves_raw_banner_and_rejects_replacement(self):
+        version = AGENTS["kimi"]["version"]
         with tempfile.TemporaryDirectory(prefix="agent path space ") as directory:
             path = Path(directory) / "kimi"
-            path.write_text("#!/bin/sh\nprintf '0.29.0\\n'\n")
+            path.write_text(f"#!/bin/sh\nprintf '{version}\\n'\n")
             path.chmod(0o755)
             output, digest = identity.probe_version(AGENTS["kimi"], str(path), "native")
-            self.assertEqual(output, "0.29.0\n")
-            self.assertEqual(
-                identity.probe_version(AGENTS["kimi"], str(path), "wsl"),
-                (output, digest),
-            )
+            self.assertEqual(output, version + "\n")
+            with self.assertRaisesRegex(RuntimeError, "native entrypoint"):
+                identity.probe_version(AGENTS["kimi"], str(path), "wsl")
             receipt = self.receipt()
             receipt.update(executable=str(path), executable_sha256=digest)
             with mock.patch.object(
@@ -422,16 +692,19 @@ class ReceiptAdmissionTests(unittest.TestCase):
                 self.assertEqual(
                     identity.inspect_receipt(receipt, AGENTS["kimi"], "macos"), receipt
                 )
-                path.write_text("#!/bin/sh\nprintf '0.29.01\\n'\n")
+                path.write_text(f"#!/bin/sh\nprintf '{version}1\\n'\n")
                 with self.assertRaisesRegex(RuntimeError, "changed since"):
                     identity.inspect_receipt(receipt, AGENTS["kimi"], "macos")
             with self.assertRaisesRegex(RuntimeError, "exact supervised version"):
                 identity.probe_version(AGENTS["kimi"], str(path), "native")
 
-    def test_probe_failure_timeout_encoding_and_changed_bytes(self):
+    @mock.patch.object(identity, "require_kimi_ready")
+    def test_probe_failure_timeout_encoding_and_changed_bytes(self, ready):
         agent = AGENTS["kimi"]
         for result in [
-            subprocess.CompletedProcess([], 0, b"0.29.0\n", b"warning"),
+            subprocess.CompletedProcess(
+                [], 0, (agent["version"] + "\n").encode(), b"warning"
+            ),
             subprocess.CompletedProcess([], 0, b"x" * 65537, b""),
         ]:
             with (
@@ -467,7 +740,9 @@ class ReceiptAdmissionTests(unittest.TestCase):
             mock.patch.object(
                 identity.subprocess,
                 "run",
-                return_value=subprocess.CompletedProcess([], 0, b"0.29.0\n", b""),
+                return_value=subprocess.CompletedProcess(
+                    [], 0, (agent["version"] + "\n").encode(), b""
+                ),
             ),
             self.assertRaisesRegex(RuntimeError, "during version probe"),
         ):
