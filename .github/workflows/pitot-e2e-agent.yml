@@ -58,7 +58,7 @@ jobs:
           fi
           echo "PITOT_BASH=$bash_path" >> "$GITHUB_ENV"
       - name: Install and attest pinned real agent
-        timeout-minutes: 5
+        timeout-minutes: ${{ inputs.agent == 'deepseek' && 10 || 5 }}
         shell: bash
         run: >-
           python3 tests/install_real_agent.py
