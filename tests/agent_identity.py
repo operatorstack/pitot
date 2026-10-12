@@ -32,17 +32,35 @@ QWEN_BOOTSTRAP_OVERRIDES = {
     "QWEN_CODE_LAUNCHER_PATH",
     "QWEN_CODE_STARTUP_VERSION",
 }
+KIMI_MODEL_OVERRIDES = {
+    "KIMI_MODEL_ADAPTIVE_THINKING",
+    "KIMI_MODEL_API_KEY",
+    "KIMI_MODEL_BASE_URL",
+    "KIMI_MODEL_CAPABILITIES",
+    "KIMI_MODEL_DISPLAY_NAME",
+    "KIMI_MODEL_MAX_COMPLETION_TOKENS",
+    "KIMI_MODEL_MAX_CONTEXT_SIZE",
+    "KIMI_MODEL_MAX_OUTPUT_SIZE",
+    "KIMI_MODEL_MAX_TOKENS",
+    "KIMI_MODEL_NAME",
+    "KIMI_MODEL_PROVIDER_TYPE",
+    "KIMI_MODEL_REASONING_KEY",
+    "KIMI_MODEL_TEMPERATURE",
+    "KIMI_MODEL_THINKING_EFFORT",
+    "KIMI_MODEL_THINKING_KEEP",
+    "KIMI_MODEL_TOP_P",
+}
 
 
 def agent_environment(agent: str, environment: dict[str, str]) -> dict[str, str]:
-    """Keep supervised Qwen launches independent of inherited bootstrap hints."""
-    if agent != "qwen":
+    """Remove known Qwen bootstrap and Kimi model overrides."""
+    if agent == "qwen":
+        overrides = QWEN_BOOTSTRAP_OVERRIDES
+    elif agent == "kimi":
+        overrides = KIMI_MODEL_OVERRIDES
+    else:
         return environment
-    return {
-        key: value
-        for key, value in environment.items()
-        if key not in QWEN_BOOTSTRAP_OVERRIDES
-    }
+    return {key: value for key, value in environment.items() if key not in overrides}
 
 
 def version_matches(agent: dict[str, object], output: str) -> bool:
@@ -203,6 +221,23 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
             )
             environment = agent_environment("qwen", dict(os.environ))
             environment["QWEN_HOME"] = str(Path(version_home) / ".qwen")
+            options["env"] = environment
+        elif agent["id"] == "kimi":
+            version_home = Path(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="pitot-kimi-version-")
+                )
+            )
+            environment = agent_environment("kimi", dict(os.environ))
+            environment.update(
+                {
+                    "HOME": str(version_home),
+                    "USERPROFILE": str(version_home),
+                    "KIMI_CODE_HOME": str(version_home / ".kimi-code"),
+                    "KIMI_CODE_CACHE_DIR": str(version_home / ".cache" / "kimi-code"),
+                    "KIMI_CODE_NO_AUTO_UPDATE": "1",
+                }
+            )
             options["env"] = environment
         result = subprocess.run(
             command,
