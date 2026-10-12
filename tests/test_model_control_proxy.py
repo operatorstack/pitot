@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -31,6 +32,57 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_pi_uses_owned_offline_configuration_despite_ambient_settings(self):
+        ambient = {
+            "PI_CODING_AGENT_DIR": "/unrelated/pi/agent",
+            "PI_OFFLINE": "0",
+            "PI_TELEMETRY": "1",
+        }
+        for native_windows in (False, True):
+            with (
+                self.subTest(native_windows=native_windows),
+                tempfile.TemporaryDirectory() as temporary,
+                mock.patch.dict(os.environ, ambient),
+                mock.patch.object(driver, "windows_host", return_value=native_windows),
+            ):
+                home = Path(temporary) / "owned home"
+                flags, extra_env = driver.configure(
+                    "pi",
+                    home,
+                    Path(temporary) / "project",
+                    "witness",
+                    "http://127.0.0.1:9123",
+                    pitot_command="pitot",
+                    witness_receipt="witness.jsonl",
+                    nonce="nonce",
+                    runtime_path="runtime.json",
+                )
+                environment = {**os.environ, **extra_env}
+                self.assertEqual(
+                    environment["PI_CODING_AGENT_DIR"], str(home / ".pi/agent")
+                )
+                self.assertEqual(environment["PI_OFFLINE"], "1")
+                self.assertEqual(environment["PI_TELEMETRY"], "0")
+                config_path = Path(environment["PI_CODING_AGENT_DIR"]) / "models.json"
+                provider = json.loads(config_path.read_text())["providers"]["pitot"]
+                self.assertEqual(provider["api"], "openai-completions")
+                self.assertEqual(provider["apiKey"], "pitot-local-only")
+                self.assertEqual(provider["baseUrl"], "http://127.0.0.1:9123/v1")
+                self.assertEqual(provider["models"][0]["id"], "pitot-control")
+                self.assertEqual(
+                    flags,
+                    [
+                        "--no-session",
+                        "--print",
+                        "--provider",
+                        "pitot",
+                        "--model",
+                        "pitot-control",
+                        "-e",
+                        str(ROOT / "integrations/pi/pitot.ts"),
+                    ],
+                )
+
     def test_opencode_requires_issued_calls_and_native_typed_denial(self):
         allow = {
             "type": "function_call_output",
