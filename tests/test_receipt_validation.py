@@ -61,6 +61,7 @@ class ReceiptFixture:
                 "valid": True,
                 "pitot_exit": exit_code,
                 "action_id": action,
+                "session_id_state": "unavailable",
             }
             for exit_code, action in zip((0, 2), self.action_ids)
         ]
@@ -89,6 +90,20 @@ class ReceiptFixture:
             for action in self.action_ids
         ]
         self.canary_lines = [f"PITOT_ALLOW {NONCE}"]
+        for request, consumer in zip(self.controller_rows[:2], self.consumer_rows):
+            event = {
+                "type": "action.requested",
+                "host": {"name": agent_id},
+                "action": dict(consumer["action"]),
+                "observation": {
+                    "source": "host_event" if agent_id == "devin" else "host_hook",
+                    "fidelity": "direct",
+                },
+            }
+            if agent_id == "devin":
+                event["session_id"] = "synthetic-acp-session"
+            request["value"]["data"] = event
+            consumer.update(event)
         self.runtime_identity = {
             "schema_version": 1,
             "instance_id": "i1",
