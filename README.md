@@ -486,6 +486,11 @@ shim: `"$CLAUDE_PROJECT_DIR"/.pitot/bin/pitot hook claude` (Codex uses the
 repo-relative equivalent plus a PowerShell `commandWindows`). Exit `0` allows;
 exit `2` blocks with the Controller's reason.
 
+For Codex, the project-local `.codex/` configuration must be trusted. Open
+`/hooks` in the Codex CLI to review and trust the exact hook definition. New or
+changed non-managed hooks are skipped until trusted; writing the hook file
+alone does not activate supervision. See [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
 ### Kimi Code
 
 Install Kimi Code on macOS or Linux using its official installer:
@@ -864,10 +869,16 @@ that boundary ends is part of using it correctly.
   a supervisory-control analysis of the Kimi lifecycle shows a reachable
   transition from the pending state straight to an unsupervised execution when
   the hook fails open, which no supervisor placed at the boundary can prevent.
-  Every other supervised host either fails closed or returns the denial to the
-  model. `pitot doctor --host kimi` states this plainly. If your policy cannot
+  `pitot doctor --host kimi` states this plainly. If your policy cannot
   tolerate fail-open execution, prefer a fail-closed host (such as Cursor,
   wired with `failClosed: true`) or Devin's ACP transport.
+- **Codex hook failures can leave an action unsupervised.** A functioning
+  synchronous hook can block an action with a Controller's explicit denial or
+  Pitot's rejection of an unavailable selected runtime. Codex can continue
+  the tool when the hook cannot start, crashes, times out, or returns invalid
+  output. That host behavior is separate from a Controller's decision; a
+  passing allow/deny test does not guarantee that hook execution failures block
+  tools. Untrusted or changed hooks can also be skipped until reviewed.
 
 None of these change the core contract: within the boundary Pitot mediates,
 every pending action receives exactly one terminal resolution. **Pitot reports.
