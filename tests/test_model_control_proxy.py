@@ -1135,5 +1135,39 @@ class CursorFixtureIdentityTests(unittest.TestCase):
                         driver.owned_fixture_base(original, "cursor", "native")
 
 
+class CursorFixtureCleanupTests(unittest.TestCase):
+    def test_existing_directory_refuses_and_absent_directory_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                driver.require_fixture_removed(base)
+            self.assertTrue(base.is_dir())
+        driver.require_fixture_removed(base)
+
+    def test_any_remaining_entry_refuses_without_deleting(self):
+        base = mock.Mock()
+        base.lstat.return_value = object()
+        with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+            driver.require_fixture_removed(base)
+        base.lstat.assert_called_once_with()
+        base.unlink.assert_not_called()
+        base.rmdir.assert_not_called()
+
+    def test_inspection_errors_are_not_absence(self):
+        for error in (PermissionError(), OSError(), ValueError()):
+            with self.subTest(error=type(error).__name__):
+                base = mock.Mock()
+                base.lstat.side_effect = error
+                with self.assertRaises(type(error)):
+                    driver.require_fixture_removed(base)
+                base.lstat.assert_called_once_with()
+
+    def test_only_not_found_is_accepted(self):
+        base = mock.Mock()
+        base.lstat.side_effect = FileNotFoundError()
+        driver.require_fixture_removed(base)
+        base.lstat.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

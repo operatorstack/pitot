@@ -1325,6 +1325,15 @@ def owned_fixture_base(base: Path, agent: str, runtime: str) -> Path:
     return base
 
 
+def require_fixture_removed(base: Path) -> None:
+    """Refuse success when the owned fixture remains or cannot be inspected."""
+    try:
+        base.lstat()
+    except FileNotFoundError:
+        return
+    raise RuntimeError("Cursor temporary fixture cleanup failed")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", required=True)
@@ -1352,6 +1361,8 @@ def main() -> int:
     ):
         runtime = installation["runtime"]
         base = owned_fixture_base(Path(temporary), args.agent, runtime)
+        if args.agent == "cursor" and windows_host() and runtime == "native":
+            cleanup.callback(require_fixture_removed, base)
         host_controls_wsl = runtime == "wsl" and os.name == "nt"
         home, project, bin_dir = base / "home", base / "project", base / "bin"
         home.mkdir()
