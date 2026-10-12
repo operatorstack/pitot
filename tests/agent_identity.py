@@ -45,6 +45,8 @@ def version_matches(agent: dict[str, object], output: str) -> bool:
             )
             is not None
         )
+    if product == "opencode" and version.startswith("2."):
+        return banner == f"opencode v{version}"
     if product in {"cursor", "gemini", "kimi", "opencode", "pi", "qwen"}:
         return banner == version
     return False

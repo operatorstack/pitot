@@ -58,6 +58,50 @@ class UnknownProtocol(ValueError):
     pass
 
 
+def opencode_tool_result(
+    protocol: str, body: dict[str, object], phase: str, nonce: str
+) -> dict[str, str] | None:
+    """Observe the issued OpenCode call and its native result category."""
+    if protocol != "openai_responses" or phase not in {"allow", "deny"}:
+        return None
+    inputs = body.get("input")
+    if not isinstance(inputs, list):
+        return None
+    call_id = f"pitot_tool_{phase}"
+    results = [
+        item.get("output")
+        for item in inputs
+        if isinstance(item, dict)
+        and item.get("type") == "function_call_output"
+        and item.get("call_id") == call_id
+    ]
+    if not results:
+        return None
+    for output in results:
+        if not isinstance(output, str):
+            return None
+        if phase == "allow":
+            if f"PITOT_CANARY_RESULT PITOT_ALLOW {nonce}" not in output:
+                return None
+        else:
+            try:
+                payload = json.loads(output)
+            except json.JSONDecodeError:
+                return None
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if (
+                not isinstance(error, dict)
+                or error.get("type") != "tool.execution"
+                or not isinstance(error.get("message"), str)
+                or f"PITOT_CONTROLLER_DENY {nonce}" not in error["message"]
+            ):
+                return None
+    observed = {"call_id": call_id}
+    if phase == "deny":
+        observed["error_type"] = "tool.execution"
+    return observed
+
+
 def classify_request(path: str, body: object) -> str:
     """Classify only from the real CLI's observed request, never a manifest hint."""
     clean_path = path.split("?", 1)[0]
@@ -503,6 +547,12 @@ class Handler(BaseHTTPRequestHandler):
             denied_result = tool_result_contains(
                 protocol, body, f"PITOT_CONTROLLER_DENY {nonce}"
             )
+            opencode_allow = opencode_deny = None
+            if state.args.agent == "opencode":
+                opencode_allow = opencode_tool_result(protocol, body, "allow", nonce)
+                opencode_deny = opencode_tool_result(protocol, body, "deny", nonce)
+                allow_result = opencode_allow is not None
+                denied_result = opencode_deny is not None
             phase = "allow"
             final = False
             if not state.receipt["initial_prompt_observed"]:
@@ -526,10 +576,14 @@ class Handler(BaseHTTPRequestHandler):
                     "request_shape": request_shape(body),
                 }
             elif allow_result and not state.receipt["allow_tool_result_observed"]:
+                if opencode_allow is not None:
+                    state.receipt["opencode_allow_result"] = opencode_allow
                 state.receipt["allow_tool_result_observed"] = True
                 state.receipt["tool_result_observed"] = True
                 phase = "deny"
             elif denied_result and state.receipt["deny_tool_call_response_emitted"]:
+                if opencode_deny is not None:
+                    state.receipt["opencode_denied_result"] = opencode_deny
                 state.receipt["denied_result_observed"] = True
                 phase = "final"
                 final = True
