@@ -362,6 +362,13 @@ def configure(
         prompt_flag = ["--model", "pitot-control", "-y", "-p"]
     elif agent == "pi":
         extension = LAB / "integrations/pi/pitot.ts"
+        env.update(
+            {
+                "PI_CODING_AGENT_DIR": str(home / ".pi/agent"),
+                "PI_OFFLINE": "1",
+                "PI_TELEMETRY": "0",
+            }
+        )
         write_json(
             home / ".pi/agent/models.json",
             {
