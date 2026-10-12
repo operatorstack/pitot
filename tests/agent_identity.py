@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 
 VERSION_TIMEOUT = 30
 MAX_VERSION_BYTES = 65536
@@ -140,6 +141,33 @@ def entrypoint_digest(path: str, runtime: str) -> str:
     return digest.hexdigest()
 
 
+def stderr_matches(agent: dict[str, object], error: str) -> bool:
+    """Admit only the documented successful Copilot extraction diagnostic."""
+    product = agent["id"]
+    if product not in {
+        "claude",
+        "codex",
+        "copilot",
+        "cursor",
+        "devin",
+        "gemini",
+        "kimi",
+        "opencode",
+        "pi",
+        "qwen",
+    }:
+        return False
+    if not error:
+        return True
+    if product != "copilot":
+        return False
+    match = re.fullmatch(r"Package extraction took ([1-9][0-9]*)ms\n", error)
+    if match is None:
+        return False
+    duration = match[1]
+    return len(duration) > 4 or (len(duration) == 4 and duration > "5000")
+
+
 def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[str, str]:
     before = entrypoint_digest(path, runtime)
     command = [path, "--version"]
@@ -157,10 +185,16 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
         raise RuntimeError("agent version output exceeds limit")
     output = result.stdout.decode("utf-8", errors="strict")
     error = result.stderr.decode("utf-8", errors="strict")
-    if error or not version_matches(agent, output):
-        raise RuntimeError("agent did not report the exact supervised version")
+    if not stderr_matches(agent, error) or not version_matches(agent, output):
+        raise RuntimeError(
+            "agent did not report the exact supervised version; "
+            f"stdout={output[:4096]!r}; stderr={error[:4096]!r}"
+        )
     if entrypoint_digest(path, runtime) != before:
         raise RuntimeError("agent entrypoint changed during version probe")
+    if result.stderr:
+        sys.stderr.buffer.write(result.stderr)
+        sys.stderr.buffer.flush()
     return output, before
 
 

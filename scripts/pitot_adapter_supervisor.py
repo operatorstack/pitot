@@ -179,19 +179,31 @@ def validate_endpoint_provenance(root: Path, manifest: dict[str, object]) -> Non
     except (OSError, json.JSONDecodeError) as error:
         raise ContractError(f"cannot load {ENDPOINT_PROVENANCE}: {error}") from error
     validate_endpoint_value(value, manifest)
+    if (
+        value["schema_version"] == 3
+        and value["source"]["catalog_sha256"]
+        != hashlib.sha256((root / MANIFEST).read_bytes()).hexdigest()
+    ):
+        raise ContractError(
+            "endpoint capture source catalog digest differs from current manifest"
+        )
 
 
 def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
-    if not isinstance(value, dict) or set(value) != {
+    required = {
         "schema_version",
         "capture_policy",
         "cells",
-    }:
+    }
+    if isinstance(value, dict) and value.get("schema_version") == 3:
+        required.add("source")
+    if not isinstance(value, dict) or set(value) != required:
         raise ContractError(
             "endpoint provenance must contain schema_version, capture_policy, and cells"
         )
     if (
-        value["schema_version"] != 2
+        type(value["schema_version"]) is not int
+        or value["schema_version"] not in {2, 3}
         or value["capture_policy"] != "pinned_real_cli_capture"
     ):
         raise ContractError("endpoint provenance must require pinned real-CLI capture")
@@ -329,6 +341,13 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
             raise ContractError(
                 f"endpoint fixture {agent_id}/{platform} has a fabricated capture digest"
             )
+    if value["schema_version"] == 3:
+        from pitot_capture_source import validate_source_index
+
+        try:
+            validate_source_index(value["source"], cells, manifest)
+        except (ValueError, KeyError, TypeError) as error:
+            raise ContractError(f"invalid endpoint capture source: {error}") from error
 
 
 def built_in_inventory(root: Path = ROOT) -> dict[str, list[str]]:
@@ -718,28 +737,30 @@ def render(root: Path = ROOT) -> None:
 
 
 def merge_captures(root: Path, captures: Path, output: Path) -> None:
-    manifest = load_manifest_without_provenance(root)
-    cells: list[dict[str, object]] = []
-    for path in sorted(captures.rglob("*.json")):
-        value = json.loads(path.read_text(encoding="utf-8"))
-        if (
-            not isinstance(value, dict)
-            or set(value) != {"schema_version", "accepted", "cell"}
-            or value["schema_version"] != 1
-            or value["accepted"] is not True
-        ):
-            raise ContractError(f"invalid capture artifact: {path.name}")
-        cells.append(value["cell"])
-    candidate = {
-        "schema_version": 2,
-        "capture_policy": "pinned_real_cli_capture",
-        "cells": sorted(cells, key=lambda item: (item["agent"], item["platform"])),
-    }
-    validate_endpoint_value(candidate, manifest)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps(candidate, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    raise ContractError(
+        "local capture files cannot authenticate their source; use --repository, --run-id and --source-sha"
     )
+
+
+def merge_ci_captures(
+    root: Path, output: Path, repository: str, run_id: int, source_sha: str, client=None
+) -> None:
+    from pitot_capture_source import authenticated_client, atomic_json, collect
+
+    try:
+        manifest = load_manifest_without_provenance(root)
+        client = client if client is not None else authenticated_client(repository)
+        value = collect(client, root, manifest, repository, run_id, source_sha)
+        atomic_json(output, value)
+    except (
+        ValueError,
+        KeyError,
+        TypeError,
+        AttributeError,
+        OSError,
+        subprocess.SubprocessError,
+    ) as error:
+        raise ContractError(f"capture source acquisition failed: {error}") from error
 
 
 def load_manifest_without_provenance(root: Path) -> dict[str, object]:
@@ -763,6 +784,9 @@ def main() -> int:
     )
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--captures", type=Path)
+    parser.add_argument("--repository")
+    parser.add_argument("--run-id", type=int)
+    parser.add_argument("--source-sha")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = args.repo.resolve()
@@ -772,9 +796,26 @@ def main() -> int:
             print("PASS: rendered Pitot adapter verification surfaces")
             return 0
         if args.operation == "capture-merge":
-            if args.captures is None or args.output is None:
-                raise ContractError("capture-merge requires --captures and --output")
-            merge_captures(root, args.captures.resolve(), args.output.resolve())
+            if args.captures is not None:
+                raise ContractError(
+                    "local capture files cannot authenticate their source"
+                )
+            if (
+                args.output is None
+                or not args.repository
+                or args.run_id is None
+                or not args.source_sha
+            ):
+                raise ContractError(
+                    "capture-merge requires --repository, --run-id, --source-sha and --output"
+                )
+            merge_ci_captures(
+                root,
+                args.output.resolve(),
+                args.repository,
+                args.run_id,
+                args.source_sha,
+            )
             manifest = load_manifest_without_provenance(root)
             print(
                 f"PASS: merged {len(matrix(manifest))} binary-observed endpoint captures "

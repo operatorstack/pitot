@@ -342,7 +342,7 @@ class AdapterSupervisorTests(unittest.TestCase):
                 )
             )
 
-    def test_capture_merge_requires_all_30_accepted_unique_cells(self):
+    def test_local_capture_files_cannot_promote_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             _fixture(root)
@@ -355,13 +355,18 @@ class AdapterSupervisorTests(unittest.TestCase):
                     json.dumps({"schema_version": 1, "accepted": True, "cell": cell})
                 )
             output = root / "merged.json"
-            supervisor.merge_captures(root, captures, output)
-            self.assertEqual(len(json.loads(output.read_text())["cells"]), 30)
-            next(captures.glob("*.json")).unlink()
-            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
+            output.write_text("accepted prior state")
+            with self.assertRaisesRegex(
+                supervisor.ContractError, "cannot authenticate"
+            ):
                 supervisor.merge_captures(root, captures, output)
+            self.assertEqual(output.read_text(), "accepted prior state")
+            supervisor.validate_endpoint_value(provenance, manifest)
+            provenance["cells"].pop()
+            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
+                supervisor.validate_endpoint_value(provenance, manifest)
 
-    def test_capture_merge_rejects_mixed_versions_and_duplicates(self):
+    def test_capture_values_reject_mixed_versions_and_duplicates(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             _fixture(root)
@@ -377,7 +382,10 @@ class AdapterSupervisorTests(unittest.TestCase):
                 json.dumps({"schema_version": 1, "accepted": True, "cell": duplicate})
             )
             with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
-                supervisor.merge_captures(root, captures, root / "merged.json")
+                supervisor.validate_endpoint_value(
+                    {**provenance, "cells": [*provenance["cells"], duplicate]},
+                    _manifest(),
+                )
             (captures / "duplicate.json").unlink()
             first = captures / "0.json"
             value = json.loads(first.read_text())
@@ -386,7 +394,10 @@ class AdapterSupervisorTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 supervisor.ContractError, "stale for its pinned CLI"
             ):
-                supervisor.merge_captures(root, captures, root / "merged.json")
+                supervisor.validate_endpoint_value(
+                    {**provenance, "cells": [value["cell"], *provenance["cells"][1:]]},
+                    _manifest(),
+                )
 
     def test_missing_script_fails(self):
         with tempfile.TemporaryDirectory() as temp:
