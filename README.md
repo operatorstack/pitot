@@ -417,7 +417,7 @@ deny control path end to end.
 |---|---|---|---|---|
 | Kimi Code | `PreToolUse` / Bash | native `config.toml` | Ubuntu · macOS · Windows | decoder + E2E + allow/deny control test |
 | Claude | `PreToolUse` | native settings hook | Ubuntu · macOS · Windows | decoder + E2E |
-| Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | Ubuntu · macOS · Windows (WSL) | decoder + E2E |
+| Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | Ubuntu · macOS · native Windows with PowerShell 7 | decoder + E2E |
 | Codex | `PreToolUse` | bridge (`integrations/codex`) | Ubuntu · macOS · Windows | decoder + E2E |
 | Devin | `session/request_permission` (ACP) | stateful ACP transport | Ubuntu · macOS · Windows | decoder + E2E |
 | GitHub Copilot CLI | `PreToolUse` | bridge (`integrations/copilot`) | Ubuntu · macOS · Windows | decoder + E2E |
@@ -428,8 +428,8 @@ deny control path end to end.
 
 "Decoder" means Pitot correctly normalizes that host's payload into the stable
 event envelope. It does not claim Pitot judges whether any command is safe — that
-decision belongs to your Controller. On Windows, Cursor runs under WSL; every
-other host runs natively.
+decision belongs to your Controller. Hosts run natively on Windows. Cursor's
+Windows hook bridge requires PowerShell 7.
 
 ## Host admission criteria
 
@@ -562,6 +562,15 @@ Writes the committed bridge `.pitot/bin/hooks/cursor-beforeShellExecution`
 envelope, including the Controller message) and points `.cursor/hooks.json` at
 it with `failClosed: true`. See Cursor's
 [hooks documentation](https://cursor.com/docs/agent/hooks).
+
+The generated Cursor bridge above uses a Unix shell. For native Windows, use
+`integrations/cursor/beforeShellExecution.ps1` with PowerShell 7 and keep
+`failClosed: true` in the hook configuration. Put the checked PowerShell 7
+directory on Cursor's process `PATH` and invoke that same `pwsh.exe` explicitly
+in the hook command. Cursor uses PowerShell to read and pass the hook payload;
+Windows PowerShell 5.1 can corrupt Unicode before the bridge receives it and is
+not supported by this bridge. The verification harness configures both shell
+invocations without changing the user's `PATH` or installing WSL.
 
 ### Gemini
 

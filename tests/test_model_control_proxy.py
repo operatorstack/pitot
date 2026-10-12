@@ -33,6 +33,93 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_cursor_windows_requires_modern_powershell_without_legacy_fallback(self):
+        with (
+            mock.patch.object(driver.shutil, "which", return_value=None),
+            mock.patch.object(driver.subprocess, "run") as run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "PowerShell 7"):
+                driver.cursor_powershell()
+            run.assert_not_called()
+        for output, error, accepted in (
+            (b"7\r\n", b"", True),
+            (b"5\r\n", b"", False),
+            (b"7\n", b"warning", False),
+            (b"7 extra\n", b"", False),
+            (b"", b"", False),
+        ):
+            with (
+                self.subTest(output=output, error=error),
+                mock.patch.object(driver.shutil, "which", return_value="/owned/pwsh"),
+                mock.patch.object(
+                    driver.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, output, error),
+                ) as run,
+            ):
+                if accepted:
+                    self.assertEqual(driver.cursor_powershell(), "/owned/pwsh")
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "PowerShell 7"):
+                        driver.cursor_powershell()
+                self.assertEqual(run.call_args.kwargs["timeout"], 30)
+                self.assertIn("-NoProfile", run.call_args.args[0])
+                self.assertIn("-NonInteractive", run.call_args.args[0])
+
+    def test_cursor_fixture_preserves_unix_bridge_and_uses_explicit_windows_shell(self):
+        for windows in (False, True):
+            with (
+                self.subTest(windows=windows),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                home = Path(directory) / "owner's é home"
+                project = Path(directory) / "project with spaces"
+                with (
+                    mock.patch.object(driver, "windows_host", return_value=windows),
+                    mock.patch.object(
+                        driver,
+                        "cursor_powershell",
+                        return_value="/owned PowerShell/pwsh",
+                    ) as shell,
+                ):
+                    flags, env = driver.configure(
+                        "cursor",
+                        home,
+                        project,
+                        "witness with spaces",
+                        "http://127.0.0.1:9123",
+                        pitot_command="pitot with spaces",
+                        witness_receipt="receipt's file",
+                        nonce="nonce",
+                        runtime_path="runtime's file",
+                    )
+                hooks = json.loads((project / ".cursor/hooks.json").read_text())
+                hook = hooks["hooks"]["beforeShellExecution"][0]
+                self.assertTrue(hook["failClosed"])
+                if windows:
+                    shell.assert_called_once()
+                    self.assertIn("& '/owned PowerShell/pwsh'", hook["command"])
+                    self.assertIn("beforeShellExecution.ps1", hook["command"])
+                    self.assertIn("-Receipt 'receipt''s file'", hook["command"])
+                    self.assertIn("-Runtime 'runtime''s file'", hook["command"])
+                    self.assertEqual(env["SHELL"], "/owned PowerShell/pwsh")
+                else:
+                    shell.assert_not_called()
+                    self.assertEqual(
+                        (project / ".cursor/hooks/beforeShellExecution").read_bytes(),
+                        (
+                            ROOT / "integrations/cursor/beforeShellExecution"
+                        ).read_bytes(),
+                    )
+                self.assertEqual(env["CURSOR_CONFIG_DIR"], str(home / ".cursor"))
+                self.assertEqual(env["CURSOR_DATA_DIR"], str(home / "d"))
+                self.assertEqual(
+                    env["NODE_COMPILE_CACHE"], str(home / ".cache/cursor-node")
+                )
+                self.assertEqual(env["CURSOR_AUTH_TOKEN"], "pitot-local-only")
+                self.assertEqual(env["AGENT_CLI_CREDENTIAL_STORE"], "memory")
+                self.assertIn("--disable-auto-update", flags)
+
     def test_kimi_uses_owned_provider_and_native_cache_despite_ambient_settings(self):
         for native_windows in (False, True):
             with (
@@ -457,6 +544,17 @@ class ModelControlProtocolTests(unittest.TestCase):
         self.assertIn(b"call-nonce", payload)
         self.assertIn(b"exec", payload)
         self.assertIn(b'{"command":"echo nonce"}', payload)
+
+    def test_cursor_windows_canary_uses_powershell_literal_invocation(self):
+        command = driver.render_cursor_canary_command(
+            "C:\\owned dir\\工具's $literal\\pitot-testrole.exe",
+            "C:\\owned dir\\résult's $literal.json",
+        )
+        self.assertEqual(
+            command,
+            "& 'C:/owned dir/工具''s $literal/pitot-testrole.exe' "
+            "'--role' 'canary' '--receipt' 'C:/owned dir/résult''s $literal.json'",
+        )
 
     def test_windows_canary_command_is_shell_portable(self):
         command = driver.render_canary_command(

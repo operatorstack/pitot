@@ -165,15 +165,20 @@ def validate_manifest(value: object) -> None:
             raise ContractError(
                 f"agent {agent_id} has invalid supervised integration artifacts"
             )
+        if agent_id == "cursor" and set(artifacts) != {
+            "integrations/cursor/beforeShellExecution",
+            "integrations/cursor/beforeShellExecution.ps1",
+        }:
+            raise ContractError(
+                "Cursor must supervise its Unix and native Windows bridges"
+            )
         expected_runtime_keys = {platform["id"] for platform in platforms}
         runtime = agent["runtime"]
         if not isinstance(runtime, dict) or set(runtime) != expected_runtime_keys:
             raise ContractError(f"agent {agent_id} must declare every platform runtime")
         if any(item not in {"native", "wsl"} for item in runtime.values()):
             raise ContractError(f"agent {agent_id} has an unsupported platform runtime")
-        if agent_id == "cursor" and runtime["windows"] != "wsl":
-            raise ContractError("Cursor must use its supported WSL runtime on Windows")
-        if agent_id != "cursor" and "wsl" in runtime.values():
+        if "wsl" in runtime.values():
             raise ContractError(f"agent {agent_id} must run natively on every platform")
         if (
             agent["driver"] != "real_agent_driver.py"
@@ -732,10 +737,9 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         '--evidence "${{ runner.temp }}/pitot-e2e/evidence.json"',
         "install_real_agent.py",
         "PITOT_CAPTURE_OUTPUT:",
-        "node_version=22.23.1",
-        "SHASUMS256.txt",
-        "[System.IO.File]::WriteAllText",
-        "wsl.exe --distribution Ubuntu -- bash $wslInstallPath",
+        "name: Verify Cursor native Windows shell",
+        "shell: pwsh",
+        "$PSVersionTable.PSVersion.Major -lt 7",
         "pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}",
         "name: pitot-e2e-${{ inputs.agent }}-${{ inputs.platform }}",
     )

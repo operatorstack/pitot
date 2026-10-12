@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -18,7 +19,12 @@ import tempfile
 import time
 import urllib.parse
 
-from agent_identity import agent_environment, inspect_receipt, verify_live_entrypoint
+from agent_identity import (
+    agent_environment,
+    cursor_context,
+    inspect_receipt,
+    verify_live_entrypoint,
+)
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -68,6 +74,51 @@ def render_canary_command(executable: str, receipt: str, native_windows: bool) -
             [executable, "--role", "canary", "--receipt", receipt]
         )
     return shlex.join([executable, "--role", "canary", "--receipt", receipt])
+
+
+def cursor_powershell() -> str:
+    """Require the same modern shell selected by Cursor's Windows hook runner."""
+    executable = shutil.which("pwsh")
+    if not executable or not Path(executable).is_absolute():
+        raise RuntimeError("Cursor native Windows verification requires PowerShell 7")
+    result = subprocess.run(
+        [
+            executable,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$PSVersionTable.PSVersion.Major",
+        ],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+    )
+    if (
+        result.stderr
+        or not re.fullmatch(rb"[0-9]{1,3}\r?\n?", result.stdout)
+        or int(result.stdout) < 7
+    ):
+        raise RuntimeError("Cursor native Windows verification requires PowerShell 7")
+    return executable
+
+
+def powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def render_cursor_canary_command(executable: str, receipt: str) -> str:
+    """Invoke a native Windows executable as a PowerShell literal command."""
+    arguments = [
+        executable.replace("\\", "/"),
+        "--role",
+        "canary",
+        "--receipt",
+        receipt.replace("\\", "/"),
+    ]
+    return "& " + " ".join(powershell_quote(value) for value in arguments)
 
 
 def configure(
@@ -222,18 +273,39 @@ def configure(
             "--no-remote",
         ]
     elif agent == "cursor":
-        source = LAB / "integrations/cursor/beforeShellExecution"
-        target = project / ".cursor/hooks/beforeShellExecution"
+        name = "beforeShellExecution.ps1" if windows_host() else "beforeShellExecution"
+        source = LAB / "integrations/cursor" / name
+        target = project / ".cursor/hooks" / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Cursor runs in WSL on the Windows cell. A Windows checkout may expose
-        # CRLF bytes through /mnt/<drive>, which turns the bridge shebang into
-        # `bash\r` and makes Cursor fail the hook closed before Pitot can run.
+        # Canonical bytes keep the Unix shebang valid when the source was
+        # checked out on Windows; the native PowerShell bridge uses UTF-8.
         target.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
         target.chmod(0o755)
-        hook_command = (
-            f'"{target}" "{witness_command}" "{pitot_command}" '
-            f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
-        )
+        if windows_host():
+            shell = cursor_powershell()
+            hook_command = (
+                "& "
+                + powershell_quote(shell)
+                + " -NoLogo -NoProfile -NonInteractive -File "
+                + powershell_quote(str(target))
+            )
+            for key, value in (
+                ("Pitot", witness_command),
+                ("RealBin", pitot_command),
+                ("Receipt", witness_receipt),
+                ("Nonce", nonce),
+                ("Runtime", runtime_path),
+            ):
+                hook_command += f" -{key} " + powershell_quote(value)
+            env["PATH"] = (
+                str(Path(shell).parent) + os.pathsep + os.environ.get("PATH", "")
+            )
+            env["SHELL"] = shell
+        else:
+            hook_command = (
+                f'"{target}" "{witness_command}" "{pitot_command}" '
+                f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
+            )
         write_json(
             project / ".cursor/hooks.json",
             {
@@ -252,7 +324,14 @@ def configure(
         # The pinned CLI supports an in-memory store for this synthetic token.
         # Endpoint/hook tests must not depend on or modify an OS login keychain.
         env["AGENT_CLI_CREDENTIAL_STORE"] = "memory"
-        prompt_flag = ["--endpoint", proxy, "--print", "--force"]
+        env.update(cursor_context(home, home / "d"))
+        prompt_flag = [
+            "--disable-auto-update",
+            "--endpoint",
+            proxy,
+            "--print",
+            "--force",
+        ]
     elif agent == "gemini":
         hooks = home / ".gemini/hooks"
         hooks.mkdir(parents=True, exist_ok=True)
@@ -767,9 +846,12 @@ def main() -> int:
     )
     nonce = secrets.token_hex(16)
     prompt = f"Pitot E2E session {nonce}: execute the requested verification command"
-    with tempfile.TemporaryDirectory(
-        prefix="pitot-real-agent-", ignore_cleanup_errors=True
-    ) as temporary:
+    with (
+        ExitStack() as cleanup,
+        tempfile.TemporaryDirectory(
+            prefix="pitot-real-agent-", ignore_cleanup_errors=True
+        ) as temporary,
+    ):
         base = Path(temporary)
         runtime = installation["runtime"]
         host_controls_wsl = runtime == "wsl" and os.name == "nt"
@@ -840,6 +922,21 @@ def main() -> int:
             receipt_argument,
             windows_host() and not host_controls_wsl,
         )
+        if args.agent == "cursor" and windows_host() and not host_controls_wsl:
+            canary_command = render_cursor_canary_command(
+                str(canary_executable), receipt_argument
+            )
+        cursor_canary_argv = [
+            str(canary_executable).replace("\\", "/")
+            if windows_host() and not host_controls_wsl
+            else str(canary_executable),
+            "--role",
+            "canary",
+            "--receipt",
+            receipt_argument.replace("\\", "/")
+            if windows_host() and not host_controls_wsl
+            else receipt_argument,
+        ]
         ready, proxy_receipt, witness_receipt = (
             base / "proxy.url",
             base / "proxy.json",
@@ -940,6 +1037,8 @@ def main() -> int:
                     wsl_path(ready),
                     "--canary-command",
                     canary_command,
+                    "--canary-argv",
+                    json.dumps(cursor_canary_argv),
                     "--response-fault",
                     args.response_fault,
                 ]
@@ -955,6 +1054,8 @@ def main() -> int:
                     str(ready),
                     "--canary-command",
                     canary_command,
+                    "--canary-argv",
+                    json.dumps(cursor_canary_argv),
                     "--response-fault",
                     args.response_fault,
                 ]
@@ -1041,16 +1142,29 @@ def main() -> int:
                 nonce=nonce,
                 runtime_path=str(runtime_descriptor),
             )
+            if args.agent == "cursor":
+                extra_env["CURSOR_DATA_DIR"] = cleanup.enter_context(
+                    tempfile.TemporaryDirectory(
+                        prefix="pcd-", dir="/tmp" if os.name != "nt" else None
+                    )
+                )
             environment = {
                 **os.environ,
                 **extra_env,
-                "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                "PATH": str(bin_dir)
+                + os.pathsep
+                + extra_env.get("PATH", os.environ.get("PATH", "")),
                 "PITOT_REAL_BIN": str(args.pitot.resolve()),
                 "PITOT_WITNESS_RECEIPT": str(witness_receipt),
                 "PITOT_E2E_NONCE": nonce,
                 "PITOT_RUNTIME": str(runtime_descriptor),
             }
             environment = agent_environment(args.agent, environment)
+            if args.agent == "cursor" and windows_host():
+                # Cursor's terminal hint precedes SHELL selection. Avoid the
+                # verification runner's Git Bash hint overriding checked pwsh.
+                environment.pop("MSYSTEM", None)
+                environment.pop("EXEPATH", None)
             executable = installation["executable"]
             if host_controls_wsl:
                 wsl_environment = {

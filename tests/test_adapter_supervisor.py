@@ -370,13 +370,27 @@ class AdapterSupervisorTests(unittest.TestCase):
             for item in matrix
             if item["agent"] == "cursor" and item["platform"] == "windows"
         )
-        self.assertEqual(cursor_windows["runtime"], "wsl")
-        self.assertEqual(cursor_windows["version"], "2026.07.20-8cc9c0b")
+        self.assertEqual(cursor_windows["runtime"], "native")
+        self.assertEqual(cursor_windows["version"], "2026.10.01-e373342")
         self.assertNotIn("protocol", cursor_windows)
         self.assertEqual(
             cursor_windows["endpoint_fixture"],
             "tests/endpoint-provenance.json#cursor/windows",
         )
+
+    def test_cursor_native_runtime_requires_both_supervised_bridges(self):
+        manifest = copy.deepcopy(_manifest())
+        cursor = next(agent for agent in manifest["agents"] if agent["id"] == "cursor")
+        cursor["artifacts"].remove("integrations/cursor/beforeShellExecution.ps1")
+        with self.assertRaisesRegex(
+            supervisor.ContractError, "Unix and native Windows bridges"
+        ):
+            supervisor.validate_manifest(manifest)
+        manifest = copy.deepcopy(_manifest())
+        cursor = next(agent for agent in manifest["agents"] if agent["id"] == "cursor")
+        cursor["runtime"]["windows"] = "wsl"
+        with self.assertRaisesRegex(supervisor.ContractError, "natively"):
+            supervisor.validate_manifest(manifest)
 
     def test_stale_or_missing_endpoint_provenance_fails(self):
         with tempfile.TemporaryDirectory() as temp:

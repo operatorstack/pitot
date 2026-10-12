@@ -8,6 +8,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -50,14 +51,21 @@ KIMI_MODEL_OVERRIDES = {
     "KIMI_MODEL_THINKING_KEEP",
     "KIMI_MODEL_TOP_P",
 }
+CURSOR_BOOTSTRAP_OVERRIDES = {
+    "CURSOR_API_KEY",
+    "CURSOR_AGENT_CLI_LOCAL_MODE",
+    "NODE_OPTIONS",
+}
 
 
 def agent_environment(agent: str, environment: dict[str, str]) -> dict[str, str]:
-    """Remove known Qwen bootstrap and Kimi model overrides."""
+    """Remove known verification bootstrap and model overrides."""
     if agent == "qwen":
         overrides = QWEN_BOOTSTRAP_OVERRIDES
     elif agent == "kimi":
         overrides = KIMI_MODEL_OVERRIDES
+    elif agent == "cursor":
+        overrides = CURSOR_BOOTSTRAP_OVERRIDES
     else:
         return environment
     return {key: value for key, value in environment.items() if key not in overrides}
@@ -128,7 +136,7 @@ def owned_entrypoint(agent: dict[str, object], platform: str, runtime: str) -> s
             Path.home()
             / ".local/share/pitot-cursor"
             / str(agent["version"])
-            / "cursor-agent"
+            / ("cursor-agent.cmd" if platform == "windows" else "cursor-agent")
         )
     if kind == "devin_release":
         return str(
@@ -228,16 +236,68 @@ def require_kimi_ready(path: str, runtime: str) -> None:
         raise RuntimeError("cannot inspect Kimi native update state") from error
 
 
+def require_cursor_ready(path: str, runtime: str) -> None:
+    """Reject missing same-directory delegates before a launcher can fall back."""
+    if runtime != "native" or not Path(path).is_absolute():
+        raise RuntimeError("Cursor verification requires an absolute native entrypoint")
+    try:
+        selected = Path(path)
+        if not stat.S_ISREG(selected.lstat().st_mode):
+            raise RuntimeError("Cursor requires a regular selected launcher")
+        executable = selected.resolve(strict=True)
+        if executable.name == "cursor-agent.cmd":
+            names = ("cursor-agent.cmd", "cursor-agent.ps1", "node.exe", "index.js")
+        elif executable.name == "cursor-agent":
+            names = ("cursor-agent", "node", "index.js")
+        else:
+            raise RuntimeError("Cursor entrypoint has an unsupported launcher name")
+        for name in names:
+            if not stat.S_ISREG((executable.parent / name).lstat().st_mode):
+                raise RuntimeError(
+                    "Cursor requires regular same-directory launch files"
+                )
+    except OSError as error:
+        raise RuntimeError("cannot inspect Cursor owned launch files") from error
+
+
+def cursor_context(home: Path, data: Path) -> dict[str, str]:
+    """Select owned locations without changing the caller's global environment."""
+    return {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "CURSOR_CONFIG_DIR": str(home / ".cursor"),
+        "CURSOR_DATA_DIR": str(data),
+        "NODE_COMPILE_CACHE": str(home / ".cache" / "cursor-node"),
+        "AGENT_CLI_CREDENTIAL_STORE": "memory",
+        "DIRENV_DISABLE": "1",
+    }
+
+
 def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[str, str]:
     if agent["id"] == "kimi":
         require_kimi_ready(path, runtime)
+    elif agent["id"] == "cursor":
+        require_cursor_ready(path, runtime)
     before = entrypoint_digest(path, runtime)
     command = [path, "--version"]
     if host_controls_wsl(runtime):
         command = ["wsl.exe", "--distribution", "Ubuntu", "--", *command]
     with ExitStack() as cleanup:
         options = {}
-        if agent["id"] == "qwen":
+        if agent["id"] == "cursor":
+            home = Path(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(
+                        prefix="pc-", dir="/tmp" if os.name != "nt" else None
+                    )
+                )
+            )
+            environment = agent_environment("cursor", dict(os.environ))
+            environment.pop("CURSOR_AUTH_TOKEN", None)
+            environment.update(cursor_context(home, home / "d"))
+            command = [path, "--disable-auto-update", "--version"]
+            options["env"] = environment
+        elif agent["id"] == "qwen":
             version_home = cleanup.enter_context(
                 tempfile.TemporaryDirectory(prefix="pitot-qwen-version-")
             )
@@ -290,6 +350,8 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
 def verify_live_entrypoint(receipt: dict[str, object]) -> None:
     if receipt.get("agent") == "kimi":
         require_kimi_ready(receipt["executable"], receipt["runtime"])
+    elif receipt.get("agent") == "cursor":
+        require_cursor_ready(receipt["executable"], receipt["runtime"])
     if (
         entrypoint_digest(receipt["executable"], receipt["runtime"])
         != receipt["executable_sha256"]

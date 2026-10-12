@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import tarfile
+import stat
 import tempfile
 import unittest
 import zipfile
@@ -45,6 +46,114 @@ class Response:
 
     def read(self) -> bytes:
         return self.payload
+
+
+class CursorWindowsInstallerTests(unittest.TestCase):
+    def archive(self, extra=(), missing=()):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as bundle:
+            for name in (
+                "cursor-agent.cmd",
+                "cursor-agent.ps1",
+                "node.exe",
+                "index.js",
+            ):
+                if name not in missing:
+                    bundle.writestr(f"dist-package/{name}", f"released-{name}")
+            for name, payload in extra:
+                bundle.writestr(name, payload)
+        return output.getvalue()
+
+    def test_native_install_preserves_the_complete_version_owned_payload(self):
+        payload = self.archive()
+        agent = {
+            "id": "cursor",
+            "version": "2026.10.01-e373342",
+            "installer": {
+                "kind": "cursor_release",
+                "package": "https://downloads.cursor.com/lab/2026.10.01-e373342",
+            },
+        }
+        calls = []
+
+        def download(command, **_):
+            calls.append(command)
+            Path(command[-1]).write_bytes(payload)
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "owned home"
+            home.mkdir()
+            with (
+                mock.patch.object(installer.Path, "home", return_value=home),
+                mock.patch.object(
+                    installer.host_platform, "machine", return_value="AMD64"
+                ),
+                mock.patch.object(installer, "run", side_effect=download),
+            ):
+                result = Path(installer.install(agent, "windows", "native"))
+            self.assertEqual(
+                result,
+                home
+                / ".local/share/pitot-cursor"
+                / agent["version"]
+                / "cursor-agent.cmd",
+            )
+            for name in (
+                "cursor-agent.cmd",
+                "cursor-agent.ps1",
+                "node.exe",
+                "index.js",
+            ):
+                self.assertEqual((result.parent / name).read_text(), f"released-{name}")
+            self.assertIn(
+                "https://downloads.cursor.com/lab/2026.10.01-e373342/windows/x64/agent-cli-package.zip",
+                calls[0],
+            )
+            self.assertIn("--max-time", calls[0])
+            self.assertFalse((home / ".local/bin").exists())
+
+    def test_unsafe_members_refuse_before_extracting_any_file(self):
+        link = zipfile.ZipInfo("dist-package/link")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        cases = [
+            [("../escape", "bad")],
+            [("/absolute", "bad")],
+            [("dist-package/../escape", "bad")],
+            [("dist-package\\escape", "bad")],
+            [("dist-package/file:stream", "bad")],
+            [("dist-package/file.", "bad")],
+            [("dist-package/NUL.txt", "bad")],
+            [("dist-package/INDEX.JS", "duplicate")],
+            [("dist-package/block", "file"), ("dist-package/block/child", "bad")],
+            [("dist-package/Block", "file"), ("dist-package/block/child", "bad")],
+            [("dist-package/Block", "file"), ("dist-package/block/empty/", "")],
+            [(link, "../outside")],
+        ]
+        for extra in cases:
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory:
+                archive, destination = (
+                    Path(directory) / "package.zip",
+                    Path(directory) / "output",
+                )
+                archive.write_bytes(self.archive(extra))
+                with self.assertRaises(RuntimeError):
+                    installer.extract_cursor_windows(archive, destination)
+                self.assertFalse(destination.exists())
+
+    def test_missing_delegates_refuse_before_extraction(self):
+        for name in ("cursor-agent.cmd", "cursor-agent.ps1", "node.exe", "index.js"):
+            with self.subTest(missing=name), tempfile.TemporaryDirectory() as directory:
+                archive, destination = (
+                    Path(directory) / "package.zip",
+                    Path(directory) / "output",
+                )
+                archive.write_bytes(self.archive(missing=(name,)))
+                with self.assertRaisesRegex(
+                    RuntimeError, "missing its owned launch files"
+                ):
+                    installer.extract_cursor_windows(archive, destination)
+                self.assertFalse(destination.exists())
 
 
 class DevinInstallerTests(unittest.TestCase):

@@ -32,7 +32,7 @@ class VersionAdmissionTests(unittest.TestCase):
         self.assertEqual(filtered, {"QWEN_HOME": "/owned/.qwen", "KEEP": "unchanged"})
         self.assertEqual(original, before)
         self.assertIsNot(filtered, original)
-        for product in AGENTS.keys() - {"qwen", "kimi"}:
+        for product in AGENTS.keys() - {"qwen", "kimi", "cursor"}:
             self.assertIs(identity.agent_environment(product, original), original)
         self.assertEqual(identity.agent_environment("kimi", original), original)
 
@@ -70,7 +70,7 @@ class VersionAdmissionTests(unittest.TestCase):
             identity.agent_environment("qwen", original),
             {key: value for key, value in original.items() if key != "CLI_VERSION"},
         )
-        for product in AGENTS.keys() - {"kimi", "qwen"}:
+        for product in AGENTS.keys() - {"kimi", "qwen", "cursor"}:
             self.assertIs(identity.agent_environment(product, original), original)
         # Sampling overrides also apply when no environment model is selected.
         without_name = {
@@ -456,14 +456,147 @@ class OwnedEntrypointTests(unittest.TestCase):
                 ),
             ) as run,
         ):
-            self.assertEqual(
-                identity.probe_version(AGENTS["cursor"], path, "wsl"),
-                (AGENTS["cursor"]["version"] + "\n", digest),
-            )
-            self.assertEqual(
-                run.call_args.args[0],
-                ["wsl.exe", "--distribution", "Ubuntu", "--", path, "--version"],
-            )
+            with self.assertRaisesRegex(RuntimeError, "absolute native entrypoint"):
+                identity.probe_version(AGENTS["cursor"], path, "wsl")
+            run.assert_not_called()
+
+
+class CursorStartupTests(unittest.TestCase):
+    def test_missing_or_linked_delegates_refuse_before_both_launch_checks(self):
+        names = ("cursor-agent.cmd", "cursor-agent.ps1", "node.exe", "index.js")
+        for missing in names:
+            with (
+                self.subTest(missing=missing),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                for name in names:
+                    (root / name).write_bytes(b"owned file")
+                (root / missing).unlink()
+                before = {p.name: p.read_bytes() for p in root.iterdir()}
+                with mock.patch.object(identity.subprocess, "run") as run:
+                    with self.assertRaises(RuntimeError):
+                        identity.probe_version(
+                            AGENTS["cursor"], str(root / names[0]), "native"
+                        )
+                    with self.assertRaises(RuntimeError):
+                        identity.verify_live_entrypoint(
+                            {
+                                "agent": "cursor",
+                                "runtime": "native",
+                                "executable": str(root / names[0]),
+                                "executable_sha256": "a" * 64,
+                            }
+                        )
+                    run.assert_not_called()
+                self.assertEqual(
+                    before, {p.name: p.read_bytes() for p in root.iterdir()}
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in names:
+                (root / name).write_bytes(b"owned file")
+            (root / "index.js").unlink()
+            try:
+                (root / "index.js").symlink_to(root / "cursor-agent.ps1")
+            except OSError:
+                return  # Native Windows symlinks may require privileges.
+            with self.assertRaisesRegex(RuntimeError, "regular same-directory"):
+                identity.require_cursor_ready(str(root / names[0]), "native")
+
+    def test_metadata_uses_owned_context_and_cleans_it_on_success_and_error(self):
+        for failure in (False, True):
+            with (
+                self.subTest(failure=failure),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                for name in ("cursor-agent", "node", "index.js"):
+                    (root / name).write_bytes(b"selected file")
+                original = {
+                    "CURSOR_AUTH_TOKEN": "ambient-fake-token",
+                    "CURSOR_API_KEY": "ambient-fake-key",
+                    "NODE_OPTIONS": "--require /ambient/file",
+                    "CURSOR_AGENT_CLI_LOCAL_MODE": "1",
+                    "CURSOR_CONFIG_DIR": "/ambient/config",
+                    "CURSOR_DATA_DIR": "/ambient/data",
+                    "NODE_COMPILE_CACHE": "/ambient/cache",
+                    "KEEP": "unchanged",
+                }
+                homes = []
+
+                def observe(command, **options):
+                    self.assertEqual(
+                        command,
+                        [
+                            str(root / "cursor-agent"),
+                            "--disable-auto-update",
+                            "--version",
+                        ],
+                    )
+                    child = options["env"]
+                    self.assertFalse(
+                        {
+                            "CURSOR_AUTH_TOKEN",
+                            "CURSOR_API_KEY",
+                            "NODE_OPTIONS",
+                            "CURSOR_AGENT_CLI_LOCAL_MODE",
+                        }
+                        & child.keys()
+                    )
+                    home = Path(child["HOME"])
+                    homes.append(home)
+                    self.assertEqual(child["USERPROFILE"], str(home))
+                    self.assertEqual(child["CURSOR_CONFIG_DIR"], str(home / ".cursor"))
+                    self.assertEqual(child["CURSOR_DATA_DIR"], str(home / "d"))
+                    self.assertEqual(
+                        child["NODE_COMPILE_CACHE"], str(home / ".cache/cursor-node")
+                    )
+                    self.assertEqual(child["AGENT_CLI_CREDENTIAL_STORE"], "memory")
+                    self.assertEqual(child["DIRENV_DISABLE"], "1")
+                    self.assertEqual(child["KEEP"], "unchanged")
+                    (home / "marker").write_text("owned cache")
+                    if failure:
+                        raise subprocess.TimeoutExpired(
+                            command, identity.VERSION_TIMEOUT
+                        )
+                    return subprocess.CompletedProcess(
+                        command, 0, (AGENTS["cursor"]["version"] + "\n").encode(), b""
+                    )
+
+                with (
+                    mock.patch.dict(os.environ, original, clear=True),
+                    mock.patch.object(identity.subprocess, "run", side_effect=observe),
+                ):
+                    if failure:
+                        with self.assertRaises(subprocess.TimeoutExpired):
+                            identity.probe_version(
+                                AGENTS["cursor"], str(root / "cursor-agent"), "native"
+                            )
+                    else:
+                        identity.probe_version(
+                            AGENTS["cursor"], str(root / "cursor-agent"), "native"
+                        )
+                    self.assertEqual(dict(os.environ), original)
+                self.assertTrue(homes)
+                self.assertTrue(all(not home.exists() for home in homes))
+
+    def test_fixture_filter_preserves_the_authored_token_and_other_agent_inputs(self):
+        original = {
+            "CURSOR_API_KEY": "ambient-fake-key",
+            "NODE_OPTIONS": "--require /ambient",
+            "CURSOR_AGENT_CLI_LOCAL_MODE": "1",
+            "CURSOR_AUTH_TOKEN": "pitot-local-only",
+            "KEEP": "unchanged",
+        }
+        before = dict(original)
+        self.assertEqual(
+            identity.agent_environment("cursor", original),
+            {"CURSOR_AUTH_TOKEN": "pitot-local-only", "KEEP": "unchanged"},
+        )
+        self.assertEqual(original, before)
+        for agent in AGENTS.keys() - {"cursor", "kimi", "qwen"}:
+            self.assertIs(identity.agent_environment(agent, original), original)
 
 
 class KimiUpdateStateTests(unittest.TestCase):

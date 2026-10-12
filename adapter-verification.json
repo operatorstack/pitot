@@ -26,15 +26,18 @@
     {
       "id": "cursor",
       "label": "Cursor",
-      "version": "2026.07.20-8cc9c0b",
+      "version": "2026.10.01-e373342",
       "executable": "agent",
       "installer": {
         "kind": "cursor_release",
-        "package": "https://downloads.cursor.com/lab/2026.07.20-8cc9c0b"
+        "package": "https://downloads.cursor.com/lab/2026.10.01-e373342"
       },
       "integration": "native_command_hook",
-      "artifacts": ["integrations/cursor/beforeShellExecution"],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "wsl" },
+      "artifacts": [
+        "integrations/cursor/beforeShellExecution",
+        "integrations/cursor/beforeShellExecution.ps1"
+      ],
+      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },

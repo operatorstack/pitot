@@ -206,7 +206,11 @@ class CaptureSourceTests(unittest.TestCase):
             value = json.loads(output.read_text())
         self.assertEqual(value["schema_version"], 4)
         self.assertEqual(value["source"]["producer_profile"], "capture-direct/v1")
-        self.assertEqual(len(value["source"]["producer_files"]), 37)
+        self.assertEqual(len(value["source"]["producer_files"]), 38)
+        self.assertIn(
+            "integrations/cursor/beforeShellExecution.ps1",
+            [item["path"] for item in value["source"]["producer_files"]],
+        )
         self.assertIn(".gitattributes", source.producer_paths(api.manifest))
         self.assertEqual(
             (ROOT / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n"
