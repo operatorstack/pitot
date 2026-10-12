@@ -7,6 +7,7 @@ import http2 from "node:http2";
 import http from "node:http";
 import net from "node:net";
 import fs from "node:fs";
+import path from "node:path";
 
 function parseArgs(argv) {
   const values = {};
@@ -520,7 +521,7 @@ const receipt = {
 
 function save() {
   const temporary = `${args.receipt}.tmp`;
-  fs.mkdirSync(new URL(".", `file://${args.receipt}`).pathname, {
+  fs.mkdirSync(path.dirname(args.receipt), {
     recursive: true,
   });
   fs.writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`);
@@ -752,11 +753,11 @@ h2Server.listen(0, "127.0.0.1", () => {
   http1Server.listen(0, "127.0.0.1", () => {
     frontServer.listen(0, "127.0.0.1", () => {
       const address = frontServer.address();
+      save();
       fs.writeFileSync(
         args["ready-file"],
         `http://127.0.0.1:${address.port}\n`,
       );
-      save();
     });
   });
 });

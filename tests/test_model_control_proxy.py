@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import tomllib
 import unittest
 from unittest import mock
@@ -912,6 +913,53 @@ class ModelControlProtocolTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
         )
         self.assertIn("PASS", completed.stdout)
+
+    def test_cursor_proxy_persists_native_path_before_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "cursor 工具 café # percent%" / "receipt.json"
+            ready = root / "ready.txt"
+            process = subprocess.Popen(
+                [
+                    "node",
+                    str(ROOT / "tests/cursor_control_proxy.mjs"),
+                    "--nonce",
+                    "a" * 32,
+                    "--receipt",
+                    str(receipt),
+                    "--ready-file",
+                    str(ready),
+                    "--canary-command",
+                    "unused",
+                    "--canary-argv",
+                    json.dumps(["unused", "--role", "canary", "--receipt", "unused"]),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while not ready.is_file() and time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        self.fail(process.communicate(timeout=5)[0])
+                    time.sleep(0.01)
+                self.assertTrue(ready.is_file())
+                self.assertIsNone(process.poll())
+                self.assertEqual(
+                    json.loads(receipt.read_text(encoding="utf-8"))["nonce"], "a" * 32
+                )
+                self.assertRegex(
+                    ready.read_text(encoding="utf-8"), r"^http://127\.0\.0\.1:\d+\n$"
+                )
+            finally:
+                process.terminate()
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=5)
 
 
 if __name__ == "__main__":

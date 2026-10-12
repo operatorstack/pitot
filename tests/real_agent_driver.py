@@ -1522,6 +1522,12 @@ def main() -> int:
             # reporting layer cannot fail after a successful agent session.
             sys.stdout.buffer.write(completed.stdout.encode("utf-8", errors="replace"))
             sys.stdout.buffer.flush()
+            if proxy_process.poll() is not None:
+                proxy_output = proxy_process.communicate(timeout=5)[0] or ""
+                raise RuntimeError(
+                    f"model-control proxy exited during the released-agent session "
+                    f"(exit {proxy_process.returncode}): {proxy_output[-4000:]}"
+                )
             if args.agent == "devin" and proxy_request_log.is_file():
                 # Connection-level journal from the proxy: shows whether a
                 # hanging fetch ever reached the server and on which socket.
