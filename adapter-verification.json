@@ -83,7 +83,7 @@
     {
       "id": "gemini",
       "label": "Gemini",
-      "version": "0.51.0",
+      "version": "0.63.0",
       "executable": "gemini",
       "installer": { "kind": "npm", "package": "@google/gemini-cli" },
       "integration": "native_command_hook",
