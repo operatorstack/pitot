@@ -699,19 +699,29 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         errors.append("unified runner permits synthetic E2E success")
     if "real_agent_driver.py" not in runner_text or "--test-role" not in runner_text:
         errors.append("unified runner does not invoke the canonical real-agent driver")
+    native_runner_fragments = (
+        'go build -o "$PITOT_BINARY" "$PITOT_MAIN"',
+        'go build -o "$WITNESS_BINARY" "$SCRIPT_DIR/witness/main.go"',
+        'go build -o "$TESTROLE_BINARY" "$LAB_DIR/internal/testrole"',
+        'if [[ "${RUNNER_OS:-}" == "Windows" ]]; then',
+        'PITOT_BINARY="${PITOT_BINARY}.exe"',
+        'WITNESS_BINARY="${WITNESS_BINARY}.exe"',
+        'TESTROLE_BINARY="${TESTROLE_BINARY}.exe"',
+        'DRIVER=(python3 "$SCRIPT_DIR/real_agent_driver.py" "${DRIVER_ARGS[@]}")',
+        '--pitot "$PITOT_BINARY"',
+        '--witness "$WITNESS_BINARY"',
+        '--test-role "$TESTROLE_BINARY"',
+        "set -euo pipefail",
+        "--response-fault text",
+        "--expect-incompatible-response",
+    )
     if (
-        runner_text.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build") != 3
-        or "pitot-linux" not in runner_text
-        or "pitot-witness-linux" not in runner_text
-        or "pitot-testrole-linux" not in runner_text
-        or "wsl.exe --distribution Ubuntu -- env" not in runner_text
-        or 'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"'
-        not in runner_text
-        or "MSYS2_ARG_CONV_EXCL='*'" not in runner_text
+        any(fragment not in runner_text for fragment in native_runner_fragments)
+        or runner_text.count("go build -o") != 3
+        or runner_text.count('"${DRIVER[@]}"') != 2
+        or any(fragment in runner_text for fragment in ("wsl.exe", "GOOS=", "GOARCH="))
     ):
-        errors.append(
-            "unified runner does not preserve Cursor's native WSL controller boundary"
-        )
+        errors.append("unified runner does not preserve native host verification")
     expected_files = {
         UNIFIED_WORKFLOW: unified_workflow(),
     }
