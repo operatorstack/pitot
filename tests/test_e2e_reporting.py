@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.request
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -377,6 +379,111 @@ class ResultGenerationTests(unittest.TestCase):
 
 
 class ReporterContractTests(unittest.TestCase):
+    def _archive_result(self, result, entries):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("result.json", json.dumps(result))
+            for name, data in entries:
+                bundle.writestr(name, data)
+        github = mock.Mock()
+        github.download.return_value = archive.getvalue()
+        return reporter.load_artifact(
+            github,
+            {"archive_download_url": "https://example.test/artifact"},
+            agent=result["agent"],
+            platform=result["platform"],
+            expected_sha=result["commit_sha"],
+            expected_run_url=result["run_url"],
+        )
+
+    def test_deepseek_archive_requires_matching_bounded_native_session(self):
+        session = b"retained compressed native session"
+        value = _result("deepseek")
+        value["controller"]["native_tool_results"] = {
+            "session_id": "native-session",
+            "call_ids": ["pitot_tool_allow", "pitot_tool_deny"],
+            "is_error": [False, True],
+            "denial_code": "PITOT_DENIED",
+            "session_sha256": hashlib.sha256(session).hexdigest(),
+        }
+        name = "deepseek-native-session.zstd"
+        self.assertEqual(self._archive_result(value, [(name, session)]), value)
+        for entries in (
+            [],
+            [(name, b"changed")],
+            [(name, b"")],
+            [(name, b"x" * (reporter.MAX_ARTIFACT_BYTES + 1))],
+            [(name, session), ("unexpected.txt", b"extra")],
+            [(name, session), (name, session)],
+            [(name, session), ("result.json", json.dumps(value))],
+        ):
+            with self.subTest(entries=[item[0] for item in entries]):
+                with self.assertRaises(ValueError):
+                    self._archive_result(value, entries)
+
+    def test_single_result_archives_remain_strict(self):
+        for value in (_result(), _result("deepseek", status="fail", mode=None)):
+            self.assertEqual(self._archive_result(value, []), value)
+            with self.assertRaises(ValueError):
+                self._archive_result(value, [("deepseek-native-session.zstd", b"x")])
+
+    def test_main_posts_report_but_fails_for_any_failed_cell(self):
+        inventory = json.loads((ROOT / "adapter-verification.json").read_text())
+        for failing in (None, "agent", "runtime"):
+            with self.subTest(failing=failing), tempfile.TemporaryDirectory() as temp:
+                event = Path(temp) / "event.json"
+                event.write_text(
+                    json.dumps(
+                        {"pull_request": {"number": 1, "head": {"sha": "a" * 40}}}
+                    )
+                )
+                github = mock.Mock()
+                github.list_run_artifacts.return_value = [
+                    {"name": "pitot-e2e-inventory", "expired": False}
+                ]
+                github.request.return_value = []
+                results = {
+                    "deepseek": {
+                        "ubuntu": {"status": "fail" if failing == "agent" else "pass"}
+                    }
+                }
+                runtime = {
+                    "ubuntu": {"status": "fail" if failing == "runtime" else "pass"}
+                }
+                with (
+                    mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "report",
+                            "--event",
+                            str(event),
+                            "--repository",
+                            "operatorstack/pitot",
+                        ],
+                    ),
+                    mock.patch.dict(
+                        os.environ, {"GITHUB_TOKEN": "fixture", "GITHUB_RUN_ID": "1"}
+                    ),
+                    mock.patch.object(reporter, "GitHub", return_value=github),
+                    mock.patch.object(
+                        reporter, "load_inventory", return_value=inventory
+                    ),
+                    mock.patch.object(
+                        reporter, "collect_results", return_value=results
+                    ),
+                    mock.patch.object(
+                        reporter, "collect_runtime_results", return_value=runtime
+                    ),
+                    mock.patch.object(
+                        reporter, "render_comment", return_value="fixture report"
+                    ),
+                ):
+                    self.assertEqual(reporter.main(), 0 if failing is None else 1)
+                github.request.assert_any_call(
+                    "POST", "/issues/1/comments", {"body": "fixture report"}
+                )
+
     def test_deepseek_requires_typed_native_result_receipts(self):
         value = _result("deepseek")
         native = {
