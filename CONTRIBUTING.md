@@ -158,12 +158,18 @@ failure preserves the accepted file; success replaces it atomically.
 The schema4 record keeps wire cells and their hash meaning, and adds the
 `capture-direct/v1` producer profile to the source run, job/check-run IDs and
 artifact digests. Its sorted file hashes cover the capture orchestration,
-proxies, witness and canary helpers, catalog-declared integrations, and agent
-test wrappers. Acquisition checks these files against regular blobs in the
-approved Git tree and checks the local bytes again before publication. Ordinary
+proxies, witness and canary helpers, catalog-declared integrations, agent
+test wrappers, and `.gitattributes`. Acquisition checks these files against
+regular blobs in the approved Git tree and checks the local bytes again before publication. Ordinary
 verification compares the saved hashes with the supplied checkout; a later
 helper edit requires fresh capture evidence. JSON-only validation checks record
 structure and does not establish current checkout identity.
+
+The versioned checkout policy keeps text files at LF on all platforms so local
+bytes match the approved Git blobs, including Windows checkouts with
+`core.autocrlf=true`. Binary files retain Git's automatic detection. Identity
+checks compare raw bytes; they never normalize line endings to hide a mismatch.
+Conflicting local attributes or filters can still cause a refusal.
 
 Paths must be canonical relative paths. Local file or parent symlinks, Windows
 reparse points, nonregular files, and approved-tree symlinks or submodules are

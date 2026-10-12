@@ -27,6 +27,7 @@ from pitot_adapter_supervisor import (
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ".github/workflows/pitot-e2e.yml"
 PRODUCER_FILES = (
+    ".gitattributes",
     "adapter-verification.json",
     WORKFLOW,
     ".github/workflows/pitot-e2e-agent.yml",
