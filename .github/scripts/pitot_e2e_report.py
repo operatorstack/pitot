@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -214,11 +215,53 @@ def validate_result(
             not isinstance(item, str) or not item or "\0" in item for item in action_ids
         ):
             raise ValueError("invalid action IDs")
-        if len(set(action_ids)) != 2 or value["controller"] != {
+        expected_controller = {
             "id": "e2e-shell-controller",
             "action_ids": action_ids,
             "outcomes": ["allow", "deny"],
-        }:
+        }
+        controller = value["controller"]
+        if (
+            agent == "cursor"
+            and platform == "windows"
+            and isinstance(controller, dict)
+            and "windows_carrier" in controller
+        ):
+            if set(controller) != set(expected_controller) | {
+                "command_sha256",
+                "windows_carrier",
+            }:
+                raise ValueError("invalid Cursor carrier Controller fields")
+            hashes, snapshots = (
+                controller["command_sha256"],
+                controller["windows_carrier"],
+            )
+            if (
+                not isinstance(hashes, list)
+                or len(hashes) != 2
+                or not isinstance(snapshots, list)
+                or len(snapshots) != 2
+            ):
+                raise ValueError("missing Cursor carrier snapshots")
+            for index, snapshot in enumerate(snapshots):
+                if (
+                    not isinstance(snapshot, dict)
+                    or snapshot.get("schema_version") != 1
+                    or snapshot.get("status") != "observed"
+                    or snapshot.get("nonce") != nonce
+                    or snapshot.get("source_candidate_sha") != value["commit_sha"]
+                    or snapshot.get("phase") != ("allow" if index == 0 else "deny")
+                    or snapshot.get("action_id") != action_ids[index]
+                    or not isinstance(snapshot.get("observed_command"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(hashes[index]))
+                    or hashlib.sha256(
+                        snapshot["observed_command"].encode("utf-8")
+                    ).hexdigest()
+                    != hashes[index]
+                ):
+                    raise ValueError("invalid Cursor carrier action correlation")
+            controller = {key: controller[key] for key in expected_controller}
+        if len(set(action_ids)) != 2 or controller != expected_controller:
             raise ValueError("invalid Controller receipts")
         if value["consumer"] != {
             "id": "e2e-audit",

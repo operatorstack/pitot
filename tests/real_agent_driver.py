@@ -1003,14 +1003,6 @@ def validate_receipts(
         endpoint_evidence = validate_capture_fixture(captured)
     return {
         "schema_version": 2,
-        **(
-            {
-                "cursor_command_sha256": cursor_command_digests,
-                "cursor_carrier": cursor_carrier_records,
-            }
-            if cursor_command_digests is not None
-            else {}
-        ),
         "agent": agent["id"],
         "cli": {
             "version": installation["version"],
@@ -1048,6 +1040,14 @@ def validate_receipts(
             "id": "e2e-shell-controller",
             "action_ids": action_ids,
             "outcomes": ["allow", "deny"],
+            **(
+                {
+                    "command_sha256": cursor_command_digests,
+                    "windows_carrier": cursor_carrier_records,
+                }
+                if cursor_command_digests is not None
+                else {}
+            ),
         },
         "consumer": {
             "id": "e2e-audit",

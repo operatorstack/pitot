@@ -3,11 +3,13 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import urllib.request
 
 
@@ -259,6 +261,53 @@ class ResultGenerationTests(unittest.TestCase):
             )
             self.assertEqual(result["platform"], "windows")
             self.assertEqual(result["status"], "pass")
+
+    def test_cursor_windows_carrier_evidence_survives_reporting(self):
+        receipt = _receipt("cursor", "windows")
+        snapshots = [
+            {
+                "schema_version": 1,
+                "status": "observed",
+                "source_candidate_sha": "a" * 40,
+                "nonce": receipt["nonce"],
+                "phase": phase,
+                "action_id": receipt["controller"]["action_ids"][index],
+                "observed_command": f"工具 PITOT_{phase.upper()} {receipt['nonce']}",
+            }
+            for index, phase in enumerate(("allow", "deny"))
+        ]
+        receipt["controller"]["windows_carrier"] = snapshots
+        receipt["controller"]["command_sha256"] = [
+            hashlib.sha256(item["observed_command"].encode()).hexdigest()
+            for item in snapshots
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "evidence.json"
+            evidence.write_text(json.dumps(receipt), encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "PITOT_SOURCE_SHA": "a" * 40,
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "operatorstack/pitot",
+                    "GITHUB_RUN_ID": "1",
+                },
+            ):
+                result = runner.result_for(
+                    "cursor",
+                    "windows",
+                    0,
+                    "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n",
+                    evidence,
+                )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["controller"], receipt["controller"])
+        self.assertIs(
+            reporter.validate_result(result, agent="cursor", platform="windows"), result
+        )
+        result["controller"]["windows_carrier"][0]["action_id"] = "act_unrelated"
+        with self.assertRaisesRegex(ValueError, "carrier action correlation"):
+            reporter.validate_result(result, agent="cursor", platform="windows")
 
     def test_missing_or_duplicate_marker_fails(self):
         self.assertEqual(
