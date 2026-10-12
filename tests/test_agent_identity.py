@@ -17,6 +17,123 @@ AGENTS = {agent["id"]: agent for agent in CATALOG["agents"]}
 
 
 class VersionAdmissionTests(unittest.TestCase):
+    def test_devin_environment_removes_inherited_provider_and_model_overrides(self):
+        original = {
+            "DEVIN_MODEL": "ambient-model",
+            "DEVIN_HARNESS": "ambient-agent",
+            "DEVIN_REFUSAL_FALLBACK": "ambient-fallback",
+            "DEVIN_REMOTE_SESSION_TOKEN": "ambient-token",
+            "WINDSURF_API_KEY": "ambient-key",
+            "WINDSURF_API_SERVER_URL": "https://unrelated.invalid",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://unrelated.invalid",
+            "HTTPS_PROXY": "https://unrelated.invalid",
+            "KEEP": "unchanged",
+        }
+        before = dict(original)
+        self.assertEqual(
+            identity.agent_environment("devin", original), {"KEEP": "unchanged"}
+        )
+        self.assertEqual(original, before)
+
+    def test_devin_version_probe_owns_configuration_and_cleans_all_exits(self):
+        agent = AGENTS["devin"]
+        banner = f"devin {agent['version']} (9c803229faa4)\n".encode()
+        outcomes = (
+            subprocess.CompletedProcess([], 0, banner, b""),
+            subprocess.CompletedProcess([], 0, b"unrelated version\n", b""),
+            subprocess.TimeoutExpired(["devin"], 30),
+        )
+        homes = []
+        for outcome in outcomes:
+            with self.subTest(outcome=type(outcome).__name__):
+
+                def run(command, **kwargs):
+                    env = kwargs["env"]
+                    home = Path(env["HOME"])
+                    homes.append(home)
+                    self.assertNotEqual(env["HOME"], "/ambient-home")
+                    self.assertEqual(env["USERPROFILE"], str(home))
+                    for key in (
+                        "DEVIN_MODEL",
+                        "WINDSURF_API_KEY",
+                        "OTEL_EXPORTER_OTLP_ENDPOINT",
+                    ):
+                        self.assertNotIn(key, env)
+                    config = json.loads(
+                        (Path(env["XDG_CONFIG_HOME"]) / "devin/config.json").read_text()
+                    )
+                    self.assertIs(config["auto_update"], False)
+                    self.assertIs(config["otel"]["enabled"], False)
+                    self.assertEqual(config["proxy"]["mode"], "off")
+                    self.assertEqual(len(config["read_config_from"]), 7)
+                    self.assertFalse(any(config["read_config_from"].values()))
+                    self.assertEqual(
+                        json.loads(
+                            (Path(env["APPDATA"]) / "devin/config.json").read_text()
+                        ),
+                        config,
+                    )
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {
+                            "HOME": "/ambient-home",
+                            "DEVIN_MODEL": "ambient",
+                            "WINDSURF_API_KEY": "ambient",
+                            "OTEL_EXPORTER_OTLP_ENDPOINT": "ambient",
+                        },
+                    ),
+                    mock.patch.object(
+                        identity, "entrypoint_digest", return_value="a" * 64
+                    ),
+                    mock.patch.object(identity.subprocess, "run", side_effect=run),
+                ):
+                    if outcome is outcomes[0]:
+                        self.assertEqual(
+                            identity.probe_version(agent, "/owned/devin", "native"),
+                            (banner.decode(), "a" * 64),
+                        )
+                    else:
+                        with self.assertRaises(
+                            (RuntimeError, subprocess.TimeoutExpired)
+                        ):
+                            identity.probe_version(agent, "/owned/devin", "native")
+                self.assertFalse(homes[-1].exists())
+        self.assertEqual(len(set(homes)), len(outcomes))
+
+    def test_devin_fixture_restores_only_its_authored_credentials(self):
+        import real_agent_driver as driver
+
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            _, authored = driver.configure(
+                "devin",
+                home,
+                home,
+                "/owned/witness",
+                "http://127.0.0.1:32123",
+                pitot_command="/owned/pitot",
+                witness_receipt="/owned/receipt",
+                nonce="a" * 32,
+                runtime_path="/owned/runtime",
+            )
+            inherited = {
+                "WINDSURF_API_KEY": "ambient-key",
+                "DEVIN_MODEL": "ambient-model",
+            }
+            environment = identity.agent_environment("devin", {**inherited, **authored})
+            environment.update(authored)
+            self.assertEqual(environment["WINDSURF_API_KEY"], "pitot-local-only")
+            self.assertEqual(
+                environment["WINDSURF_API_SERVER_URL"], "http://127.0.0.1:32123"
+            )
+            self.assertNotIn("DEVIN_MODEL", environment)
+            self.assertEqual(environment["HOME"], str(home))
+
     def test_qwen_environment_filters_bootstrap_hints_without_mutating_input(self):
         original = {
             "CLI_VERSION": "9.9.9",

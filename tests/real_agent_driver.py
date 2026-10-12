@@ -26,6 +26,7 @@ import urllib.parse
 from agent_identity import (
     agent_environment,
     cursor_context,
+    devin_context,
     inspect_receipt,
     verify_live_entrypoint,
 )
@@ -465,6 +466,7 @@ def configure(
             "pitot-control",
         ]
     elif agent == "devin":
+        env.update(devin_context(home))
         endpoint = urllib.parse.urlparse(proxy)
         app_data = home / "AppData/Roaming"
         local_app_data = home / "AppData/Local"
@@ -1698,6 +1700,10 @@ def main() -> int:
                 "PITOT_RUNTIME": str(runtime_descriptor),
             }
             environment = agent_environment(args.agent, environment)
+            if args.agent == "devin":
+                # Filter inherited vendor overrides, then restore only values
+                # authored for this fixture (including its synthetic key).
+                environment.update(extra_env)
             if args.agent == "cursor" and windows_host():
                 # Cursor's terminal hint precedes SHELL selection. Avoid the
                 # verification runner's Git Bash hint overriding checked pwsh.

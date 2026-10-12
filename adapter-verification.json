@@ -56,7 +56,7 @@
     {
       "id": "devin",
       "label": "Devin",
-      "version": "3000.3.22",
+      "version": "3000.11.3",
       "executable": "devin",
       "installer": {
         "kind": "devin_release",

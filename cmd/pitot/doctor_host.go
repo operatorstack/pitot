@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -193,8 +194,9 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
+const supportedDevinVersion = "3000.11.3"
+
 func doctorDevin(stdout, stderr io.Writer) error {
-	const supportedVersion = "3000.3.22"
 	path, err := doctorLookPath("devin")
 	if err != nil {
 		fmt.Fprintln(stdout, "  binary on PATH: NOT FOUND (devin)")
@@ -208,8 +210,8 @@ func doctorDevin(stdout, stderr io.Writer) error {
 	}
 	versionText := strings.TrimSpace(string(version))
 	fmt.Fprintf(stdout, "  version: %s\n", versionText)
-	if !strings.Contains(versionText, supportedVersion) {
-		return fmt.Errorf("pitot doctor: Devin version %q is unsupported; install %s", versionText, supportedVersion)
+	if !regexp.MustCompile(`^devin ` + regexp.QuoteMeta(supportedDevinVersion) + ` \([0-9a-f]{8,40}\)$`).MatchString(versionText) {
+		return fmt.Errorf("pitot doctor: Devin version %q is unsupported; install %s", versionText, supportedDevinVersion)
 	}
 	help, helpErr := doctorCommand(path, "acp", "--help").CombinedOutput()
 	if helpErr != nil || !strings.Contains(string(help), "Agent Client Protocol") {
