@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -141,6 +143,87 @@ def _fixture(root: Path) -> tuple[Path, list[str]]:
 
 
 class AdapterSupervisorTests(unittest.TestCase):
+    def test_candidate_scheduling_bootstraps_without_accepting_stale_captures(self):
+        for absent in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest_path, _ = _fixture(root)
+                manifest = json.loads(manifest_path.read_text())
+                manifest["agents"][0]["version"] = "999.0.0"
+                manifest_path.write_text(json.dumps(manifest))
+                capture_path = root / "tests/endpoint-provenance.json"
+                if absent:
+                    capture_path.unlink()
+                before = {
+                    p.relative_to(root): p.read_bytes()
+                    for p in root.rglob("*")
+                    if p.is_file()
+                }
+                for operation, count in (
+                    ("capture", 30),
+                    ("capture-runtime-matrix", 3),
+                ):
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(ROOT / "scripts/pitot_adapter_supervisor.py"),
+                            operation,
+                            "--repo",
+                            str(root),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    rows = json.loads(result.stdout)["include"]
+                    self.assertEqual(len(rows), count)
+                    if operation == "capture-runtime-matrix":
+                        self.assertEqual(rows, supervisor.runtime_matrix(manifest))
+                    else:
+                        self.assertTrue(all(row["capture"] == "true" for row in rows))
+                for operation in ("check", "matrix", "runtime-matrix", "render"):
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(ROOT / "scripts/pitot_adapter_supervisor.py"),
+                            operation,
+                            "--repo",
+                            str(root),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0, operation)
+                self.assertEqual(
+                    before,
+                    {
+                        p.relative_to(root): p.read_bytes()
+                        for p in root.rglob("*")
+                        if p.is_file()
+                    },
+                )
+
+    def test_candidate_scheduling_rejects_invalid_declared_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, _ = _fixture(root)
+            manifest = json.loads(manifest_path.read_text())
+            manifest["platforms"][0]["runner"] = "unapproved-runner"
+            manifest_path.write_text(json.dumps(manifest))
+            for operation in ("capture", "capture-runtime-matrix"):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts/pitot_adapter_supervisor.py"),
+                        operation,
+                        "--repo",
+                        str(root),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, operation)
+
     def test_real_repository_contract_is_complete(self):
         self.assertEqual(supervisor.contract_errors(ROOT), [])
 

@@ -476,11 +476,13 @@ jobs:
         shell: bash
         run: |
           operation="matrix"
+          runtime_operation="runtime-matrix"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.capture_provenance }}" == "true" ]]; then
             operation="capture"
+            runtime_operation="capture-runtime-matrix"
           fi
           agent_matrix="$(python3 scripts/pitot_adapter_supervisor.py "$operation")"
-          runtime_matrix="$(python3 scripts/pitot_adapter_supervisor.py runtime-matrix)"
+          runtime_matrix="$(python3 scripts/pitot_adapter_supervisor.py "$runtime_operation")"
           echo "agent_matrix=$agent_matrix" >> "$GITHUB_OUTPUT"
           echo "runtime_matrix=$runtime_matrix" >> "$GITHUB_OUTPUT"
       - name: Upload supervised adapter inventory
@@ -779,6 +781,7 @@ def main() -> int:
             "runtime-matrix",
             "render",
             "capture",
+            "capture-runtime-matrix",
             "capture-merge",
         ),
     )
@@ -822,9 +825,13 @@ def main() -> int:
                 f"into {args.output}"
             )
             return 0
-        if args.operation == "capture":
+        if args.operation in {"capture", "capture-runtime-matrix"}:
             manifest = load_manifest_without_provenance(root)
-            values = [{**item, "capture": "true"} for item in matrix(manifest)]
+            values = (
+                runtime_matrix(manifest)
+                if args.operation == "capture-runtime-matrix"
+                else [{**item, "capture": "true"} for item in matrix(manifest)]
+            )
             print(json.dumps({"include": values}, separators=(",", ":")))
             return 0
         errors = contract_errors(root)

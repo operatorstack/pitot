@@ -14,7 +14,7 @@
     {
       "id": "claude",
       "label": "Claude",
-      "version": "2.1.217",
+      "version": "2.1.296",
       "executable": "claude",
       "installer": { "kind": "npm", "package": "@anthropic-ai/claude-code" },
       "integration": "native_command_hook",
