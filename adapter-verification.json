@@ -140,7 +140,7 @@
     {
       "id": "qwen",
       "label": "Qwen Code",
-      "version": "0.20.1",
+      "version": "0.25.1",
       "executable": "qwen",
       "installer": { "kind": "npm", "package": "@qwen-code/qwen-code" },
       "integration": "native_command_hook",

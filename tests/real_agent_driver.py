@@ -18,7 +18,7 @@ import tempfile
 import time
 import urllib.parse
 
-from agent_identity import inspect_receipt, verify_live_entrypoint
+from agent_identity import agent_environment, inspect_receipt, verify_live_entrypoint
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -321,6 +321,7 @@ def configure(
         env["KIMI_CODE_NO_AUTO_UPDATE"] = "1"
         prompt_flag = []
     elif agent == "qwen":
+        env["QWEN_HOME"] = str(home / ".qwen")
         hooks = home / ".qwen/hooks"
         hooks.mkdir(parents=True, exist_ok=True)
         source = (
@@ -1048,6 +1049,7 @@ def main() -> int:
                 "PITOT_E2E_NONCE": nonce,
                 "PITOT_RUNTIME": str(runtime_descriptor),
             }
+            environment = agent_environment(args.agent, environment)
             executable = installation["executable"]
             if host_controls_wsl:
                 wsl_environment = {
