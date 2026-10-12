@@ -268,6 +268,7 @@ class ResultGenerationTests(unittest.TestCase):
             {
                 "schema_version": 1,
                 "status": "observed",
+                "input_prefix_bom_removed": True,
                 "source_candidate_sha": "a" * 40,
                 "nonce": receipt["nonce"],
                 "phase": phase,
@@ -305,6 +306,13 @@ class ResultGenerationTests(unittest.TestCase):
         self.assertIs(
             reporter.validate_result(result, agent="cursor", platform="windows"), result
         )
+        for invalid in (False, 1, "true", None):
+            result["controller"]["windows_carrier"][0]["input_prefix_bom_removed"] = (
+                invalid
+            )
+            with self.assertRaisesRegex(ValueError, "carrier action correlation"):
+                reporter.validate_result(result, agent="cursor", platform="windows")
+        result["controller"]["windows_carrier"][0]["input_prefix_bom_removed"] = True
         result["controller"]["windows_carrier"][0]["action_id"] = "act_unrelated"
         with self.assertRaisesRegex(ValueError, "carrier action correlation"):
             reporter.validate_result(result, agent="cursor", platform="windows")

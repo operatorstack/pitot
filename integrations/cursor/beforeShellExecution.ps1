@@ -48,7 +48,7 @@ begin {
       $rows=@(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$ProcessId" -Property ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine -OperationTimeoutSec 1 -ErrorAction Stop)
       if ($rows.Count -ne 1 -or $rows[0].ProcessId -ne $ProcessId) { throw 'process unavailable' }; return $rows[0]
     }
-    function Observe-Carrier([string]$Payload) {
+    function Observe-Carrier([string]$Payload,[bool]$InputPrefixBomRemoved) {
       $utf8=[Text.UTF8Encoding]::new($false,$true)
       $inner=ConvertFrom-Json -InputObject $Payload -AsHashtable -ErrorAction Stop
       if ($inner -isnot [Collections.IDictionary] -or $inner.command -isnot [string]) { throw 'inner payload' }
@@ -83,7 +83,7 @@ begin {
       if ($original -isnot [Collections.IDictionary] -or $original.command -isnot [string] -or $original.command -cne $inner.command) { throw 'command equality' }
       $nodeHash=(Get-FileHash -LiteralPath $node.ExecutablePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
       if ($nodeHash -cne $env:PITOT_CURSOR_RELEASE_NODE_SHA256) { throw 'released node hash' }
-      $record=@{schema_version=1;source_candidate_sha=$env:PITOT_CURSOR_CANDIDATE;nonce=$Nonce;phase=$phase;observed_command=$inner.command;expected_command=($env:PITOT_CURSOR_ISSUED_COMMAND+' PITOT_'+$phase.ToUpperInvariant()+' '+$Nonce);status='draft';elapsed_ms=$clock.ElapsedMilliseconds;owned_temp_root=$env:PITOT_CURSOR_CARRIER_TEMP;
+      $record=@{schema_version=1;source_candidate_sha=$env:PITOT_CURSOR_CANDIDATE;nonce=$Nonce;phase=$phase;observed_command=$inner.command;expected_command=($env:PITOT_CURSOR_ISSUED_COMMAND+' PITOT_'+$phase.ToUpperInvariant()+' '+$Nonce);status='draft';elapsed_ms=$clock.ElapsedMilliseconds;owned_temp_root=$env:PITOT_CURSOR_CARRIER_TEMP;input_prefix_bom_removed=$InputPrefixBomRemoved;
         inner=@{pid=$self.ProcessId;parent_pid=$self.ParentProcessId;creation_date=$self.CreationDate.ToUniversalTime().ToString('o');version=$version.FileVersion;image_path=$self.ExecutablePath;image_sha256=$hash};
         parent=@{pid=$outer.ProcessId;parent_pid=$outer.ParentProcessId;creation_date=$outer.CreationDate.ToUniversalTime().ToString('o');image_path=$outer.ExecutablePath;argv=$outer.CommandLine;file_major_part=$version.FileMajorPart;file_version=$version.FileVersion;image_sha256=$hash};
         grandparent=@{pid=$node.ProcessId;creation_date=$node.CreationDate.ToUniversalTime().ToString('o');image_path=$node.ExecutablePath;image_sha256=$nodeHash;version_prefix=[IO.Path]::GetDirectoryName($node.ExecutablePath)};
@@ -115,8 +115,12 @@ end {
     $process = $null
     try {
         $payload = if ($chunks.Count) { [string]::Join("`n", $chunks) } else { [Console]::In.ReadToEnd() }
+        $originalPayload = $payload
+        if (($VerifyCarrier -or $ObserveCarrier) -and $encoding.GetByteCount($originalPayload) -gt 1048576) { throw 'Invalid carrier fixture input' }
+        $inputPrefixBomRemoved = $payload.Length -gt 0 -and $payload[0] -eq [char]0xFEFF
+        if ($inputPrefixBomRemoved) { $payload = $payload.Substring(1) }
         if ($ObserveCarrier) {
-            try { Observe-Carrier $payload; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
+            try { Observe-Carrier $payload $inputPrefixBomRemoved; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
         }
         if (-not $payload.Trim()) { throw "Cursor supplied no shell request" }
         $request = ConvertFrom-Json -InputObject $payload -AsHashtable -ErrorAction Stop
@@ -144,7 +148,7 @@ end {
                 $observerStarted = $true
                 $observeOut = $observer.StandardOutput.ReadToEndAsync()
                 $observeErr = $observer.StandardError.ReadToEndAsync()
-                $inputWrite = $observer.StandardInput.WriteAsync($payload)
+                $inputWrite = $observer.StandardInput.WriteAsync($originalPayload)
                 $inputBudget = 5000 - [int]$watch.ElapsedMilliseconds
                 if ($inputBudget -le 0 -or -not $inputWrite.Wait($inputBudget)) { throw 'Carrier observer input deadline' }
                 [void]$inputWrite.GetAwaiter().GetResult()
@@ -168,6 +172,7 @@ end {
             $draft = [IO.Path]::Combine($root,"$Nonce-$phase.draft.json")
             $carrier = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false,$true).GetString((Read-Owned $draft $root))) -AsHashtable -ErrorAction Stop
             if ($carrier.status -cne 'draft' -or $carrier.phase -cne $phase -or $carrier.nonce -cne $Nonce -or $carrier.observed_command -cne $request.command) { throw 'Carrier draft mismatch' }
+            if ($carrier.input_prefix_bom_removed -isnot [bool] -or $carrier.input_prefix_bom_removed -ne $inputPrefixBomRemoved) { throw 'Carrier input prefix mismatch' }
         }
         $arguments = @()
         if ($RealBin) { $arguments += @("--real-bin", $RealBin, "--receipt", $Receipt, "--nonce", $Nonce) }

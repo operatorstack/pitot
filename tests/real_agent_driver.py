@@ -946,6 +946,7 @@ def validate_cursor_carrier(
                 or record["action_id"] != action_id
                 or record["observed_command"] != command
                 or record["expected_command"] != command
+                or record.get("input_prefix_bom_removed") is not True
                 or not same_path(
                     record["owned_temp_root"], context["PITOT_CURSOR_CARRIER_TEMP"]
                 )

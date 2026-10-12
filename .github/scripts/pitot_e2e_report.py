@@ -248,6 +248,7 @@ def validate_result(
                     not isinstance(snapshot, dict)
                     or snapshot.get("schema_version") != 1
                     or snapshot.get("status") != "observed"
+                    or snapshot.get("input_prefix_bom_removed") is not True
                     or snapshot.get("nonce") != nonce
                     or snapshot.get("source_candidate_sha") != value["commit_sha"]
                     or snapshot.get("phase") != ("allow" if index == 0 else "deny")

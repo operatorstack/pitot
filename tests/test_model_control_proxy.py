@@ -190,6 +190,7 @@ class ModelControlProtocolTests(unittest.TestCase):
                     "expected_command": commands[index],
                     "owned_temp_root": context["PITOT_CURSOR_CARRIER_TEMP"],
                     "elapsed_ms": 100,
+                    "input_prefix_bom_removed": True,
                     "inner": {
                         "pid": 10 + index,
                         "parent_pid": 20 + index,
@@ -229,6 +230,10 @@ class ModelControlProtocolTests(unittest.TestCase):
             records, context, nonce, commands, ["act_0", "act_1"]
         )
         mutations = [
+            lambda r: r[0].pop("input_prefix_bom_removed"),
+            lambda r: r[0].update(input_prefix_bom_removed=False),
+            lambda r: r[0].update(input_prefix_bom_removed=1),
+            lambda r: r[0].update(input_prefix_bom_removed="true"),
             lambda r: r[0].update(status="draft"),
             lambda r: r[0].update(source_candidate_sha="f" * 40),
             lambda r: r[0].update(nonce="0" * 32),
