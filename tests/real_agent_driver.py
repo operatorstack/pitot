@@ -8,6 +8,7 @@ import base64
 from datetime import datetime
 from contextlib import ExitStack
 import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -16,6 +17,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import stat
 import sys
 import tempfile
 import time
@@ -40,6 +42,98 @@ ENDPOINT_PROVENANCE = json.loads(
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def cursor_failure_diagnostics(
+    proxy_receipt: Path, carrier_root: Path, nonce: str
+) -> str:
+    def bounded_read(path: Path, limit: int) -> str:
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                return "<nonregular file refused>"
+            with path.open("rb") as stream:
+                raw = stream.read(limit + 1)
+            if len(raw) > limit:
+                return "<oversized file>"
+            return raw.decode("utf-8", errors="replace")
+        except OSError as error:
+            return f"<read failed: {type(error).__name__}>"
+
+    def fields(value: object, keys: tuple[str, ...]) -> dict[str, object]:
+        if not isinstance(value, dict):
+            return {}
+        types = {
+            "scope": str,
+            "code": str,
+            "path": str,
+            "content_type": str,
+            "nonce_present": bool,
+            "canary_result_present": bool,
+        }
+        return {
+            key: value[key][:512] if isinstance(value[key], str) else value[key]
+            for key in keys
+            if key in value and type(value[key]) is types.get(key, int)
+        }
+
+    state: dict[str, object] = {}
+    try:
+        receipt = json.loads(bounded_read(proxy_receipt, 1048576))
+        if not isinstance(receipt, dict):
+            raise ValueError("invalid receipt")
+        for key in (
+            "initial_prompt_observed",
+            "allow_tool_call_response_emitted",
+            "allow_tool_result_observed",
+            "deny_tool_call_response_emitted",
+            "denied_result_observed",
+            "final_response_emitted",
+        ):
+            if type(receipt.get(key)) is bool:
+                state[key] = receipt[key]
+        state["response_attempts"] = fields(
+            receipt.get("response_attempts"), ("allow", "deny", "final")
+        )
+        for key, names in (
+            ("transport_errors", ("scope", "code")),
+            ("cursor_requests", ("path", "content_type", "request_bytes")),
+        ):
+            values = receipt.get(key, [])
+            state[key] = (
+                [fields(value, names) for value in values[-20:]]
+                if isinstance(values, list)
+                else []
+            )
+        state["cursor_run"] = fields(
+            receipt.get("cursor_run"), ("path", "content_type", "request_bytes")
+        )
+        inbound = receipt.get("cursor_inbound", {})
+        state["cursor_inbound"] = fields(inbound, ("request_bytes",))
+        envelopes = inbound.get("envelopes", []) if isinstance(inbound, dict) else []
+        state["cursor_inbound"]["envelopes"] = (
+            [
+                fields(
+                    value, ("flags", "length", "nonce_present", "canary_result_present")
+                )
+                for value in envelopes[-20:]
+            ]
+            if isinstance(envelopes, list)
+            else []
+        )
+    except (ValueError, TypeError):
+        state["receipt"] = "missing, malformed or oversized"
+    carrier = {}
+    for phase in ("allow", "deny"):
+        carrier[phase] = {
+            "draft_present": (carrier_root / f"{nonce}-{phase}.draft.json").is_file(),
+            "final_present": (carrier_root / f"{nonce}-{phase}.json").is_file(),
+            "errors": [
+                bounded_read(path, 1024)
+                for path in islice(carrier_root.glob(f"{nonce}-{phase}-*.error.txt"), 2)
+            ],
+        }
+    state["carrier"] = carrier
+    return json.dumps(state, ensure_ascii=False, sort_keys=True)[:12000]
 
 
 def hook_group(event: str, matcher: str, command: str) -> dict[str, object]:
@@ -1570,7 +1664,10 @@ def main() -> int:
                         or proof_path.stat().st_size > 3 * 1048576
                     ):
                         raise RuntimeError(
-                            "Cursor carrier snapshot is missing or oversized"
+                            "Cursor carrier snapshot is missing or oversized; "
+                            + cursor_failure_diagnostics(
+                                proxy_receipt, carrier_root, nonce
+                            )
                         )
                     carrier_records.append(
                         json.loads(proof_path.read_text(encoding="utf-8"))

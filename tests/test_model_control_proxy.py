@@ -37,6 +37,75 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_cursor_failure_diagnostics_preserve_phase_and_transport_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nonce = "a" * 32
+            receipt = root / "proxy.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "initial_prompt_observed": True,
+                        "allow_tool_call_response_emitted": True,
+                        "allow_tool_result_observed": False,
+                        "transport_errors": [{"scope": "run_stream", "code": "RESET"}],
+                        "unrelated_content": "must not be emitted",
+                        "denied_result_observed": "unrelated wrong type",
+                        "response_attempts": {"allow": "unrelated wrong type"},
+                        "cursor_inbound": {
+                            "request_bytes": 100,
+                            "envelopes": [
+                                {
+                                    "flags": 0,
+                                    "length": 95,
+                                    "printable": ["unrelated secret"],
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / f"{nonce}-allow.draft.json").write_text("{}", encoding="utf-8")
+            (root / f"{nonce}-allow-id.error.txt").write_text(
+                "Carrier failure café", encoding="utf-8"
+            )
+            (root / "unrelated.error.txt").write_text("unrelated", encoding="utf-8")
+            text = driver.cursor_failure_diagnostics(receipt, root, nonce)
+            state = json.loads(text)
+            self.assertNotIn("unrelated", text)
+            self.assertTrue(state["carrier"]["allow"]["draft_present"])
+            self.assertFalse(state["carrier"]["allow"]["final_present"])
+            self.assertEqual(
+                state["carrier"]["allow"]["errors"], ["Carrier failure café"]
+            )
+            self.assertFalse(state["allow_tool_result_observed"])
+            self.assertEqual(state["response_attempts"], {})
+
+    def test_cursor_failure_diagnostics_bound_bad_and_large_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nonce = "a" * 32
+            receipt = root / "proxy.json"
+            receipt.write_bytes(b"x" * 1048577)
+            (root / f"{nonce}-deny-id.error.txt").write_bytes(b"x" * 1025)
+            state = json.loads(driver.cursor_failure_diagnostics(receipt, root, nonce))
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+            self.assertEqual(state["carrier"]["deny"]["errors"], ["<oversized file>"])
+            state = json.loads(driver.cursor_failure_diagnostics(root, root, nonce))
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "host has no filesystem FIFO")
+    def test_cursor_failure_diagnostics_refuse_fifo_before_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "proxy.json"
+            os.mkfifo(receipt)
+            state = json.loads(
+                driver.cursor_failure_diagnostics(receipt, root, "a" * 32)
+            )
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+
     def test_cursor_carrier_rejects_unrelated_or_corrupt_snapshots(self):
         nonce = "a" * 32
         context = {
