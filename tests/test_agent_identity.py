@@ -95,6 +95,7 @@ class VersionAdmissionTests(unittest.TestCase):
                 "codex": f"codex-cli {pin}",
                 "copilot": f"GitHub Copilot CLI {pin}.\nRun 'copilot update' to check for updates.",
                 "devin": f"devin {pin} (d5152ff5)",
+                "opencode": f"opencode v{pin}",
             }.get(product, pin)
             with self.subTest(product=product):
                 self.assertTrue(identity.version_matches(agent, banner))
@@ -115,6 +116,22 @@ class VersionAdmissionTests(unittest.TestCase):
     def test_near_version_is_not_a_pin(self):
         for banner in ["0.29.01", "0.29.00", "expected0.29.0;actual0.0.1"]:
             self.assertFalse(identity.version_matches(AGENTS["kimi"], banner))
+
+    def test_opencode_version_families_keep_distinct_complete_banners(self):
+        legacy = {**AGENTS["opencode"], "version": "1.18.4"}
+        current = AGENTS["opencode"]
+        self.assertTrue(identity.version_matches(legacy, "1.18.4\n"))
+        self.assertFalse(identity.version_matches(legacy, "opencode v1.18.4\n"))
+        for output in [
+            current["version"],
+            f"opencode {current['version']}",
+            f"opencode v{current['version']}0",
+            "opencode v2.0.26",
+            f"opencode v{current['version']}\nactual 1.18.4",
+        ]:
+            with self.subTest(output=output):
+                self.assertFalse(identity.version_matches(current, output))
+        self.assertFalse(identity.stderr_matches(current, "warning\n"))
 
     def test_devin_commit_label_is_bounded_and_lowercase(self):
         agent = AGENTS["devin"]

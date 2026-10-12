@@ -108,7 +108,7 @@ func printWiringGuidance(host string, stdout io.Writer) error {
 		"kimi":     "add to ~/.kimi-code/config.toml (or $KIMI_CODE_HOME/config.toml):\n\n  [[hooks]]\n  event = \"PreToolUse\"\n  matcher = \"Bash\"\n  command = \"pitot hook kimi\"",
 		"qwen":     "add to ~/.qwen/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"^Bash$\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/qwen/PreToolUse>\"}]}",
 		"copilot":  "add to ~/.copilot/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"Bash\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/copilot/PreToolUse>\"}]}",
-		"opencode": "register the plugin in ~/.config/opencode/opencode.json:\n\n  {\"plugin\": [\"file:///<path to integrations/opencode/pitot.ts>\"]}",
+		"opencode": "register the OpenCode 2 plugin directory in ~/.config/opencode/opencode.json:\n\n  {\"plugins\": [\"file:///<path to integrations/opencode>\"]}",
 		"pi":       "copy integrations/pi/pitot.ts into ~/.pi/agent/extensions/ (or the repo's .pi/extensions/)",
 	}
 	text, known := guidance[host]

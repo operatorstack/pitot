@@ -182,3 +182,26 @@ func TestWireHostGuidanceAndFlagRules(t *testing.T) {
 		t.Fatalf("doctor --fix without --host must be rejected, got %v", err)
 	}
 }
+
+func TestWireOpenCodeGuidanceUsesAPluginDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	out, err := runInitHost(t, "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string][]string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			if err := json.Unmarshal([]byte(line), &config); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	plugins := config["plugins"]
+	if len(config) != 1 || len(plugins) != 1 || !strings.HasSuffix(plugins[0], "integrations/opencode>") {
+		t.Fatalf("expected directory-based OpenCode 2 configuration, got %v", config)
+	}
+	if entries, _ := os.ReadDir("."); len(entries) != 0 {
+		t.Fatalf("user-level guidance wrote files: %v", entries)
+	}
+}

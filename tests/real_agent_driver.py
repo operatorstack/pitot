@@ -395,7 +395,7 @@ def configure(
             str(extension),
         ]
     elif agent == "opencode":
-        plugin = LAB / "integrations/opencode/pitot.ts"
+        plugin = (LAB / "integrations/opencode").resolve()
         # Use the released binary's bundled OpenAI provider. A custom provider
         # would dynamically install @ai-sdk/openai-compatible and make endpoint
         # verification depend on a second unpinned network package.
@@ -403,10 +403,11 @@ def configure(
         write_json(
             config,
             {
-                "plugin": [f"file://{plugin}"],
-                "provider": {
+                "plugins": [plugin.as_uri()],
+                "providers": {
                     "openai": {
-                        "options": {
+                        "package": "@opencode/ai/providers/openai/responses",
+                        "settings": {
                             "baseURL": f"{proxy}/v1",
                             "apiKey": "pitot-local-only",
                         },
@@ -414,15 +415,21 @@ def configure(
                     }
                 },
                 "model": "openai/pitot-control",
-                "permission": {"bash": "allow"},
+                "permissions": [
+                    {"action": "shell", "resource": "*", "effect": "allow"}
+                ],
             },
         )
         env["OPENCODE_CONFIG"] = str(config)
+        env["XDG_CACHE_HOME"] = str(home / ".cache")
+        env["XDG_DATA_HOME"] = str(home / ".local/share")
+        env["XDG_STATE_HOME"] = str(home / ".local/state")
         prompt_flag = [
             "--print-logs",
             "--log-level",
-            "DEBUG",
+            "debug",
             "run",
+            "--standalone",
             "--model",
             "openai/pitot-control",
         ]
@@ -557,6 +564,21 @@ def validate_receipts(
         )
     if proxy.get("nonce") != nonce:
         raise RuntimeError("proxy receipt escaped the nonce-bound real-agent session")
+    if agent["id"] == "opencode":
+        if proxy.get("opencode_allow_result") != {
+            "call_id": "pitot_tool_allow"
+        } or proxy.get("opencode_denied_result") != {
+            "call_id": "pitot_tool_deny",
+            "error_type": "tool.execution",
+        }:
+            raise RuntimeError(
+                "OpenCode tool results lack issued call IDs or typed denial"
+            )
+        print(
+            "PITOT_NATIVE_TOOL_RESULTS agent=opencode "
+            "allow_call_id=pitot_tool_allow deny_call_id=pitot_tool_deny "
+            "error_type=tool.execution"
+        )
     if agent["integration"] == "acp_client":
         if witnesses:
             raise RuntimeError(

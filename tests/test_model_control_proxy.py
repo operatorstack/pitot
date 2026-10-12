@@ -31,6 +31,128 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_opencode_requires_issued_calls_and_native_typed_denial(self):
+        allow = {
+            "type": "function_call_output",
+            "call_id": "pitot_tool_allow",
+            "output": "PITOT_CANARY_RESULT PITOT_ALLOW nonce\n",
+        }
+        deny = {
+            "type": "function_call_output",
+            "call_id": "pitot_tool_deny",
+            "output": json.dumps(
+                {
+                    "error": {
+                        "type": "tool.execution",
+                        "message": "PITOT_CONTROLLER_DENY nonce",
+                    },
+                    "content": [],
+                }
+            ),
+        }
+        body = {"input": [allow, deny]}
+        self.assertEqual(
+            proxy.opencode_tool_result("openai_responses", body, "allow", "nonce"),
+            {"call_id": "pitot_tool_allow"},
+        )
+        self.assertEqual(
+            proxy.opencode_tool_result("openai_responses", body, "deny", "nonce"),
+            {"call_id": "pitot_tool_deny", "error_type": "tool.execution"},
+        )
+        for phase, result in [("allow", allow), ("deny", deny)]:
+            wrong = {**result, "call_id": "another_call"}
+            with self.subTest(phase=phase):
+                self.assertIsNone(
+                    proxy.opencode_tool_result(
+                        "openai_responses", {"input": [wrong]}, phase, "nonce"
+                    )
+                )
+                self.assertIsNone(
+                    proxy.opencode_tool_result(
+                        "openai_responses", body, phase, "another_nonce"
+                    )
+                )
+        for output in [
+            "PITOT_CONTROLLER_DENY nonce",
+            json.dumps(
+                {"error": {"type": "unknown", "message": "PITOT_CONTROLLER_DENY nonce"}}
+            ),
+            json.dumps(
+                {
+                    "error": {"type": "tool.execution", "message": "another_nonce"},
+                    "content": ["PITOT_CONTROLLER_DENY nonce"],
+                }
+            ),
+            "null",
+            "[]",
+            {},
+        ]:
+            with self.subTest(output=output):
+                self.assertIsNone(
+                    proxy.opencode_tool_result(
+                        "openai_responses",
+                        {"input": [{**deny, "output": output}]},
+                        "deny",
+                        "nonce",
+                    )
+                )
+
+    def test_opencode_history_cannot_supply_a_missing_issued_result(self):
+        allow = {
+            "type": "function_call_output",
+            "call_id": "pitot_tool_allow",
+            "output": "PITOT_CANARY_RESULT PITOT_ALLOW nonce\n",
+        }
+        body = {"input": [allow, allow]}
+        self.assertIsNotNone(
+            proxy.opencode_tool_result("openai_responses", body, "allow", "nonce")
+        )
+        self.assertIsNone(
+            proxy.opencode_tool_result("openai_responses", body, "deny", "nonce")
+        )
+        self.assertIsNone(
+            proxy.opencode_tool_result(
+                "openai_responses",
+                {"input": [allow, {**allow, "output": "other nonce"}]},
+                "allow",
+                "nonce",
+            )
+        )
+        self.assertIsNone(
+            proxy.opencode_tool_result(
+                "openai_responses", {"input": None}, "allow", "nonce"
+            )
+        )
+
+    def test_opencode_uses_a_portable_directory_and_owned_native_provider(self):
+        with tempfile.TemporaryDirectory(prefix="pitot opencode ") as temporary:
+            base = Path(temporary)
+            flags, environment = driver.configure(
+                "opencode",
+                base / "home",
+                base / "project",
+                "witness",
+                "http://127.0.0.1:9123",
+                pitot_command="pitot",
+                witness_receipt="witness.jsonl",
+                nonce="nonce",
+                runtime_path="runtime.json",
+            )
+            config = json.loads(Path(environment["OPENCODE_CONFIG"]).read_text())
+            self.assertEqual(
+                config["plugins"], [(ROOT / "integrations/opencode").resolve().as_uri()]
+            )
+            self.assertEqual(
+                config["providers"]["openai"]["package"],
+                "@opencode/ai/providers/openai/responses",
+            )
+            self.assertEqual(
+                config["providers"]["openai"]["settings"]["baseURL"],
+                "http://127.0.0.1:9123/v1",
+            )
+            self.assertIn("--standalone", flags)
+            self.assertEqual(flags[flags.index("--log-level") + 1], "debug")
+
     def test_cursor_keeps_synthetic_credentials_in_memory(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

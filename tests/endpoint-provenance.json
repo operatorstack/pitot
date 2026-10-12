@@ -951,9 +951,9 @@
     },
     {
       "agent": "opencode",
-      "capture_sha256": "db834ed83cf489dc517c27e2149f9783ae663c20055c2283dabcbdf08ff86457",
+      "capture_sha256": "0197c1c312d6532e4a8d05dce595bc6a86e3a393ba74b3f8c6a0a1459a1aaf5c",
       "dialect": "openai_responses",
-      "executable_sha256": "9449af91f517eacc2b0742fa93ae0da64fa6e5db7b714e30c62edea2a8de3f98",
+      "executable_sha256": "7fa5c8659e57cae76b1da4f45edbc583aef93aae917246a0b3abb1ac1b3fb93c",
       "platform": "macos",
       "provenance": "pinned_real_cli_capture",
       "request": {
@@ -965,24 +965,27 @@
           "has_tools": true,
           "stream": true,
           "tool_names": [
-            "bash",
             "edit",
             "glob",
             "grep",
+            "question",
             "read",
+            "shell",
             "skill",
-            "task",
-            "todowrite",
+            "subagent",
             "webfetch",
-            "write"
+            "websearch",
+            "write",
+            "execute"
           ],
           "top_level_keys": [
+            "include",
             "input",
+            "instructions",
             "model",
             "prompt_cache_key",
             "store",
             "stream",
-            "tool_choice",
             "tools"
           ]
         },
@@ -995,13 +998,13 @@
         "tool_call": "native_shell"
       },
       "runtime": "native",
-      "version": "1.18.4"
+      "version": "2.0.27"
     },
     {
       "agent": "opencode",
-      "capture_sha256": "8c98437528ae0a8f99e007b94cb1176a17943e9fbbd914643f60733152f4ba60",
+      "capture_sha256": "f9a06f9015188a22a73e7d1717185489dca98151e57448533e53ad05e03810bb",
       "dialect": "openai_responses",
-      "executable_sha256": "6ce6570e7db9a40e7bd3304ebdfff607920bde8cafd2eb5587bd7a26f89ba0b5",
+      "executable_sha256": "e26aa101cfdc40f0e680baa609ff18f131bbc6b91c60fdc11b2b2e2cba7281a4",
       "platform": "ubuntu",
       "provenance": "pinned_real_cli_capture",
       "request": {
@@ -1013,24 +1016,27 @@
           "has_tools": true,
           "stream": true,
           "tool_names": [
-            "bash",
             "edit",
             "glob",
             "grep",
+            "question",
             "read",
+            "shell",
             "skill",
-            "task",
-            "todowrite",
+            "subagent",
             "webfetch",
-            "write"
+            "websearch",
+            "write",
+            "execute"
           ],
           "top_level_keys": [
+            "include",
             "input",
+            "instructions",
             "model",
             "prompt_cache_key",
             "store",
             "stream",
-            "tool_choice",
             "tools"
           ]
         },
@@ -1043,13 +1049,13 @@
         "tool_call": "native_shell"
       },
       "runtime": "native",
-      "version": "1.18.4"
+      "version": "2.0.27"
     },
     {
       "agent": "opencode",
-      "capture_sha256": "509555970aabc2e5aa178412295bd0d773467cdeb22d2b95000e2e5ac1d17ad4",
+      "capture_sha256": "31ce073b2034222781b9a4519bae2ffd62b72ffe167aa70bc136aae29d55cfe6",
       "dialect": "openai_responses",
-      "executable_sha256": "b53b698473bfa46e09487e485a7f1ad5b4881f8a8b319d3619aa251f3be8ae10",
+      "executable_sha256": "8f315b35eb8a1fb363665166126a8770bbd19312079b2cde976f5c308b68145b",
       "platform": "windows",
       "provenance": "pinned_real_cli_capture",
       "request": {
@@ -1061,24 +1067,27 @@
           "has_tools": true,
           "stream": true,
           "tool_names": [
-            "bash",
             "edit",
             "glob",
             "grep",
+            "question",
             "read",
+            "shell",
             "skill",
-            "task",
-            "todowrite",
+            "subagent",
             "webfetch",
-            "write"
+            "websearch",
+            "write",
+            "execute"
           ],
           "top_level_keys": [
+            "include",
             "input",
+            "instructions",
             "model",
             "prompt_cache_key",
             "store",
             "stream",
-            "tool_choice",
             "tools"
           ]
         },
@@ -1091,7 +1100,7 @@
         "tool_call": "native_shell"
       },
       "runtime": "native",
-      "version": "1.18.4"
+      "version": "2.0.27"
     },
     {
       "agent": "pi",
@@ -1372,486 +1381,486 @@
     "artifacts": [
       {
         "agent": "claude",
-        "archive_sha256": "bd5d3e3bfa5fc666b034925778eee70531b47a9afab07e348cdbd1602ebe4c4c",
-        "artifact_id": 11726238385,
+        "archive_sha256": "2b627dcf3264555e11ceabdae2eaf85a945ae47fb9e6070c9d86980e35678600",
+        "artifact_id": 11728977927,
         "capture_sha256": "6eb5f870d6d9eec0fd8bdfce34693ce86e057feb07df5aa9a4af3f3bd706ea8c",
-        "check_run_id": 114662956706,
+        "check_run_id": 114681931975,
         "conclusion": "success",
-        "job_id": 114662956706,
+        "job_id": 114681931975,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033047,
+        "runner_id": 1000033173,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033047"
+        "runner_name": "GitHub Actions 1000033173"
       },
       {
         "agent": "claude",
-        "archive_sha256": "d7b9f7dc9b0ba542e2b30ab552eb4f64dd98dad30c154bca1045c434740a9c2a",
-        "artifact_id": 11727020346,
+        "archive_sha256": "2e9ade05babd3f4a93475d3d98b8807461f67db78b01d039b44847ab59f287d0",
+        "artifact_id": 11729082321,
         "capture_sha256": "21fa65e59854f6623ddc764b14463d23d1bf87527e4a4173501a0dc354a7dce9",
-        "check_run_id": 114662957135,
+        "check_run_id": 114681932077,
         "conclusion": "success",
-        "job_id": 114662957135,
+        "job_id": 114681932077,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033059,
+        "runner_id": 1000033180,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033059"
+        "runner_name": "GitHub Actions 1000033180"
       },
       {
         "agent": "claude",
-        "archive_sha256": "4e3419bdbae6fd487f14e08ff116fa0d58971d9178860ce7cd53264878d434d4",
-        "artifact_id": 11726307629,
+        "archive_sha256": "fe37b8508d37e5f1fb8b2e3b46e5c2972dcade5606a34c41637626644ffb0a92",
+        "artifact_id": 11728193504,
         "capture_sha256": "de00faa86bcc17a3858475a91044c6a28b24a1af11650bb7758044643de2aa1f",
-        "check_run_id": 114662957335,
+        "check_run_id": 114681932203,
         "conclusion": "success",
-        "job_id": 114662957335,
+        "job_id": 114681932203,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033068,
+        "runner_id": 1000033182,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033068"
+        "runner_name": "GitHub Actions 1000033182"
       },
       {
         "agent": "codex",
-        "archive_sha256": "7e8708f822dbcb460fe735b09fa4b63fc1d8354a54c6360628ba78b6c2accd2a",
-        "artifact_id": 11726931097,
+        "archive_sha256": "56369ca13619648508f9c6610201e70dc66073ab8f593ec9ae75515fa7da5741",
+        "artifact_id": 11728753423,
         "capture_sha256": "5e39c8858cfe781d5febb081b393afd0c385a73c33bf6609ca7d7b5a4749852e",
-        "check_run_id": 114662957024,
+        "check_run_id": 114681931926,
         "conclusion": "success",
-        "job_id": 114662957024,
+        "job_id": 114681931926,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033073,
+        "runner_id": 1000033166,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033073"
+        "runner_name": "GitHub Actions 1000033166"
       },
       {
         "agent": "codex",
-        "archive_sha256": "d33095d95dfe5fd2dafe0f6abe50a34a4dfa4821d1eaf6cda775282ee8f89798",
-        "artifact_id": 11726636427,
+        "archive_sha256": "1558a7069b821380dbdf75ce61449457b8f36efbf1dea8f56965758b873576ab",
+        "artifact_id": 11728297937,
         "capture_sha256": "a45c25b9a94213356abc092f187117258099981423758f74e27cf6398efea157",
-        "check_run_id": 114662957139,
+        "check_run_id": 114681932329,
         "conclusion": "success",
-        "job_id": 114662957139,
+        "job_id": 114681932329,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033062,
+        "runner_id": 1000033184,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033062"
+        "runner_name": "GitHub Actions 1000033184"
       },
       {
         "agent": "codex",
-        "archive_sha256": "c4562ffca1af08d41282dc8a3b8ab74ebc72b6ce80b739a4e7fe4871645b9c15",
-        "artifact_id": 11727060058,
+        "archive_sha256": "a77acf6bf00eafa203c263c85846d5d7b9f4ca94b9836ae3bb7a12ec8d2433e0",
+        "artifact_id": 11729097460,
         "capture_sha256": "1f90c8f26662b2532208cf6abe8bc263e22cadc0a05fd966dc5cfe13652afb5c",
-        "check_run_id": 114662957315,
+        "check_run_id": 114681931985,
         "conclusion": "success",
-        "job_id": 114662957315,
+        "job_id": 114681931985,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033065,
+        "runner_id": 1000033170,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033065"
+        "runner_name": "GitHub Actions 1000033170"
       },
       {
         "agent": "copilot",
-        "archive_sha256": "cecd3269dc892ee988daefafe7e4600311781ee96bb73d01ebe7300d26da8162",
-        "artifact_id": 11726631613,
+        "archive_sha256": "9bd7099ff67ba9c2eb2e18ea722941f7a66e73821a4c2bb3e79e1bfcd969c1ab",
+        "artifact_id": 11728482759,
         "capture_sha256": "c922e1edecb25cf7909b1fdb0bf8144a7c05ea841ad2315f5fc7656873571dd8",
-        "check_run_id": 114662956723,
+        "check_run_id": 114681932074,
         "conclusion": "success",
-        "job_id": 114662956723,
+        "job_id": 114681932074,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033046,
+        "runner_id": 1000033174,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033046"
+        "runner_name": "GitHub Actions 1000033174"
       },
       {
         "agent": "copilot",
-        "archive_sha256": "1c781fe61705302879daeedab52ca256a03c9fe08e1536d7b8598e3071da8418",
-        "artifact_id": 11725749407,
+        "archive_sha256": "45c34fa97add4f2f6b1281d6abe1d0d812056147aa57b2a7e8ee61b353304991",
+        "artifact_id": 11729072417,
         "capture_sha256": "d17ae1033aafd6c8c7eb5ee2cf2cb134a661ecc37944169574d60806038fa103",
-        "check_run_id": 114662956915,
+        "check_run_id": 114681932097,
         "conclusion": "success",
-        "job_id": 114662956915,
+        "job_id": 114681932097,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033057,
+        "runner_id": 1000033181,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033057"
+        "runner_name": "GitHub Actions 1000033181"
       },
       {
         "agent": "copilot",
-        "archive_sha256": "9fa66b471d71bd4b1b902f72d0be3c2084d3b828f85204d75387d67dff5e1ff9",
-        "artifact_id": 11726950788,
+        "archive_sha256": "42b8bc8d05f81ea789b989986e4d065ef9784308eb61f3f69ac905e0741751e4",
+        "artifact_id": 11729182309,
         "capture_sha256": "01594240b7ce34526bf7ccbc15bcf9f2ba4b2fff552d6e949c501720df7a0868",
-        "check_run_id": 114662957276,
+        "check_run_id": 114681931997,
         "conclusion": "success",
-        "job_id": 114662957276,
+        "job_id": 114681931997,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033064,
+        "runner_id": 1000033175,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033064"
+        "runner_name": "GitHub Actions 1000033175"
       },
       {
         "agent": "cursor",
-        "archive_sha256": "c8ed03a77dac205fe5ce82e4904eab4d584eb61be615e0d3d88fb51b816688bf",
-        "artifact_id": 11725749420,
+        "archive_sha256": "09afc5e152110f87e377760f38929edc19ef5111185513ce0653209b95f2e0b5",
+        "artifact_id": 11728422499,
         "capture_sha256": "143a5f1053a9f08cdbd3c9b60d7d9bdc635ecc7fcf13743c995b9929da450b1d",
-        "check_run_id": 114662956696,
+        "check_run_id": 114681931932,
         "conclusion": "success",
-        "job_id": 114662956696,
+        "job_id": 114681931932,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033048,
+        "runner_id": 1000033172,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033048"
+        "runner_name": "GitHub Actions 1000033172"
       },
       {
         "agent": "cursor",
-        "archive_sha256": "b0140697976b58f6d9278e44c38bef65f7d7d3c7e5ad4c03eaacc4d1689d9513",
-        "artifact_id": 11725844364,
+        "archive_sha256": "db2a1566c06816d71353cae42cb009dbc53b1dcdeb2c4eaa8a400802d4baaf82",
+        "artifact_id": 11728607350,
         "capture_sha256": "9cfbafc5b68a8622d6a53e8526f67c2c1283d5a4fa2c329207a4b376e5d60af7",
-        "check_run_id": 114662957357,
+        "check_run_id": 114681932114,
         "conclusion": "success",
-        "job_id": 114662957357,
+        "job_id": 114681932114,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033066,
+        "runner_id": 1000033177,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033066"
+        "runner_name": "GitHub Actions 1000033177"
       },
       {
         "agent": "cursor",
-        "archive_sha256": "1b864759dce719773d68885d36e4840a9812ad27e5695ce5c499c466502765a3",
-        "artifact_id": 11726970248,
+        "archive_sha256": "5397f0908fbd5b3f658ff576cf2987de74d4b165a2dc897a18d43bc938f2b456",
+        "artifact_id": 11728348110,
         "capture_sha256": "9cadbd1499db106aee6479bec218227552d5a8b804ec194f5c550db77aec5763",
-        "check_run_id": 114662957251,
+        "check_run_id": 114681932143,
         "conclusion": "success",
-        "job_id": 114662957251,
+        "job_id": 114681932143,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033069,
+        "runner_id": 1000033189,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033069"
+        "runner_name": "GitHub Actions 1000033189"
       },
       {
         "agent": "devin",
-        "archive_sha256": "5dfc4d3d783d6aee308062aa073a7868cc30e550b2477fc860a047f3ecd6f897",
-        "artifact_id": 11726263052,
+        "archive_sha256": "b6569b082529d601f8bc8feb95398c5b1f6943c3cdb0f2e07da67ec6e18e577c",
+        "artifact_id": 11729047705,
         "capture_sha256": "16888b9fe29244c7462d2637c55f3b1938375b4cac30bc978236c6726378c3dd",
-        "check_run_id": 114662956951,
+        "check_run_id": 114681932075,
         "conclusion": "success",
-        "job_id": 114662956951,
+        "job_id": 114681932075,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033052,
+        "runner_id": 1000033187,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033052"
+        "runner_name": "GitHub Actions 1000033187"
       },
       {
         "agent": "devin",
-        "archive_sha256": "dcfb106e95498c7598a6fe9bd3c8e2dab1e2570fcdc6f2591ea72594f0e8677a",
-        "artifact_id": 11726367182,
+        "archive_sha256": "7a462b768e102de328f1188749f75c39a3ca6120edba61b16658787fcb4d00f8",
+        "artifact_id": 11729172166,
         "capture_sha256": "4e486e91fb33c8220d0772d0a9dc2552799b5af309c2fb8a73cf72f8cde1902b",
-        "check_run_id": 114662956845,
+        "check_run_id": 114681932294,
         "conclusion": "success",
-        "job_id": 114662956845,
+        "job_id": 114681932294,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033055,
+        "runner_id": 1000033190,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033055"
+        "runner_name": "GitHub Actions 1000033190"
       },
       {
         "agent": "devin",
-        "archive_sha256": "dff892fdde63892f72c49337a72e164240189f88c75f3dcc8dc1ff1ae0fdeed2",
-        "artifact_id": 11726771187,
+        "archive_sha256": "b8d4069fedc18706c26c27f90af6db2630d851f4687133e410068a3cb1f45ea9",
+        "artifact_id": 11728967878,
         "capture_sha256": "cf0add8cb81014d2bdefe14ce92e7e4b47b7ae40f22cf65ecff7696137b3411d",
-        "check_run_id": 114662956781,
+        "check_run_id": 114681932045,
         "conclusion": "success",
-        "job_id": 114662956781,
+        "job_id": 114681932045,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033054,
+        "runner_id": 1000033169,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033054"
+        "runner_name": "GitHub Actions 1000033169"
       },
       {
         "agent": "gemini",
-        "archive_sha256": "43ef4b8d5ac69db5bb4005e1d30f7b87109e622b589fc17fc3b54e03ca4e46c2",
-        "artifact_id": 11726452385,
+        "archive_sha256": "1968b5452207df2f1efa67f41b2b342baaff9dc31a8e07b47aecd064f02fc45a",
+        "artifact_id": 11728178714,
         "capture_sha256": "0b9396676f937c13f30aa871d2874b3f438e1c91b801dcd16264529de39d4762",
-        "check_run_id": 114662957155,
+        "check_run_id": 114681932211,
         "conclusion": "success",
-        "job_id": 114662957155,
+        "job_id": 114681932211,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033074,
+        "runner_id": 1000033192,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033074"
+        "runner_name": "GitHub Actions 1000033192"
       },
       {
         "agent": "gemini",
-        "archive_sha256": "8eccdd981956af74164ab6e9b655189525085a3a6252d319b2344a391219b603",
-        "artifact_id": 11726287548,
+        "archive_sha256": "d80c4b0cb547387e73b3587641e60b0422de0540248d77c2e0d97b28ec3ab85b",
+        "artifact_id": 11729276648,
         "capture_sha256": "6cd688f58722a757df69a82543f4c988a5930479012e63baf936a887fa93419d",
-        "check_run_id": 114662956800,
+        "check_run_id": 114681931849,
         "conclusion": "success",
-        "job_id": 114662956800,
+        "job_id": 114681931849,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033051,
+        "runner_id": 1000033167,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033051"
+        "runner_name": "GitHub Actions 1000033167"
       },
       {
         "agent": "gemini",
-        "archive_sha256": "c2dfc70464d76573e7a1898ec84cee4c1a84ac8ee19d3818f5626cfcc9605ed1",
-        "artifact_id": 11725644565,
+        "archive_sha256": "c27e4953643bb2992db4e6a30cba884f29e87279193c668a8544550f87315df7",
+        "artifact_id": 11728717352,
         "capture_sha256": "1f6d00cc96e00f3cb972f8e1089b13935ffd149e6b8aa67911848068f77d668b",
-        "check_run_id": 114662956716,
+        "check_run_id": 114681931818,
         "conclusion": "success",
-        "job_id": 114662956716,
+        "job_id": 114681931818,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033049,
+        "runner_id": 1000033164,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033049"
+        "runner_name": "GitHub Actions 1000033164"
       },
       {
         "agent": "kimi",
-        "archive_sha256": "b78e15265f0be5b9b71c55c7d1568856549e0a450522564d0df7a1d0435d0811",
-        "artifact_id": 11726735776,
+        "archive_sha256": "351e4455e2ad73b31b7febcd6e1427eb396073979d62baa4e6a7af2de819d338",
+        "artifact_id": 11728698842,
         "capture_sha256": "5c5a51e69a4686eedf0ed78648fbff64ecb850636404173dc6c061acd6b4bcad",
-        "check_run_id": 114662957111,
+        "check_run_id": 114681932218,
         "conclusion": "success",
-        "job_id": 114662957111,
+        "job_id": 114681932218,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033071,
+        "runner_id": 1000033191,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033071"
+        "runner_name": "GitHub Actions 1000033191"
       },
       {
         "agent": "kimi",
-        "archive_sha256": "0cd478ff0143015c533a32caf63e90ac196c92126070cc3d2641928e70d8fce4",
-        "artifact_id": 11727130198,
+        "archive_sha256": "54f25eba7106ffc47c1bcd5a84e6465932dbecb8f0943cf1eb5c6372ee60473f",
+        "artifact_id": 11728703604,
         "capture_sha256": "11ece29c94e071bec5f206d9ba00e19233db733be791457d21c7a925bc8d20eb",
-        "check_run_id": 114662957311,
+        "check_run_id": 114681932178,
         "conclusion": "success",
-        "job_id": 114662957311,
+        "job_id": 114681932178,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033070,
+        "runner_id": 1000033183,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033070"
+        "runner_name": "GitHub Actions 1000033183"
       },
       {
         "agent": "kimi",
-        "archive_sha256": "d7be08099792b9e38790180567592cef497a211550f14f37e87bb58c363f96b1",
-        "artifact_id": 11726651889,
+        "archive_sha256": "f24b393caa360b448989b7eb0cbe84df922e5951737c153815d569e382cc009f",
+        "artifact_id": 11729058011,
         "capture_sha256": "4e0b6ea5c3c513f1e281a8a2d25e32025d9fb11bf995163fdc74a704b42bf44a",
-        "check_run_id": 114662956739,
+        "check_run_id": 114681931954,
         "conclusion": "success",
-        "job_id": 114662956739,
+        "job_id": 114681931954,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033050,
+        "runner_id": 1000033168,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033050"
+        "runner_name": "GitHub Actions 1000033168"
       },
       {
         "agent": "opencode",
-        "archive_sha256": "289857437dbe4ad23efb2b5b26ac79f4ddd88c2c2bb93a0c88942e0941df1c87",
-        "artifact_id": 11726975964,
-        "capture_sha256": "db834ed83cf489dc517c27e2149f9783ae663c20055c2283dabcbdf08ff86457",
-        "check_run_id": 114662957015,
+        "archive_sha256": "a8b59de83b47987797c3e08c13e8bd9bed15c5a92c5a02fe87b3f3d4bbf52737",
+        "artifact_id": 11728727210,
+        "capture_sha256": "0197c1c312d6532e4a8d05dce595bc6a86e3a393ba74b3f8c6a0a1459a1aaf5c",
+        "check_run_id": 114681932197,
         "conclusion": "success",
-        "job_id": 114662957015,
+        "job_id": 114681932197,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033072,
+        "runner_id": 1000033188,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033072"
+        "runner_name": "GitHub Actions 1000033188"
       },
       {
         "agent": "opencode",
-        "archive_sha256": "877297132e16bfd181cafd37f1dbac6102412d3930a06a21e91b1a67ab4fe7a2",
-        "artifact_id": 11726262917,
-        "capture_sha256": "8c98437528ae0a8f99e007b94cb1176a17943e9fbbd914643f60733152f4ba60",
-        "check_run_id": 114662957177,
+        "archive_sha256": "287b08b1eadf4534e6d41abc7a7942d19acb1ccf10ecc3e22bc01c564401d231",
+        "artifact_id": 11728778257,
+        "capture_sha256": "f9a06f9015188a22a73e7d1717185489dca98151e57448533e53ad05e03810bb",
+        "check_run_id": 114681932006,
         "conclusion": "success",
-        "job_id": 114662957177,
+        "job_id": 114681932006,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033061,
+        "runner_id": 1000033171,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033061"
+        "runner_name": "GitHub Actions 1000033171"
       },
       {
         "agent": "opencode",
-        "archive_sha256": "9cdf36169d6abebed3620054e7e24c2a6dcbb849224292e50f1a8d4fe94e36c4",
-        "artifact_id": 11726896130,
-        "capture_sha256": "509555970aabc2e5aa178412295bd0d773467cdeb22d2b95000e2e5ac1d17ad4",
-        "check_run_id": 114662956813,
+        "archive_sha256": "1e91ebacd07677ddfc4251eeb11f017bdbd69e37876ced1bf038e2690106757f",
+        "artifact_id": 11728637414,
+        "capture_sha256": "31ce073b2034222781b9a4519bae2ffd62b72ffe167aa70bc136aae29d55cfe6",
+        "check_run_id": 114681932134,
         "conclusion": "success",
-        "job_id": 114662956813,
+        "job_id": 114681932134,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033053,
+        "runner_id": 1000033186,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033053"
+        "runner_name": "GitHub Actions 1000033186"
       },
       {
         "agent": "pi",
-        "archive_sha256": "e45924c66142e07d5fee31a48bcc030483e7b43720f024d6518180ae079f0c74",
-        "artifact_id": 11727130528,
+        "archive_sha256": "8f219ca14e40963466d5312dc509e8cbdd293f2ca475c3f98f801f9b7be6bde0",
+        "artifact_id": 11729311866,
         "capture_sha256": "fbad33dcce5982fee3ab29cacb251afbce95e15d319cf48f2933031e5a4e0df0",
-        "check_run_id": 114662957302,
+        "check_run_id": 114681932283,
         "conclusion": "success",
-        "job_id": 114662957302,
+        "job_id": 114681932283,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033075,
+        "runner_id": 1000033193,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033075"
+        "runner_name": "GitHub Actions 1000033193"
       },
       {
         "agent": "pi",
-        "archive_sha256": "1ca92841e945453f56dddd5c00cd64cad619b8b5386d6e2eded3ec48b0fe514b",
-        "artifact_id": 11726706222,
+        "archive_sha256": "5dd1476a5b993ce5e79096b8da2be32fd4f735904714a0c40657b931686a8a63",
+        "artifact_id": 11728502471,
         "capture_sha256": "c747e94254dc01646aa3624bb95b2a084a9ecc7a3ebb8f82322cceef051bfe0e",
-        "check_run_id": 114662957079,
+        "check_run_id": 114681932047,
         "conclusion": "success",
-        "job_id": 114662957079,
+        "job_id": 114681932047,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033060,
+        "runner_id": 1000033178,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033060"
+        "runner_name": "GitHub Actions 1000033178"
       },
       {
         "agent": "pi",
-        "archive_sha256": "540fc9507b46399d94e29d5ecc6cbab275803cd2e3cdd6a1eeb846dc8f6dcc91",
-        "artifact_id": 11725504866,
+        "archive_sha256": "68080fdaf205d6d7ec1f939002c44d9a8b4e355999532544789c20a883dfd071",
+        "artifact_id": 11728948106,
         "capture_sha256": "ef7db6f237ae1ed9a02420404db9555820f6d8ff16b46462103c0436d39e0533",
-        "check_run_id": 114662957005,
+        "check_run_id": 114681932043,
         "conclusion": "success",
-        "job_id": 114662957005,
+        "job_id": 114681932043,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033058,
+        "runner_id": 1000033176,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033058"
+        "runner_name": "GitHub Actions 1000033176"
       },
       {
         "agent": "qwen",
-        "archive_sha256": "90492693c7562a4a0f0d6b4d3ca12939d92851d53066c2550339e82eaf875a8e",
-        "artifact_id": 11726193346,
+        "archive_sha256": "904f1b6ca17ca15ea900114f7c95845a372cd5064021f876e6bc943dff51ba3f",
+        "artifact_id": 11728159124,
         "capture_sha256": "f31eb243bbc121471fdecb50d50d177b12e84075cb89c52a1dc7af01ba0b9852",
-        "check_run_id": 114662957031,
+        "check_run_id": 114681932355,
         "conclusion": "success",
-        "job_id": 114662957031,
+        "job_id": 114681932355,
         "platform": "macos",
         "runner": "macos-latest",
-        "runner_id": 1000033067,
+        "runner_id": 1000033194,
         "runner_labels": [
           "macos-latest"
         ],
-        "runner_name": "GitHub Actions 1000033067"
+        "runner_name": "GitHub Actions 1000033194"
       },
       {
         "agent": "qwen",
-        "archive_sha256": "c0348837e28787cd476f2e1485422dedeb6c03a7f60b87322ba31a6af3088239",
-        "artifact_id": 11726282614,
+        "archive_sha256": "5e7f4e5b4e7a3abb137a15bd3ce04f62f32f14a864d3399f819ad62e6a43bbc8",
+        "artifact_id": 11729002674,
         "capture_sha256": "27da2424b8153808118fe54ae7de564c0793c4c0151b77934636a69d596e934a",
-        "check_run_id": 114662956801,
+        "check_run_id": 114681931979,
         "conclusion": "success",
-        "job_id": 114662956801,
+        "job_id": 114681931979,
         "platform": "ubuntu",
         "runner": "ubuntu-latest",
-        "runner_id": 1000033056,
+        "runner_id": 1000033179,
         "runner_labels": [
           "ubuntu-latest"
         ],
-        "runner_name": "GitHub Actions 1000033056"
+        "runner_name": "GitHub Actions 1000033179"
       },
       {
         "agent": "qwen",
-        "archive_sha256": "ea4cde4be36d72ee3d35882f55411770a5205848532921c69eb4af2b2920e2bf",
-        "artifact_id": 11726243280,
+        "archive_sha256": "3f733357f9c6dedf3cff9f5c9ee9787dba6f84eba58589a42f0e9c3e42188060",
+        "artifact_id": 11728633840,
         "capture_sha256": "79c8dc86ad30a5e67c4259de7f438df2618d05d611bff69b88e4d67c8f64767a",
-        "check_run_id": 114662957121,
+        "check_run_id": 114681932201,
         "conclusion": "success",
-        "job_id": 114662957121,
+        "job_id": 114681932201,
         "platform": "windows",
         "runner": "windows-latest",
-        "runner_id": 1000033063,
+        "runner_id": 1000033185,
         "runner_labels": [
           "windows-latest"
         ],
-        "runner_name": "GitHub Actions 1000033063"
+        "runner_name": "GitHub Actions 1000033185"
       }
     ],
-    "catalog_sha256": "4f0d62d1831b961f96608f486d64e24953ca5643607e0209fe85700d01bb1a73",
+    "catalog_sha256": "42e71e8179fa23f86718033d51d326209171e481663aee0acb7515e8c1873481",
     "producer_files": [
       {
         "path": ".gitattributes",
@@ -1871,7 +1880,7 @@
       },
       {
         "path": "adapter-verification.json",
-        "sha256": "4f0d62d1831b961f96608f486d64e24953ca5643607e0209fe85700d01bb1a73"
+        "sha256": "42e71e8179fa23f86718033d51d326209171e481663aee0acb7515e8c1873481"
       },
       {
         "path": "integrations/codex/PreToolUse.ps1",
@@ -1898,8 +1907,8 @@
         "sha256": "8673ad9da68cf6459eb2443ac71a1b528e0c6e3d26ef20d850a45d733f181986"
       },
       {
-        "path": "integrations/opencode/pitot.ts",
-        "sha256": "55b967f12ef6c7d6618de18d4a3500092ed38d3188ab57650b0b6045b3a6d1b9"
+        "path": "integrations/opencode/server.ts",
+        "sha256": "778e17d711bf14888c2907b36b7ca5799138b73e179241bee291a2f94ce97d01"
       },
       {
         "path": "integrations/pi/pitot.ts",
@@ -1927,7 +1936,7 @@
       },
       {
         "path": "tests/agent_identity.py",
-        "sha256": "d17266e97a474ae977fc15ef8b7cef4cecab0413e18efe85d18639c48fe0aa1c"
+        "sha256": "4b8d01a799aeea2ba4db2efc23afebbfba4f7e2f88f3663774298ac6ea78d8f0"
       },
       {
         "path": "tests/cursor_control_proxy.mjs",
@@ -1987,11 +1996,11 @@
       },
       {
         "path": "tests/model_control_proxy.py",
-        "sha256": "0e8d175dcb0c1f55d9f635c8f4177dc532cb7f319c4452b1ec9702db9543cdbe"
+        "sha256": "f557863fb9676c38dd5e9b60dbeb7e3a877a273d902a3d7628c2d1ae47251704"
       },
       {
         "path": "tests/real_agent_driver.py",
-        "sha256": "81ab248a80a59e80cbb1b9c7a00e084de3ea28c9ed5efb19ffd52668eff06835"
+        "sha256": "815eb9e34f02b193f7ed94a326ebf01dd9be97223fa570d5cf712deb57232da1"
       },
       {
         "path": "tests/run_e2e_report.py",
@@ -2006,8 +2015,8 @@
     "repository": "operatorstack/pitot",
     "repository_id": 1305805198,
     "run_attempt": 1,
-    "run_id": 38203864283,
-    "source_sha": "0649926fbb92800fbf8ac1b8a9f07f36d74c959c",
+    "run_id": 38210017617,
+    "source_sha": "706b2705fd192728609da63b0857eb24a9b66ed5",
     "workflow_id": 381486275,
     "workflow_path": ".github/workflows/pitot-e2e.yml"
   }
