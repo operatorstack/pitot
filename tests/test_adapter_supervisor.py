@@ -160,7 +160,7 @@ class AdapterSupervisorTests(unittest.TestCase):
                     if p.is_file()
                 }
                 for operation, count in (
-                    ("capture", 30),
+                    ("capture", 33),
                     ("capture-runtime-matrix", 3),
                 ):
                     result = subprocess.run(
@@ -230,7 +230,7 @@ class AdapterSupervisorTests(unittest.TestCase):
     def test_matrix_contains_every_agent_on_every_platform(self):
         manifest = _manifest()
         matrix = supervisor.matrix(manifest)
-        self.assertEqual(len(matrix), 30)
+        self.assertEqual(len(matrix), 33)
         self.assertEqual(
             {
                 (item["agent"], item["platform"])
@@ -479,7 +479,7 @@ class AdapterSupervisorTests(unittest.TestCase):
             self.assertEqual(output.read_text(), "accepted prior state")
             supervisor.validate_endpoint_value(provenance, manifest)
             provenance["cells"].pop()
-            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
+            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 33"):
                 supervisor.validate_endpoint_value(provenance, manifest)
 
     def test_capture_values_reject_mixed_versions_and_duplicates(self):
@@ -497,7 +497,7 @@ class AdapterSupervisorTests(unittest.TestCase):
             (captures / "duplicate.json").write_text(
                 json.dumps({"schema_version": 1, "accepted": True, "cell": duplicate})
             )
-            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 30"):
+            with self.assertRaisesRegex(supervisor.ContractError, "exactly all 33"):
                 supervisor.validate_endpoint_value(
                     {**provenance, "cells": [*provenance["cells"], duplicate]},
                     _manifest(),

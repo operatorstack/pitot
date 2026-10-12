@@ -14,6 +14,7 @@ import (
 
 	"github.com/operatorstack/pitot/adapters"
 	"github.com/operatorstack/pitot/config"
+	"github.com/operatorstack/pitot/internal/deepseekacp"
 	"github.com/operatorstack/pitot/internal/devinacp"
 	"github.com/operatorstack/pitot/runtime"
 )
@@ -774,9 +775,27 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	host := ""
 	execCmd := ""
 	var execArgs []string
+	explicitCommand := false
+	var deepSeekPrompt, deepSeekBaseURL, deepSeekModel, deepSeekKey string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--prompt", "--base-url", "--model", "--api-key-env":
+			value, next, err := flagValue(args, i, args[i])
+			if err != nil {
+				return err
+			}
+			switch args[i] {
+			case "--prompt":
+				deepSeekPrompt = value
+			case "--base-url":
+				deepSeekBaseURL = value
+			case "--model":
+				deepSeekModel = value
+			case "--api-key-env":
+				deepSeekKey = value
+			}
+			i = next
 		case "--host":
 			if i+1 >= len(args) {
 				return errors.New("pitot dev: --host requires a value")
@@ -791,6 +810,7 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 			i++
 		case "--":
 			// Everything after -- is the agent command and its arguments.
+			explicitCommand = true
 			rest := args[i+1:]
 			if len(rest) > 0 {
 				execCmd = rest[0]
@@ -808,12 +828,18 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	if !adapters.IsSupported(adapters.Host(host)) {
 		return fmt.Errorf("pitot dev: unsupported host %q (want one of: %s)", host, hostList())
 	}
+	if host != "deepseek" && (deepSeekPrompt != "" || deepSeekBaseURL != "" || deepSeekModel != "" || deepSeekKey != "") {
+		return errors.New("pitot dev: these prompt/provider options require --host deepseek")
+	}
+	if host == "deepseek" && deepSeekPrompt == "" {
+		return errors.New("pitot dev --host deepseek requires --prompt")
+	}
 
 	// If --exec carried a full command line, split it into program + args.
 	// An explicit `-- CMD ARGS` form (execArgs already set) takes precedence.
 	program := execCmd
 	programArgs := execArgs
-	if len(programArgs) == 0 {
+	if len(programArgs) == 0 && !explicitCommand {
 		fields := strings.Fields(execCmd)
 		if len(fields) == 0 {
 			return errors.New("pitot dev: --exec is empty")
@@ -839,6 +865,11 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		return fmt.Errorf("pitot dev: load config: %w", err)
 	}
 	anchorDirs(&loaded.Config, root)
+	if host == "deepseek" {
+		if err := checkDeepSeekIntegration(root); err != nil {
+			return err
+		}
+	}
 
 	// Private, per-invocation runtime directory so concurrent runs never collide.
 	runtimeDir, err := os.MkdirTemp("", "pitot-dev-")
@@ -897,7 +928,9 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	fmt.Fprintln(stdout, "Decisions:")
 
 	var runErr error
-	if devinOptions != nil {
+	if host == "deepseek" {
+		runErr = launchDeepSeek(devCtx, deepseekacp.Options{Executable: program, Arguments: programArgs, Prompt: deepSeekPrompt, Cwd: root, Runtime: runtimePath, BaseURL: deepSeekBaseURL, Model: deepSeekModel, APIKeyEnv: deepSeekKey, Stdout: stdout, Stderr: stderr})
+	} else if devinOptions != nil {
 		devinOptions.Runtime = runtimePath
 		runErr = runDevinACP(devCtx, *devinOptions)
 	} else {

@@ -710,6 +710,9 @@ def configure(
         write_json(home / ".qwen/settings.json", settings)
         env.update({"OPENAI_API_KEY": "pitot-local-only", "PITOT_BIN": witness_command})
         prompt_flag = ["--model", "pitot-control", "-y", "-p"]
+    elif agent == "deepseek":
+        env["PITOT_DEEPSEEK_FAKE_KEY"] = "pitot-local-only"
+        prompt_flag = []
     elif agent == "pi":
         extension = LAB / "integrations/pi/pitot.ts"
         env.update(
@@ -1063,6 +1066,75 @@ def validate_cursor_carrier(
             raise RuntimeError("Cursor carrier proof is malformed") from error
 
 
+def validate_deepseek_native_results(
+    root: Path | None, witnesses: list[dict[str, object]]
+) -> dict[str, object]:
+    if root is None:
+        raise RuntimeError("DeepSeek native session evidence is missing")
+    sessions = list(root.glob("home/.dsh/sessions/*/*/session.v4.jsonl.zstd"))
+    if len(sessions) != 1 or sessions[0].stat().st_size > 8 * 1024 * 1024:
+        raise RuntimeError("DeepSeek native session evidence is ambiguous or oversized")
+    decoded = subprocess.run(
+        [
+            "node",
+            "-e",
+            "const fs=require('node:fs'),z=require('node:zlib');"
+            "const input=fs.readFileSync(process.argv[1]);let offset=0,total=0;"
+            "while(offset<input.length){const result=z.zstdDecompressSync(input.subarray(offset),{info:true,maxOutputLength:8388608-total});"
+            "const consumed=result.engine.bytesWritten;if(!Number.isSafeInteger(consumed)||consumed<=0||consumed>input.length-offset)throw Error('invalid frame extent');"
+            "total+=result.buffer.length;if(total>8388608)throw Error('session exceeds bound');"
+            "process.stdout.write(result.buffer);offset+=consumed;}",
+            str(sessions[0]),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+    ).stdout
+    rows = [
+        json.loads(line)
+        for line in decoded.decode("utf-8", errors="strict").splitlines()
+    ]
+    calls = [row for row in rows if row.get("type") == "tool/call"]
+    results = [row for row in rows if row.get("type") == "tool/result"]
+    expected = ["pitot_tool_allow", "pitot_tool_deny"]
+    if [row.get("data", {}).get("callId") for row in calls] != expected or len(
+        results
+    ) != 2:
+        raise RuntimeError("DeepSeek did not persist exactly the issued native calls")
+    if any(row.get("data", {}).get("name") not in {"bash", "pwsh"} for row in calls):
+        raise RuntimeError("DeepSeek native calls are not shell tools")
+    for index, row in enumerate(results):
+        data = row.get("data", {})
+        message = data.get("message", {})
+        if (
+            message.get("toolCallId") != expected[index]
+            or message.get("source", {}).get("callId") != expected[index]
+            or message.get("isError") is not (index == 1)
+        ):
+            raise RuntimeError("DeepSeek native result identity or status mismatch")
+        if row.get("sourceEventSeqs") != [calls[index].get("seq")]:
+            raise RuntimeError("DeepSeek native result lost its call relation")
+    if results[1]["data"].get("error", {}).get("code") != "PITOT_DENIED":
+        raise RuntimeError("DeepSeek did not preserve the typed Controller denial")
+    if (
+        len(witnesses) != 2
+        or [row.get("tool_call_id") for row in witnesses] != expected
+        or any(row.get("session_id") != sessions[0].parent.name for row in witnesses)
+    ):
+        raise RuntimeError("DeepSeek hook witnesses do not match the native session")
+    print(
+        "PITOT_NATIVE_TOOL_RESULTS agent=deepseek allow_call_id=pitot_tool_allow deny_call_id=pitot_tool_deny error_type=PITOT_DENIED"
+    )
+    return {
+        "session_id": sessions[0].parent.name,
+        "call_ids": expected,
+        "is_error": [False, True],
+        "denial_code": "PITOT_DENIED",
+        "session_sha256": hashlib.sha256(sessions[0].read_bytes()).hexdigest(),
+    }
+
+
 def validate_receipts(
     agent: dict[str, object],
     platform: str,
@@ -1081,6 +1153,7 @@ def validate_receipts(
     expected_cursor_commands: list[str] | None = None,
     cursor_carrier_records: list[dict[str, object]] | None = None,
     cursor_carrier_context: dict[str, str] | None = None,
+    deepseek_session: Path | None = None,
 ) -> dict[str, object]:
     proxy = (
         json.loads(proxy_path.read_text(encoding="utf-8"))
@@ -1130,6 +1203,9 @@ def validate_receipts(
             "allow_call_id=pitot_tool_allow deny_call_id=pitot_tool_deny "
             "error_type=tool.execution"
         )
+    native_results = None
+    if agent["id"] == "deepseek":
+        native_results = validate_deepseek_native_results(deepseek_session, witnesses)
     if agent["integration"] == "acp_client":
         if witnesses:
             raise RuntimeError(
@@ -1300,6 +1376,11 @@ def validate_receipts(
             "action_ids": action_ids,
             "outcomes": ["allow", "deny"],
             **(
+                {"native_tool_results": native_results}
+                if native_results is not None
+                else {}
+            ),
+            **(
                 {
                     "command_sha256": cursor_command_digests,
                     "windows_carrier": cursor_carrier_records,
@@ -1371,6 +1452,8 @@ def main() -> int:
         project.mkdir()
         bin_dir.mkdir()
         canary_receipt = base / "canary.jsonl"
+        if args.agent == "deepseek":
+            canary_receipt = project / "canary.jsonl"
         canary_executable = args.test_role.resolve()
         if args.agent == "cursor" and windows_host() and not host_controls_wsl:
             canary_dir = base / "cursor 工具 path"
@@ -1439,7 +1522,11 @@ def main() -> int:
             receipt_argument,
             windows_host() and not host_controls_wsl,
         )
-        if args.agent == "cursor" and windows_host() and not host_controls_wsl:
+        if (
+            args.agent in {"cursor", "deepseek"}
+            and windows_host()
+            and not host_controls_wsl
+        ):
             canary_command = render_cursor_canary_command(
                 str(canary_executable), receipt_argument
             )
@@ -1700,7 +1787,7 @@ def main() -> int:
                 "PITOT_RUNTIME": str(runtime_descriptor),
             }
             environment = agent_environment(args.agent, environment)
-            if args.agent == "devin":
+            if args.agent in {"devin", "deepseek"}:
                 # Filter inherited vendor overrides, then restore only values
                 # authored for this fixture (including its synthetic key).
                 environment.update(extra_env)
@@ -1752,6 +1839,28 @@ def main() -> int:
                     executable,
                     *flags,
                     prompt,
+                ]
+            elif args.agent == "deepseek":
+                command = [
+                    str(args.pitot.resolve()),
+                    "acp",
+                    "deepseek",
+                    "--runtime",
+                    str(runtime_descriptor),
+                    "--prompt",
+                    prompt,
+                    "--exec",
+                    executable,
+                    "--cwd",
+                    str(project),
+                    "--base-url",
+                    f"{proxy}/v1",
+                    "--model",
+                    "pitot-control",
+                    "--api-key-env",
+                    "PITOT_DEEPSEEK_FAKE_KEY",
+                    "--session-dir",
+                    str(base / "deepseek-session"),
                 ]
             elif args.agent == "devin":
                 command = [
@@ -1848,6 +1957,18 @@ def main() -> int:
                 print("PITOT_INCOMPATIBLE_RESPONSE_REJECTED evidence=binary-observed")
                 return 0
             carrier_records = None
+            if args.agent == "deepseek":
+                sessions = list(
+                    (base / "deepseek-session").glob(
+                        "home/.dsh/sessions/*/*/session.v4.jsonl.zstd"
+                    )
+                )
+                if len(sessions) == 1:
+                    args.evidence.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(
+                        sessions[0],
+                        args.evidence.parent / "deepseek-native-session.zstd",
+                    )
             if cursor_carrier is not None:
                 carrier_records = []
                 for phase in ("allow", "deny"):
@@ -1889,6 +2010,9 @@ def main() -> int:
                 cursor_carrier_records=carrier_records,
                 cursor_carrier_context=extra_env
                 if cursor_carrier is not None
+                else None,
+                deepseek_session=base / "deepseek-session"
+                if args.agent == "deepseek"
                 else None,
             )
             args.evidence.parent.mkdir(parents=True, exist_ok=True)

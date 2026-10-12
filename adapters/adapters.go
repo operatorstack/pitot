@@ -33,6 +33,7 @@ const (
 	Qwen     Host = "qwen"
 	Pi       Host = "pi"
 	Devin    Host = "devin"
+	DeepSeek Host = "deepseek"
 )
 
 // AdapterVersion is the semantic version stamped onto normalized events so
@@ -82,6 +83,16 @@ type HostConfig struct {
 var (
 	registryMu sync.RWMutex
 	registry   = map[Host]HostConfig{
+		DeepSeek: {
+			MainEventName: "tools/pre-execute",
+			Transport:     TransportHook,
+			Parser: ParserConfig{
+				CanonicalEvent: []byte(`{"hook_event_name":"tools/pre-execute","tool_name":"bash","tool_input":{"command":"git status --short"},"session_id":"probe-session","tool_call_id":"probe-call","request_id":"probe-request"}`),
+				CommandFor:     shellCommandForTools("bash", "pwsh"),
+				ActionKinds:    map[string]string{"tools/pre-execute": "shell"},
+			},
+			Partition: ControlPartition{Controllable: []string{"tools/pre-execute"}},
+		},
 		Devin: {
 			MainEventName: "session/request_permission",
 			Transport:     TransportACP,
@@ -398,6 +409,11 @@ type RawBoundaryEvent struct {
 	// ToolName / ToolInput are populated by PreToolUse-style hosts and Gemini.
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
+	// DeepSeek supplies these identities before the native tool body runs.
+	SessionID  string `json:"session_id,omitempty"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	RootCallID string `json:"root_call_id,omitempty"`
 }
 
 // RawHookEvent is retained as a source-compatible alias.

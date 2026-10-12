@@ -17,6 +17,22 @@ AGENTS = {agent["id"]: agent for agent in CATALOG["agents"]}
 
 
 class VersionAdmissionTests(unittest.TestCase):
+    def test_deepseek_environment_is_owned_and_version_is_exact(self):
+        original = {
+            "DSH_HOME": "/foreign",
+            "NODE_OPTIONS": "--require /foreign",
+            "DEEPSEEK_API_KEY": "ambient",
+            "HTTPS_PROXY": "http://foreign",
+            "KEEP": "value",
+        }
+        self.assertEqual(
+            identity.agent_environment("deepseek", original), {"KEEP": "value"}
+        )
+        self.assertEqual(original["DSH_HOME"], "/foreign")
+        self.assertTrue(identity.version_matches(AGENTS["deepseek"], "0.2.0-rc.2\n"))
+        for banner in ("0.2.0", "dsh 0.2.0-rc.2", "0.2.0-rc.2\nextra"):
+            self.assertFalse(identity.version_matches(AGENTS["deepseek"], banner))
+
     def test_devin_environment_removes_inherited_provider_and_model_overrides(self):
         original = {
             "DEVIN_MODEL": "ambient-model",
@@ -149,7 +165,7 @@ class VersionAdmissionTests(unittest.TestCase):
         self.assertEqual(filtered, {"QWEN_HOME": "/owned/.qwen", "KEEP": "unchanged"})
         self.assertEqual(original, before)
         self.assertIsNot(filtered, original)
-        for product in AGENTS.keys() - {"qwen", "kimi", "cursor"}:
+        for product in AGENTS.keys() - {"qwen", "kimi", "cursor", "deepseek"}:
             self.assertIs(identity.agent_environment(product, original), original)
         self.assertEqual(identity.agent_environment("kimi", original), original)
 
@@ -187,7 +203,7 @@ class VersionAdmissionTests(unittest.TestCase):
             identity.agent_environment("qwen", original),
             {key: value for key, value in original.items() if key != "CLI_VERSION"},
         )
-        for product in AGENTS.keys() - {"kimi", "qwen", "cursor"}:
+        for product in AGENTS.keys() - {"kimi", "qwen", "cursor", "deepseek"}:
             self.assertIs(identity.agent_environment(product, original), original)
         # Sampling overrides also apply when no environment model is selected.
         without_name = {
@@ -712,7 +728,7 @@ class CursorStartupTests(unittest.TestCase):
             {"CURSOR_AUTH_TOKEN": "pitot-local-only", "KEEP": "unchanged"},
         )
         self.assertEqual(original, before)
-        for agent in AGENTS.keys() - {"cursor", "kimi", "qwen"}:
+        for agent in AGENTS.keys() - {"cursor", "kimi", "qwen", "deepseek"}:
             self.assertIs(identity.agent_environment(agent, original), original)
 
 

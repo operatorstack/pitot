@@ -61,6 +61,23 @@ CURSOR_BOOTSTRAP_OVERRIDES = {
 
 def agent_environment(agent: str, environment: dict[str, str]) -> dict[str, str]:
     """Remove known verification bootstrap and model overrides."""
+    if agent == "deepseek":
+        filtered = {
+            key: value
+            for key, value in environment.items()
+            if not key.upper().startswith(("DSH_", "OTEL_"))
+            and key.upper()
+            not in {
+                "NODE_OPTIONS",
+                "NODE_PATH",
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "NO_PROXY",
+            }
+            and not key.upper().endswith(("_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD"))
+        }
+        return filtered if len(filtered) != len(environment) else environment
     if agent == "devin":
         filtered = {
             key: value
@@ -103,7 +120,7 @@ def version_matches(agent: dict[str, object], output: str) -> bool:
         )
     if product == "opencode" and version.startswith("2."):
         return banner == f"opencode v{version}"
-    if product in {"cursor", "gemini", "kimi", "opencode", "pi", "qwen"}:
+    if product in {"cursor", "deepseek", "gemini", "kimi", "opencode", "pi", "qwen"}:
         return banner == version
     return False
 
@@ -123,6 +140,14 @@ def owned_entrypoint(agent: dict[str, object], platform: str, runtime: str) -> s
         raise RuntimeError("unsupported agent runtime")
     kind = agent["installer"]["kind"]
     executable = str(agent["executable"])
+    if agent["id"] == "deepseek":
+        return str(
+            Path.home()
+            / ".local/share/pitot-deepseek"
+            / str(agent["version"])
+            / "node_modules/.bin"
+            / ("dsh.cmd" if platform == "windows" else "dsh")
+        )
     if kind == "npm":
         result = subprocess.run(
             [npm_executable(), "prefix", "--global"],
@@ -208,6 +233,7 @@ def stderr_matches(agent: dict[str, object], error: str) -> bool:
         "copilot",
         "cursor",
         "devin",
+        "deepseek",
         "gemini",
         "kimi",
         "opencode",
@@ -330,7 +356,23 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
         command = ["wsl.exe", "--distribution", "Ubuntu", "--", *command]
     with ExitStack() as cleanup:
         options = {}
-        if agent["id"] == "devin":
+        if agent["id"] == "deepseek":
+            home = Path(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="pitot-dsh-version-")
+                )
+            )
+            environment = agent_environment("deepseek", dict(os.environ))
+            environment.update(
+                {
+                    "HOME": str(home),
+                    "USERPROFILE": str(home),
+                    "DSH_HOME": str(home / ".dsh"),
+                    "DSH_TELEMETRY_DISABLED": "1",
+                }
+            )
+            options["env"] = environment
+        elif agent["id"] == "devin":
             home = Path(
                 cleanup.enter_context(
                     tempfile.TemporaryDirectory(prefix="pitot-devin-version-")

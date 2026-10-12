@@ -166,6 +166,7 @@ def tool_name(body: dict[str, object]) -> str:
     preferred = (
         "Bash",
         "bash",
+        "pwsh",
         "shell",
         "run_shell_command",
         "execute_command",
@@ -204,6 +205,37 @@ def tool_arguments(tool: str, command: str) -> dict[str, object]:
     if tool == "run_shell_command":
         return {"command": command, "is_background": False}
     return {"command": command}
+
+
+def advertised_tool_arguments(
+    body: dict[str, object], tool: str, command: str
+) -> dict[str, object]:
+    arguments = tool_arguments(tool, command)
+    entries = body.get("tools", [])
+    if not isinstance(entries, list):
+        return arguments
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        function = entry.get("function", {})
+        if not isinstance(function, dict) or function.get("name") != tool:
+            continue
+        parameters = function.get("parameters", {})
+        if not isinstance(parameters, dict):
+            continue
+        required = parameters.get("required", [])
+        properties = parameters.get("properties", {})
+        description = (
+            properties.get("description", {}) if isinstance(properties, dict) else {}
+        )
+        if (
+            isinstance(required, list)
+            and "description" in required
+            and isinstance(description, dict)
+            and description.get("type") == "string"
+        ):
+            arguments["description"] = "Run the requested Pitot verification command"
+    return arguments
 
 
 def function_response_shapes(value: object) -> list[dict[str, object]]:
@@ -384,7 +416,13 @@ def anthropic(
 
 
 def chat(
-    tool: str, command: str, final: bool, nonce: str = "", phase: str = "allow"
+    tool: str,
+    command: str,
+    final: bool,
+    nonce: str = "",
+    phase: str = "allow",
+    *,
+    arguments: dict[str, object] | None = None,
 ) -> dict[str, object]:
     message: dict[str, object] = {
         "role": "assistant",
@@ -398,7 +436,11 @@ def chat(
                 "type": "function",
                 "function": {
                     "name": tool,
-                    "arguments": json.dumps(tool_arguments(tool, command)),
+                    "arguments": json.dumps(
+                        arguments
+                        if arguments is not None
+                        else tool_arguments(tool, command)
+                    ),
                 },
             }
         ]
@@ -630,7 +672,14 @@ class Handler(BaseHTTPRequestHandler):
             elif protocol == "gemini_generate_content":
                 payload = gemini(tool, command, final, nonce, phase)
             elif protocol == "openai_chat":
-                payload = chat(tool, command, final, nonce, phase)
+                payload = chat(
+                    tool,
+                    command,
+                    final,
+                    nonce,
+                    phase,
+                    arguments=advertised_tool_arguments(body, tool, command),
+                )
             else:
                 self.send_error(422, "unsupported protocol")
                 return

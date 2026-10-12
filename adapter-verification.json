@@ -1,14 +1,32 @@
 {
   "schema_version": 7,
   "capabilities": [
-    { "id": "action_control", "matrix": "agent_platform" },
-    { "id": "consumer_delivery", "matrix": "agent_platform" },
-    { "id": "explicit_request", "matrix": "platform" }
+    {
+      "id": "action_control",
+      "matrix": "agent_platform"
+    },
+    {
+      "id": "consumer_delivery",
+      "matrix": "agent_platform"
+    },
+    {
+      "id": "explicit_request",
+      "matrix": "platform"
+    }
   ],
   "platforms": [
-    { "id": "ubuntu", "runner": "ubuntu-latest" },
-    { "id": "macos", "runner": "macos-latest" },
-    { "id": "windows", "runner": "windows-latest" }
+    {
+      "id": "ubuntu",
+      "runner": "ubuntu-latest"
+    },
+    {
+      "id": "macos",
+      "runner": "macos-latest"
+    },
+    {
+      "id": "windows",
+      "runner": "windows-latest"
+    }
   ],
   "agents": [
     {
@@ -16,10 +34,17 @@
       "label": "Claude",
       "version": "2.1.296",
       "executable": "claude",
-      "installer": { "kind": "npm", "package": "@anthropic-ai/claude-code" },
+      "installer": {
+        "kind": "npm",
+        "package": "@anthropic-ai/claude-code"
+      },
       "integration": "native_command_hook",
       "artifacts": [],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -37,7 +62,11 @@
         "integrations/cursor/beforeShellExecution",
         "integrations/cursor/beforeShellExecution.ps1"
       ],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -46,10 +75,17 @@
       "label": "Codex",
       "version": "0.162.1",
       "executable": "codex",
-      "installer": { "kind": "npm", "package": "@openai/codex" },
+      "installer": {
+        "kind": "npm",
+        "package": "@openai/codex"
+      },
       "integration": "native_command_hook",
       "artifacts": ["integrations/codex/PreToolUse.ps1"],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -64,7 +100,30 @@
       },
       "integration": "acp_client",
       "artifacts": [],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
+      "driver": "real_agent_driver.py",
+      "required_mode": "real_cli"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek Harness",
+      "version": "0.2.0-rc.2",
+      "executable": "dsh",
+      "installer": {
+        "kind": "npm",
+        "package": "@deepseek-ai/dsh"
+      },
+      "integration": "native_pre_execute",
+      "artifacts": ["integrations/deepseek/pitot.mjs"],
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -73,13 +132,20 @@
       "label": "GitHub Copilot CLI",
       "version": "1.0.95",
       "executable": "copilot",
-      "installer": { "kind": "npm", "package": "@github/copilot" },
+      "installer": {
+        "kind": "npm",
+        "package": "@github/copilot"
+      },
       "integration": "native_command_hook",
       "artifacts": [
         "integrations/copilot/PreToolUse",
         "integrations/copilot/PreToolUse.ps1"
       ],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -88,13 +154,20 @@
       "label": "Gemini",
       "version": "0.63.0",
       "executable": "gemini",
-      "installer": { "kind": "npm", "package": "@google/gemini-cli" },
+      "installer": {
+        "kind": "npm",
+        "package": "@google/gemini-cli"
+      },
       "integration": "native_command_hook",
       "artifacts": [
         "integrations/gemini/BeforeTool",
         "integrations/gemini/BeforeTool.ps1"
       ],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -109,7 +182,11 @@
       },
       "integration": "native_command_hook",
       "artifacts": [],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -118,10 +195,17 @@
       "label": "OpenCode",
       "version": "2.0.27",
       "executable": "opencode",
-      "installer": { "kind": "npm", "package": "@opencode/cli" },
+      "installer": {
+        "kind": "npm",
+        "package": "@opencode/cli"
+      },
       "integration": "opencode_plugin",
       "artifacts": ["integrations/opencode/server.ts"],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -136,7 +220,11 @@
       },
       "integration": "pi_extension",
       "artifacts": ["integrations/pi/pitot.ts"],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     },
@@ -145,13 +233,20 @@
       "label": "Qwen Code",
       "version": "0.25.1",
       "executable": "qwen",
-      "installer": { "kind": "npm", "package": "@qwen-code/qwen-code" },
+      "installer": {
+        "kind": "npm",
+        "package": "@qwen-code/qwen-code"
+      },
       "integration": "native_command_hook",
       "artifacts": [
         "integrations/qwen/PreToolUse",
         "integrations/qwen/PreToolUse.cjs"
       ],
-      "runtime": { "ubuntu": "native", "macos": "native", "windows": "native" },
+      "runtime": {
+        "ubuntu": "native",
+        "macos": "native",
+        "windows": "native"
+      },
       "driver": "real_agent_driver.py",
       "required_mode": "real_cli"
     }

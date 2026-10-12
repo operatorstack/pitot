@@ -84,7 +84,7 @@ class AgentLauncherTests(unittest.TestCase):
             for path in TESTS.glob("e2e_*_cli_test.sh")
             if "e2e_unified_runner.sh" in path.read_text(encoding="utf-8")
         )
-        self.assertEqual(len(wrappers), 10)
+        self.assertEqual(len(wrappers), 11)
         with tempfile.TemporaryDirectory(prefix="pitot launchers ") as temporary:
             directory = Path(temporary)
             runner = directory / "e2e_unified_runner.sh"

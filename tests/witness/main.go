@@ -84,12 +84,43 @@ func main() {
 		observed.Content != nil && observed.Content.Mode == "full" &&
 		strings.Contains(string(observed.Content.Full), nonce)
 	actionID := ""
+	var nativeSession, nativeCall, nativeRequest string
 	if observed.Action != nil {
 		actionID = observed.Action.ID
+	}
+	if host == "deepseek" {
+		var request struct {
+			Event string `json:"hook_event_name"`
+			Tool  string `json:"tool_name"`
+			Input struct {
+				Command string `json:"command"`
+			} `json:"tool_input"`
+			RequestID string `json:"request_id"`
+			SessionID string `json:"session_id"`
+			CallID    string `json:"tool_call_id"`
+		}
+		var response struct {
+			Version   int    `json:"version"`
+			RequestID string `json:"request_id"`
+			SessionID string `json:"session_id"`
+			CallID    string `json:"tool_call_id"`
+			ActionID  string `json:"action_id"`
+			Outcome   string `json:"outcome"`
+		}
+		valid = json.Unmarshal(in, &request) == nil && json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &response) == nil &&
+			request.Event == "tools/pre-execute" && (request.Tool == "bash" || request.Tool == "pwsh") && strings.Contains(request.Input.Command, nonce) &&
+			request.RequestID != "" && request.SessionID != "" && request.CallID != "" &&
+			response.Version == 1 && response.RequestID == request.RequestID && response.SessionID == request.SessionID && response.CallID == request.CallID &&
+			strings.HasPrefix(response.ActionID, "act_") && ((code == 0 && response.Outcome == "allow") || (code == 2 && response.Outcome == "deny"))
+		actionID = response.ActionID
+		nativeSession, nativeCall, nativeRequest = request.SessionID, request.CallID, request.RequestID
 	}
 	record := map[string]any{
 		"schema_version": 1, "host": host, "nonce": nonce, "action_kind": "shell",
 		"action_id": actionID, "pitot_exit": code, "valid": valid,
+	}
+	if host == "deepseek" {
+		record["session_id"], record["tool_call_id"], record["request_id"] = nativeSession, nativeCall, nativeRequest
 	}
 	encoded, _ := json.Marshal(record)
 	if valid {

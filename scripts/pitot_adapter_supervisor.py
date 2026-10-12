@@ -32,7 +32,13 @@ DIALECTS = {
     "cursor_connect_proto",
     "devin_connect_proto",
 }
-INTEGRATIONS = {"native_command_hook", "pi_extension", "opencode_plugin", "acp_client"}
+INTEGRATIONS = {
+    "native_command_hook",
+    "pi_extension",
+    "opencode_plugin",
+    "acp_client",
+    "native_pre_execute",
+}
 INSTALLERS = {"npm", "kimi_release", "cursor_release", "devin_release"}
 
 

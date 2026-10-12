@@ -262,6 +262,33 @@ def validate_result(
                 ):
                     raise ValueError("invalid Cursor carrier action correlation")
             controller = {key: controller[key] for key in expected_controller}
+        if agent == "deepseek":
+            if not isinstance(controller, dict) or set(controller) != set(
+                expected_controller
+            ) | {"native_tool_results"}:
+                raise ValueError("missing DeepSeek native result receipts")
+            native = controller["native_tool_results"]
+            if (
+                not isinstance(native, dict)
+                or set(native)
+                != {
+                    "session_id",
+                    "call_ids",
+                    "is_error",
+                    "denial_code",
+                    "session_sha256",
+                }
+                or not isinstance(native["session_id"], str)
+                or not native["session_id"].strip()
+                or native["call_ids"] != ["pitot_tool_allow", "pitot_tool_deny"]
+                or native["is_error"] != [False, True]
+                or any(type(item) is not bool for item in native["is_error"])
+                or native["denial_code"] != "PITOT_DENIED"
+                or not isinstance(native["session_sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", str(native["session_sha256"]))
+            ):
+                raise ValueError("invalid DeepSeek native result receipts")
+            controller = {key: controller[key] for key in expected_controller}
         if len(set(action_ids)) != 2 or controller != expected_controller:
             raise ValueError("invalid Controller receipts")
         if value["consumer"] != {

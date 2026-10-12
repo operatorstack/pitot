@@ -151,7 +151,30 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
         run([*wsl, "chmod", "0755", f"{release}/cursor-agent"])
         run([*wsl, "ln", "-sfn", f"{release}/cursor-agent", "/usr/local/bin/agent"])
         return f"{release}/cursor-agent"
-    if kind == "npm":
+    if kind == "npm" and agent["id"] == "deepseek":
+        prefix = Path.home() / ".local/share/pitot-deepseek" / version
+        run(
+            [
+                npm_executable(),
+                "install",
+                "--prefix",
+                str(prefix),
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+                "--save-exact",
+                f"{package}@{version}",
+            ]
+        )
+        lock = json.loads((prefix / "package-lock.json").read_text(encoding="utf-8"))
+        selected = lock["packages"]["node_modules/@deepseek-ai/dsh"]
+        if (
+            selected["version"] != version
+            or selected["integrity"]
+            != "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
+        ):
+            raise RuntimeError("DeepSeek release integrity mismatch")
+    elif kind == "npm":
         run(
             [
                 npm_executable(),

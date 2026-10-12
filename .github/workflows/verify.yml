@@ -97,7 +97,7 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install locked maintenance tools
         run: npm ci --ignore-scripts
       - name: Install pinned Python checks

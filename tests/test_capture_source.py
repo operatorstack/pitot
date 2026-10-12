@@ -59,6 +59,14 @@ class FixtureAPI:
                 index = len(self.artifacts)
                 check_id = 1000 + index
                 result = _result(agent_id, platform_id)
+                if agent_id == "deepseek":
+                    result["controller"]["native_tool_results"] = {
+                        "session_id": "controlled-fixture-session",
+                        "call_ids": ["pitot_tool_allow", "pitot_tool_deny"],
+                        "is_error": [False, True],
+                        "denial_code": "PITOT_DENIED",
+                        "session_sha256": "a" * 64,
+                    }
                 cell = copy.deepcopy(
                     next(
                         item
@@ -206,7 +214,7 @@ class CaptureSourceTests(unittest.TestCase):
             value = json.loads(output.read_text())
         self.assertEqual(value["schema_version"], 4)
         self.assertEqual(value["source"]["producer_profile"], "capture-direct/v1")
-        self.assertEqual(len(value["source"]["producer_files"]), 38)
+        self.assertEqual(len(value["source"]["producer_files"]), 40)
         self.assertIn(
             "integrations/cursor/beforeShellExecution.ps1",
             [item["path"] for item in value["source"]["producer_files"]],
@@ -215,8 +223,8 @@ class CaptureSourceTests(unittest.TestCase):
         self.assertEqual(
             (ROOT / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n"
         )
-        self.assertEqual(len(value["cells"]), 30)
-        self.assertEqual(len(value["source"]["artifacts"]), 30)
+        self.assertEqual(len(value["cells"]), 33)
+        self.assertEqual(len(value["source"]["artifacts"]), 33)
         self.assertNotEqual(
             value["source"]["artifacts"][0]["job_id"],
             value["source"]["artifacts"][0]["check_run_id"],

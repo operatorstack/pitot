@@ -92,6 +92,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		writeJSON(w, http.StatusOK, map[string]any{"schema_version": descriptorVersion, "instance_id": instanceID})
 	}))
 	mux.HandleFunc("POST /v1/events", s.authorize(token, s.handleEvent))
+	mux.HandleFunc("POST /v1/controlled-events", s.authorize(token, s.handleControlledEvent))
 	mux.HandleFunc("POST /v1/requests", s.authorize(token, s.handleRequest))
 	server := &http.Server{
 		Handler:           mux,
@@ -138,6 +139,14 @@ func (s *Server) authorize(token string, next http.HandlerFunc) http.HandlerFunc
 }
 
 func (s *Server) handleEvent(w http.ResponseWriter, request *http.Request) {
+	s.handleEventMode(w, request, false)
+}
+
+func (s *Server) handleControlledEvent(w http.ResponseWriter, request *http.Request) {
+	s.handleEventMode(w, request, true)
+}
+
+func (s *Server) handleEventMode(w http.ResponseWriter, request *http.Request, explicit bool) {
 	var event schema.Event
 	if err := decodeRequest(w, request, &event); err != nil {
 		return
@@ -146,10 +155,16 @@ func (s *Server) handleEvent(w http.ResponseWriter, request *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid action event"})
 		return
 	}
-	response, err := s.manager.DeliverEvent(request.Context(), event)
+	var response *schema.ControlResponse
+	var err error
+	if explicit {
+		response, err = s.manager.DeliverControlledEvent(request.Context(), event)
+	} else {
+		response, err = s.manager.DeliverEvent(request.Context(), event)
+	}
 	if err != nil {
 		fmt.Fprintln(s.stderr, "pitot: action resolved with boundary fault")
-		if response == nil {
+		if response == nil || explicit {
 			// An errored delivery with no resolution must never read as an
 			// observation-only allow (204): fail closed so the hook blocks.
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "event delivery faulted"})
@@ -235,12 +250,26 @@ func (c *Client) Health(ctx context.Context) error {
 
 // DeliverEvent returns nil when no Controller is registered for the action kind.
 func (c *Client) DeliverEvent(ctx context.Context, event schema.Event) (*schema.ControlResponse, error) {
+	return c.deliverEvent(ctx, event, false)
+}
+
+// DeliverControlledEvent refuses fallback resolutions and validates the entire
+// response envelope before returning an explicit Controller reply.
+func (c *Client) DeliverControlledEvent(ctx context.Context, event schema.Event) (*schema.ControlResponse, error) {
+	return c.deliverEvent(ctx, event, true)
+}
+
+func (c *Client) deliverEvent(ctx context.Context, event schema.Event, explicit bool) (*schema.ControlResponse, error) {
 	var response schema.ControlResponse
-	status, err := c.call(ctx, http.MethodPost, "/v1/events", event, &response)
+	path := "/v1/events"
+	if explicit {
+		path = "/v1/controlled-events"
+	}
+	status, err := c.callChecked(ctx, http.MethodPost, path, event, &response, explicit)
 	if err != nil {
 		return nil, err
 	}
-	if status == http.StatusNoContent {
+	if status == http.StatusNoContent && !explicit {
 		return nil, nil
 	}
 	if status != http.StatusOK {
@@ -266,6 +295,10 @@ func (c *Client) Request(ctx context.Context, request schema.ControlRequested) (
 }
 
 func (c *Client) call(ctx context.Context, method, path string, input, output any) (int, error) {
+	return c.callChecked(ctx, method, path, input, output, false)
+}
+
+func (c *Client) callChecked(ctx context.Context, method, path string, input, output any, strict bool) (int, error) {
 	var body io.Reader
 	if input != nil {
 		encoded, err := json.Marshal(input)
@@ -291,6 +324,16 @@ func (c *Client) call(ctx context.Context, method, path string, input, output an
 		return response.StatusCode, nil
 	}
 	if response.StatusCode == http.StatusOK && output != nil {
+		if strict {
+			body, err := io.ReadAll(io.LimitReader(response.Body, maxRequestBytes+1))
+			if err != nil || len(body) > maxRequestBytes {
+				return response.StatusCode, errors.New("pitot: invalid controlled response size")
+			}
+			if err := schema.DecodeEnvelope(body, output); err != nil {
+				return response.StatusCode, fmt.Errorf("pitot: invalid controlled response: %w", err)
+			}
+			return response.StatusCode, nil
+		}
 		decoder := json.NewDecoder(io.LimitReader(response.Body, maxRequestBytes))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(output); err != nil {

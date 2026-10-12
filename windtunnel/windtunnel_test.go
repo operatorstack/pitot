@@ -57,7 +57,7 @@ func TestSensorConsumesBoatstackCanonicalEvents(t *testing.T) {
 	}
 }
 
-func TestSensorConsumesPitotOnlyTransportBoundaries(t *testing.T) {
+func TestSensorConsumesPitotOnlyBoundaries(t *testing.T) {
 	var pitotOnly []adapters.Host
 	for _, host := range adapters.Supported() {
 		if _, sharedWithBoatstack := boatstackCanonicalEvents[host]; sharedWithBoatstack {
@@ -72,12 +72,24 @@ func TestSensorConsumesPitotOnlyTransportBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("sensor could not consume %s boundary: %v", host, err)
 		}
-		if event.Action == nil || event.Action.Kind != "shell" || event.Observation.Source != schema.SourceHostEvent {
+		expectedSource := schema.SourceHostEvent
+		if host == adapters.DeepSeek {
+			expectedSource = schema.SourceHostHook
+			if event.SessionID != "probe-session" {
+				t.Fatalf("DeepSeek lost its native session identity: %+v", event)
+			}
+		}
+		if event.Action == nil || event.Action.Kind != "shell" || event.Observation.Source != expectedSource {
 			t.Fatalf("host %s: unexpected boundary event %+v", host, event)
 		}
 	}
-	if len(pitotOnly) != 1 || pitotOnly[0] != adapters.Devin {
+	if len(pitotOnly) != 2 {
 		t.Fatalf("unexpected Pitot-only transport inventory: %v", pitotOnly)
+	}
+	for _, host := range pitotOnly {
+		if host != adapters.Devin && host != adapters.DeepSeek {
+			t.Fatalf("unexpected Pitot-only host: %s", host)
+		}
 	}
 }
 
