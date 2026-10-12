@@ -68,7 +68,7 @@
     {
       "id": "copilot",
       "label": "GitHub Copilot CLI",
-      "version": "1.0.73",
+      "version": "1.0.95",
       "executable": "copilot",
       "installer": { "kind": "npm", "package": "@github/copilot" },
       "integration": "native_command_hook",
