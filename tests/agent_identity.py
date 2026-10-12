@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -60,6 +61,15 @@ CURSOR_BOOTSTRAP_OVERRIDES = {
 
 def agent_environment(agent: str, environment: dict[str, str]) -> dict[str, str]:
     """Remove known verification bootstrap and model overrides."""
+    if agent == "devin":
+        filtered = {
+            key: value
+            for key, value in environment.items()
+            if not key.startswith(("DEVIN_", "WINDSURF_", "OTEL_"))
+            and key.lower()
+            not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+        }
+        return filtered if len(filtered) != len(environment) else environment
     if agent == "qwen":
         overrides = QWEN_BOOTSTRAP_OVERRIDES
     elif agent == "kimi":
@@ -260,6 +270,42 @@ def require_cursor_ready(path: str, runtime: str) -> None:
         raise RuntimeError("cannot inspect Cursor owned launch files") from error
 
 
+def devin_context(home: Path) -> dict[str, str]:
+    """Keep release probes and model sessions in explicit, owned configuration."""
+    config = {
+        "auto_update": False,
+        "otel": {"enabled": False},
+        "proxy": {"mode": "off"},
+        "read_config_from": dict.fromkeys(
+            (
+                "agents_standard",
+                "cursor",
+                "windsurf",
+                "claude",
+                "copilot",
+                "opencode",
+                "zed",
+            ),
+            False,
+        ),
+    }
+    app_data = home / "AppData/Roaming"
+    for directory in (home / ".config", app_data):
+        target = directory / "devin/config.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(config) + "\n", encoding="utf-8")
+    return {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_DATA_HOME": str(home / ".local/share"),
+        "XDG_CACHE_HOME": str(home / ".cache"),
+        "XDG_STATE_HOME": str(home / ".local/state"),
+        "APPDATA": str(app_data),
+        "LOCALAPPDATA": str(home / "AppData/Local"),
+    }
+
+
 def cursor_context(home: Path, data: Path) -> dict[str, str]:
     """Select owned locations without changing the caller's global environment."""
     return {
@@ -284,7 +330,16 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
         command = ["wsl.exe", "--distribution", "Ubuntu", "--", *command]
     with ExitStack() as cleanup:
         options = {}
-        if agent["id"] == "cursor":
+        if agent["id"] == "devin":
+            home = Path(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="pitot-devin-version-")
+                )
+            )
+            environment = agent_environment("devin", dict(os.environ))
+            environment.update(devin_context(home))
+            options["env"] = environment
+        elif agent["id"] == "cursor":
             home = Path(
                 cleanup.enter_context(
                     tempfile.TemporaryDirectory(

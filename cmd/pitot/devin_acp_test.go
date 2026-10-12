@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -128,7 +129,7 @@ func TestDoctorDevinChecksPinnedACPBinary(t *testing.T) {
 	if err := doctorHost("devin", &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	if output := stdout.String(); !strings.Contains(output, "3000.3.22") || !strings.Contains(output, "ACP v1 boundary: FOUND") {
+	if output := stdout.String(); !strings.Contains(output, supportedDevinVersion) || !strings.Contains(output, "ACP v1 boundary: FOUND") {
 		t.Fatalf("doctor output = %s", output)
 	}
 }
@@ -154,15 +155,70 @@ func TestDoctorDevinHelperProcess(t *testing.T) {
 	if scenario == "" {
 		return
 	}
+	if version, ok := os.LookupEnv("PITOT_DOCTOR_DEVIN_VERSION"); ok && strings.Contains(scenario, "--version") {
+		_, _ = io.WriteString(os.Stdout, version)
+		os.Exit(0)
+	}
 	switch {
 	case strings.Contains(scenario, "--version") && strings.HasPrefix(scenario, "old "):
 		_, _ = io.WriteString(os.Stdout, "devin 2999.0.0 (old)\n")
 	case strings.Contains(scenario, "--version"):
-		_, _ = io.WriteString(os.Stdout, "devin 3000.3.22 (test)\n")
+		_, _ = io.WriteString(os.Stdout, "devin "+supportedDevinVersion+" (9c803229faa4)\n")
 	case strings.Contains(scenario, "acp --help"):
 		_, _ = io.WriteString(os.Stdout, "Run an Agent Client Protocol server\n")
 	default:
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+func TestDoctorDevinVersionMatchesCatalog(t *testing.T) {
+	data, err := os.ReadFile("../../adapter-verification.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Agents []struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range catalog.Agents {
+		if agent.ID == "devin" {
+			if agent.Version != supportedDevinVersion {
+				t.Fatalf("doctor version %s differs from catalog %s", supportedDevinVersion, agent.Version)
+			}
+			return
+		}
+	}
+	t.Fatal("Devin missing from catalog")
+}
+
+func TestDoctorDevinRejectsMalformedBanners(t *testing.T) {
+	originalLookPath, originalCommand := doctorLookPath, doctorCommand
+	t.Cleanup(func() { doctorLookPath, doctorCommand = originalLookPath, originalCommand })
+	doctorLookPath = func(string) (string, error) { return os.Args[0], nil }
+	for _, banner := range []string{
+		"prefix devin " + supportedDevinVersion + " (9c803229faa4)",
+		"devin " + supportedDevinVersion + " (9c803229faa4) suffix",
+		"devin " + supportedDevinVersion + " (test)",
+		"devin " + supportedDevinVersion + " (ABCDEF12)",
+		"devin " + supportedDevinVersion + " (abcdef1)",
+		"devin " + supportedDevinVersion + " (9c803229faa4)\nextra",
+		"devin " + supportedDevinVersion + "0 (9c803229faa4)",
+	} {
+		t.Run(banner, func(t *testing.T) {
+			doctorCommand = func(_ string, args ...string) *exec.Cmd {
+				command := exec.Command(os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
+				command.Env = append(os.Environ(), "PITOT_DOCTOR_DEVIN_HELPER="+strings.Join(args, " "), "PITOT_DOCTOR_DEVIN_VERSION="+banner)
+				return command
+			}
+			if err := doctorHost("devin", io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "unsupported") {
+				t.Fatalf("doctor error = %v", err)
+			}
+		})
+	}
 }
