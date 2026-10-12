@@ -119,9 +119,9 @@ func TestDoctorDevinChecksPinnedACPBinary(t *testing.T) {
 		doctorLookPath, doctorCommand = originalLookPath, originalCommand
 	})
 	doctorLookPath = func(string) (string, error) { return os.Args[0], nil }
-	doctorCommand = func(_ string, args ...string) *exec.Cmd {
+	doctorCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
 		scenario := strings.Join(args, " ")
-		command := exec.Command(os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
+		command := exec.CommandContext(ctx, os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
 		command.Env = append(os.Environ(), "PITOT_DOCTOR_DEVIN_HELPER="+scenario)
 		return command
 	}
@@ -140,8 +140,8 @@ func TestDoctorDevinRejectsUnsupportedVersion(t *testing.T) {
 		doctorLookPath, doctorCommand = originalLookPath, originalCommand
 	})
 	doctorLookPath = func(string) (string, error) { return os.Args[0], nil }
-	doctorCommand = func(_ string, args ...string) *exec.Cmd {
-		command := exec.Command(os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
+	doctorCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		command := exec.CommandContext(ctx, os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
 		command.Env = append(os.Environ(), "PITOT_DOCTOR_DEVIN_HELPER=old "+strings.Join(args, " "))
 		return command
 	}
@@ -211,8 +211,8 @@ func TestDoctorDevinRejectsMalformedBanners(t *testing.T) {
 		"devin " + supportedDevinVersion + "0 (9c803229faa4)",
 	} {
 		t.Run(banner, func(t *testing.T) {
-			doctorCommand = func(_ string, args ...string) *exec.Cmd {
-				command := exec.Command(os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
+			doctorCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+				command := exec.CommandContext(ctx, os.Args[0], "-test.run=TestDoctorDevinHelperProcess", "--")
 				command.Env = append(os.Environ(), "PITOT_DOCTOR_DEVIN_HELPER="+strings.Join(args, " "), "PITOT_DOCTOR_DEVIN_VERSION="+banner)
 				return command
 			}

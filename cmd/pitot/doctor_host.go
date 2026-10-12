@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,8 +30,8 @@ type hostProbe struct {
 	matcher    string
 }
 
-// hostProbes holds per-host inspection metadata. Only Kimi is wired for this
-// release; other hosts fall back to a decoder-only note.
+// hostProbes holds user-level hook inspection metadata. Repo-wired hosts and
+// native ACP integrations have separate checks below.
 var hostProbes = map[adapters.Host]hostProbe{
 	adapters.Kimi: {
 		binary: "kimi",
@@ -50,7 +51,48 @@ var hostProbes = map[adapters.Host]hostProbe{
 }
 
 var doctorLookPath = exec.LookPath
-var doctorCommand = exec.Command
+var doctorCommand = exec.CommandContext
+var doctorProbeTimeout = 5 * time.Second
+var doctorProbeWaitDelay = 2 * time.Second
+
+const doctorOutputLimit = 64 << 10
+
+type doctorOutput struct {
+	buffer    bytes.Buffer
+	truncated bool
+}
+
+func (b *doctorOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := doctorOutputLimit - b.buffer.Len()
+	if n > remaining {
+		p = p[:remaining]
+		b.truncated = true
+	}
+	_, _ = b.buffer.Write(p)
+	return n, nil
+}
+
+// doctorProbe bounds both command execution and inherited output-pipe waiting.
+// It retains a diagnostic prefix while draining excess output without growing
+// memory. Partial or truncated output cannot establish host readiness.
+func doctorProbe(program string, arguments ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), doctorProbeTimeout)
+	defer cancel()
+	command := doctorCommand(ctx, program, arguments...)
+	command.WaitDelay = doctorProbeWaitDelay
+	var output doctorOutput
+	command.Stdout = &output
+	command.Stderr = &output
+	err := command.Run()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("probe timed out after %s: %w", doctorProbeTimeout, ctx.Err())
+	}
+	if output.truncated {
+		err = errors.Join(err, errors.New("probe output exceeded 64 KiB; diagnostics truncated"))
+	}
+	return output.buffer.Bytes(), err
+}
 
 // doctorHost reports whether a host is configured to route its blocking shell
 // boundary to Pitot. It never edits configuration without an explicit --fix —
@@ -130,9 +172,7 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 
 	// 4. Config parses — best effort via the agent's own doctor, if present.
 	if _, err := exec.LookPath(probe.binary); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		out, derr := exec.CommandContext(ctx, probe.binary, "doctor").CombinedOutput()
+		out, derr := doctorProbe(probe.binary, "doctor")
 		if derr == nil {
 			fmt.Fprintf(stdout, "  config parses: PASS (%s doctor)\n", probe.binary)
 		} else {
@@ -206,7 +246,7 @@ func doctorDevin(stdout, stderr io.Writer) error {
 		return errors.New("pitot doctor: devin host check found 1 issue: \"devin\" not on PATH")
 	}
 	fmt.Fprintf(stdout, "  binary on PATH: %s\n", path)
-	version, versionErr := doctorCommand(path, "--version").CombinedOutput()
+	version, versionErr := doctorProbe(path, "--version")
 	if versionErr != nil {
 		fmt.Fprintf(stderr, "  devin --version: %s\n", strings.TrimSpace(string(version)))
 		return fmt.Errorf("pitot doctor: devin --version failed: %w", versionErr)
@@ -216,8 +256,14 @@ func doctorDevin(stdout, stderr io.Writer) error {
 	if !regexp.MustCompile(`^devin ` + regexp.QuoteMeta(supportedDevinVersion) + ` \([0-9a-f]{8,40}\)$`).MatchString(versionText) {
 		return fmt.Errorf("pitot doctor: Devin version %q is unsupported; install %s", versionText, supportedDevinVersion)
 	}
-	help, helpErr := doctorCommand(path, "acp", "--help").CombinedOutput()
-	if helpErr != nil || !strings.Contains(string(help), "Agent Client Protocol") {
+	help, helpErr := doctorProbe(path, "acp", "--help")
+	if helpErr != nil {
+		if len(help) > 0 {
+			fmt.Fprintf(stderr, "  devin acp --help: %s\n", strings.TrimSpace(string(help)))
+		}
+		return fmt.Errorf("pitot doctor: devin acp --help failed: %w", helpErr)
+	}
+	if !strings.Contains(string(help), "Agent Client Protocol") {
 		return errors.New("pitot doctor: installed Devin does not advertise the required ACP server")
 	}
 	fmt.Fprintln(stdout, "  ACP v1 boundary: FOUND (`devin acp`)")
