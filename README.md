@@ -669,7 +669,15 @@ not the source of protocol truth.
 
 ## Event envelope
 
-Every event identifies its schema, source, session, and observation quality:
+Events identify their schema, host, source, and observation quality.
+`session_id` is optional, opaque metadata supplied by the host; Pitot preserves
+it without generating a substitute when it is unavailable. Group sessions by
+`host.name` and `session_id`, rather than treating IDs from different hosts as
+one namespace. The generated per-action ID correlates control replies and is
+separate from the host's session identity. Session metadata is retained by every
+content projection and does not authenticate a Controller.
+
+This example shows an envelope with session metadata:
 
 ```json
 {

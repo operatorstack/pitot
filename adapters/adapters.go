@@ -12,6 +12,7 @@
 package adapters
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -409,8 +410,11 @@ type RawBoundaryEvent struct {
 	// ToolName / ToolInput are populated by PreToolUse-style hosts and Gemini.
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
-	// DeepSeek supplies these identities before the native tool body runs.
-	SessionID  string `json:"session_id,omitempty"`
+	// SessionID is optional host-provided session metadata. Cursor supplies a
+	// conversation ID instead; keep its raw value so only that host validates it.
+	SessionID      string          `json:"session_id,omitempty"`
+	ConversationID json.RawMessage `json:"conversation_id,omitempty"`
+	// DeepSeek supplies these call/request identities before the tool body runs.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
 	RootCallID string `json:"root_call_id,omitempty"`

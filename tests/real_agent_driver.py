@@ -875,6 +875,88 @@ def json_lines(path: Path) -> list[dict[str, object]]:
     ]
 
 
+def validate_session_provenance(
+    host: str,
+    witnesses: list[dict[str, object]],
+    requests: list[dict[str, object]],
+    consumers: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    """Compare native witness identity with both delivered event envelopes."""
+    if (
+        len(requests) != 2
+        or len(consumers) != 2
+        or (host != "devin" and len(witnesses) != 2)
+    ):
+        raise RuntimeError("session provenance requires both boundary actions")
+    proofs = []
+    action_ids = [
+        request.get("action_id") if isinstance(request, dict) else None
+        for request in requests
+    ]
+    if (
+        any(
+            not isinstance(action_id, str) or not action_id.startswith("act_")
+            for action_id in action_ids
+        )
+        or len(set(action_ids)) != 2
+    ):
+        raise RuntimeError("session provenance action correlation is malformed")
+    for index, (request, consumer) in enumerate(zip(requests, consumers)):
+        event = request.get("data")
+        if not isinstance(event, dict) or not isinstance(consumer, dict):
+            raise RuntimeError("session provenance event is missing")
+        action_id = request.get("action_id")
+        source = "host_event" if host == "devin" else "host_hook"
+        for delivered in (event, consumer):
+            if (
+                delivered.get("type") != "action.requested"
+                or not isinstance(delivered.get("host"), dict)
+                or not isinstance(delivered.get("action"), dict)
+                or delivered.get("host", {}).get("name") != host
+                or delivered.get("action", {}).get("id") != action_id
+                or delivered.get("observation")
+                != {"source": source, "fidelity": "direct"}
+            ):
+                raise RuntimeError("session provenance delivery identity changed")
+        session = event.get("session_id", "")
+        if not isinstance(session, str):
+            raise RuntimeError("session provenance has a malformed ID")
+        state = "supplied" if session else "unavailable"
+        digest = hashlib.sha256(session.encode("utf-8")).hexdigest() if session else ""
+        if host == "devin":
+            if witnesses or not session:
+                raise RuntimeError("ACP session provenance is missing")
+        else:
+            witness = witnesses[index]
+            if not isinstance(witness, dict):
+                raise RuntimeError("session provenance witness is malformed")
+            if (
+                witness.get("valid") is not True
+                or witness.get("host") != host
+                or witness.get("action_id") != action_id
+            ):
+                raise RuntimeError("session provenance witness correlation changed")
+            if host == "deepseek":
+                if not session or witness.get("session_id") != session:
+                    raise RuntimeError("native DeepSeek session identity changed")
+            elif (
+                "session_id" in witness
+                or witness.get("session_id_state") != state
+                or (state == "supplied" and witness.get("session_id_sha256") != digest)
+                or (state == "unavailable" and "session_id_sha256" in witness)
+            ):
+                raise RuntimeError("native hook session identity changed")
+        if host in {"pi", "opencode"} and not session:
+            raise RuntimeError("native plugin did not supply its session identity")
+        if session:
+            if consumer.get("session_id") != session:
+                raise RuntimeError("Consumer session identity changed")
+        elif "session_id" in event or "session_id" in consumer:
+            raise RuntimeError("unavailable session must remain omitted")
+        proofs.append({"state": state, "sha256": digest})
+    return proofs
+
+
 def validate_cursor_commands(
     requests: list[dict[str, object]], expected: list[str]
 ) -> list[str]:
@@ -1303,6 +1385,14 @@ def validate_receipts(
         for item in consumers
     ):
         raise RuntimeError("Consumer projection did not remove full command content")
+    session_proofs = validate_session_provenance(
+        agent["id"], witnesses, requests, consumers
+    )
+    print(
+        f"PITOT_SESSION_PROVENANCE agent={agent['id']} "
+        f"states={','.join(proof['state'] for proof in session_proofs)} "
+        "controller_consumer=matched"
+    )
     if canary != [f"PITOT_ALLOW {nonce}"]:
         raise RuntimeError(
             f"canary execution count violated allow/deny control: {canary}"

@@ -2,13 +2,14 @@ import { spawnSync } from "node:child_process";
 
 // handleToolCall is exported so the shipped boundary can be tested without a
 // live Pi session. Pi itself calls the default extension registration below.
-export function handleToolCall(event, run = spawnSync) {
+export function handleToolCall(event, run = spawnSync, sessionId = undefined) {
   if (event.toolName !== "bash") return undefined;
 
   const payload = JSON.stringify({
     hook_event_name: "tool_call",
     tool_name: "bash",
     tool_input: { command: event.input?.command ?? "" },
+    session_id: sessionId,
   });
   const result = run(process.env.PITOT_BIN || "pitot", ["hook", "pi"], {
     input: payload,
@@ -21,5 +22,7 @@ export function handleToolCall(event, run = spawnSync) {
 }
 
 export default function pitotExtension(pi) {
-  pi.on("tool_call", async (event) => handleToolCall(event));
+  pi.on("tool_call", async (event, ctx) =>
+    handleToolCall(event, spawnSync, ctx?.sessionManager?.getSessionId()),
+  );
 }
