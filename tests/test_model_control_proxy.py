@@ -32,6 +32,51 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_qwen_uses_its_owned_settings_and_clean_child_environment(self):
+        for native_windows in (False, True):
+            with (
+                self.subTest(native_windows=native_windows),
+                tempfile.TemporaryDirectory() as temporary,
+                mock.patch.object(driver, "windows_host", return_value=native_windows),
+            ):
+                home = Path(temporary) / "owned home"
+                flags, extra_env = driver.configure(
+                    "qwen",
+                    home,
+                    Path(temporary) / "project",
+                    "witness",
+                    "http://127.0.0.1:9123",
+                    pitot_command="pitot",
+                    witness_receipt="witness.jsonl",
+                    nonce="nonce",
+                    runtime_path="runtime.json",
+                )
+                environment = driver.agent_environment(
+                    "qwen",
+                    {
+                        "QWEN_HOME": "/unrelated/.qwen",
+                        "CLI_VERSION": "9.9.9",
+                        "QWEN_CODE_RELAUNCH_ARGS": '["serve"]',
+                        **extra_env,
+                    },
+                )
+                self.assertEqual(environment["QWEN_HOME"], str(home / ".qwen"))
+                self.assertNotIn("CLI_VERSION", environment)
+                self.assertNotIn("QWEN_CODE_RELAUNCH_ARGS", environment)
+                settings = json.loads(
+                    (Path(environment["QWEN_HOME"]) / "settings.json").read_text()
+                )
+                model = settings["modelProviders"]["openai"]["models"][0]
+                self.assertEqual(model["baseUrl"], "http://127.0.0.1:9123/v1")
+                self.assertEqual(model["envKey"], "OPENAI_API_KEY")
+                self.assertEqual(environment["OPENAI_API_KEY"], "pitot-local-only")
+                self.assertEqual(settings["security"]["auth"]["selectedType"], "openai")
+                self.assertEqual(flags, ["--model", "pitot-control", "-y", "-p"])
+                hook = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+                self.assertIn(
+                    "PreToolUse.cjs" if native_windows else "PreToolUse", hook
+                )
+
     def test_pi_uses_owned_offline_configuration_despite_ambient_settings(self):
         ambient = {
             "PI_CODING_AGENT_DIR": "/unrelated/pi/agent",

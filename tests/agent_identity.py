@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
@@ -9,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 VERSION_TIMEOUT = 30
 MAX_VERSION_BYTES = 65536
@@ -23,6 +25,24 @@ RECEIPT_FIELDS = {
     "runtime",
     "platform",
 }
+QWEN_BOOTSTRAP_OVERRIDES = {
+    "CLI_VERSION",
+    "QWEN_CODE_RELAUNCH_ARGS",
+    "QWEN_CODE_MANAGED_NPM_PIN",
+    "QWEN_CODE_LAUNCHER_PATH",
+    "QWEN_CODE_STARTUP_VERSION",
+}
+
+
+def agent_environment(agent: str, environment: dict[str, str]) -> dict[str, str]:
+    """Keep supervised Qwen launches independent of inherited bootstrap hints."""
+    if agent != "qwen":
+        return environment
+    return {
+        key: value
+        for key, value in environment.items()
+        if key not in QWEN_BOOTSTRAP_OVERRIDES
+    }
 
 
 def version_matches(agent: dict[str, object], output: str) -> bool:
@@ -175,14 +195,24 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
     command = [path, "--version"]
     if host_controls_wsl(runtime):
         command = ["wsl.exe", "--distribution", "Ubuntu", "--", *command]
-    result = subprocess.run(
-        command,
-        check=True,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=VERSION_TIMEOUT,
-    )
+    with ExitStack() as cleanup:
+        options = {}
+        if agent["id"] == "qwen":
+            version_home = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="pitot-qwen-version-")
+            )
+            environment = agent_environment("qwen", dict(os.environ))
+            environment["QWEN_HOME"] = str(Path(version_home) / ".qwen")
+            options["env"] = environment
+        result = subprocess.run(
+            command,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=VERSION_TIMEOUT,
+            **options,
+        )
     if len(result.stdout) + len(result.stderr) > MAX_VERSION_BYTES:
         raise RuntimeError("agent version output exceeds limit")
     output = result.stdout.decode("utf-8", errors="strict")

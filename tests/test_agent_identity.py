@@ -17,6 +17,102 @@ AGENTS = {agent["id"]: agent for agent in CATALOG["agents"]}
 
 
 class VersionAdmissionTests(unittest.TestCase):
+    def test_qwen_environment_filters_bootstrap_hints_without_mutating_input(self):
+        original = {
+            "CLI_VERSION": "9.9.9",
+            "QWEN_CODE_RELAUNCH_ARGS": '["--version"]',
+            "QWEN_CODE_MANAGED_NPM_PIN": '{"updateRoot":"/unrelated"}',
+            "QWEN_CODE_LAUNCHER_PATH": "/unrelated/qwen",
+            "QWEN_CODE_STARTUP_VERSION": "9.9.9",
+            "QWEN_HOME": "/owned/.qwen",
+            "KEEP": "unchanged",
+        }
+        before = dict(original)
+        filtered = identity.agent_environment("qwen", original)
+        self.assertEqual(filtered, {"QWEN_HOME": "/owned/.qwen", "KEEP": "unchanged"})
+        self.assertEqual(original, before)
+        self.assertIsNot(filtered, original)
+        for product in AGENTS.keys() - {"qwen"}:
+            self.assertIs(identity.agent_environment(product, original), original)
+
+    def test_qwen_version_probe_owns_and_cleans_its_configuration(self):
+        agent = AGENTS["qwen"]
+        success = subprocess.CompletedProcess(
+            [], 0, f"{agent['version']}\n".encode(), b""
+        )
+        outcomes = [
+            (success, None),
+            (subprocess.TimeoutExpired([], 30), subprocess.TimeoutExpired),
+            (subprocess.CalledProcessError(1, []), subprocess.CalledProcessError),
+            (subprocess.CompletedProcess([], 0, b"x" * 65537, b""), RuntimeError),
+            (subprocess.CompletedProcess([], 0, b"0.0.0\n", b""), RuntimeError),
+            (subprocess.CompletedProcess([], 0, b"\xff", b""), UnicodeDecodeError),
+            (
+                subprocess.CompletedProcess([], 0, success.stdout, b"warning"),
+                RuntimeError,
+            ),
+        ]
+        seen_homes = []
+        for outcome, expected_error in outcomes:
+            with self.subTest(outcome=type(outcome).__name__, error=expected_error):
+                homes = []
+
+                def observe(command, **options):
+                    self.assertEqual(command, ["/owned/qwen", "--version"])
+                    environment = options["env"]
+                    self.assertFalse(
+                        identity.QWEN_BOOTSTRAP_OVERRIDES & environment.keys()
+                    )
+                    config = Path(environment["QWEN_HOME"])
+                    self.assertEqual(config.name, ".qwen")
+                    self.assertTrue(config.parent.is_dir())
+                    self.assertNotEqual(environment["QWEN_HOME"], "/unrelated/.qwen")
+                    self.assertFalse(config.exists())
+                    homes.append(config.parent)
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {
+                            **dict.fromkeys(
+                                identity.QWEN_BOOTSTRAP_OVERRIDES, "unrelated"
+                            ),
+                            "QWEN_HOME": "/unrelated/.qwen",
+                        },
+                    ),
+                    mock.patch.object(
+                        identity, "entrypoint_digest", return_value="a" * 64
+                    ),
+                    mock.patch.object(identity.subprocess, "run", side_effect=observe),
+                ):
+                    if expected_error:
+                        with self.assertRaises(expected_error):
+                            identity.probe_version(agent, "/owned/qwen", "native")
+                    else:
+                        identity.probe_version(agent, "/owned/qwen", "native")
+                self.assertEqual(len(homes), 1)
+                self.assertFalse(homes[0].exists())
+                seen_homes.extend(homes)
+        self.assertEqual(len(set(seen_homes)), len(outcomes))
+
+    def test_other_agent_version_probe_keeps_default_environment(self):
+        agent = AGENTS["gemini"]
+        with (
+            mock.patch.object(identity, "entrypoint_digest", return_value="a" * 64),
+            mock.patch.object(
+                identity.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, f"{agent['version']}\n".encode(), b""
+                ),
+            ) as run,
+        ):
+            identity.probe_version(agent, "/owned/gemini", "native")
+        self.assertNotIn("env", run.call_args.kwargs)
+
     def test_copilot_extraction_diagnostic_is_retained_without_changing_identity(self):
         agent = AGENTS["copilot"]
         output = (
