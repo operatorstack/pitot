@@ -545,7 +545,9 @@ class ReporterContractTests(unittest.TestCase):
         self.assertIn(reporter.MARKER, body)
         self.assertIn("Pass · real CLI", body)
         self.assertNotIn("hook verified", body)
-        self.assertIn("real CLI 2.1.217 · native", body)
+        self.assertIn(
+            f"real CLI {reporter.AGENT_RECORDS['claude']['version']} · native", body
+        )
         self.assertIn("Windows", body)
         self.assertIn("All platforms are required", body)
         self.assertIn("Runtime capabilities", body)

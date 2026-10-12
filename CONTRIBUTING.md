@@ -132,12 +132,18 @@ version changes, dispatch the existing **Pitot E2E** workflow with
 `capture_provenance=true` on the reviewed producer commit. Wait for the entire
 workflow to succeed, then select that exact run and source commit explicitly:
 
+Capture dispatch schedules candidate agent and runtime tests from the validated
+catalog even when the previous captures are stale. This does not accept those
+captures or bypass ordinary verification. Render the generated surfaces after
+the new record has been acquired:
+
 ```bash
 python3 scripts/pitot_adapter_supervisor.py capture-merge \
   --repository operatorstack/pitot \
   --run-id RUN_ID \
   --source-sha FULL_REVIEWED_COMMIT_SHA \
   --output tests/endpoint-provenance.json
+python3 scripts/pitot_adapter_supervisor.py render
 python3 scripts/pitot_adapter_supervisor.py check
 ```
 
