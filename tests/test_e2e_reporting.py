@@ -482,7 +482,7 @@ class ReporterContractTests(unittest.TestCase):
             "a" * 40,
             "https://github.com/operatorstack/pitot/actions/runs/1",
         )
-        self.assertEqual(len(results), 10)
+        self.assertEqual(len(results), 11)
         self.assertTrue(
             all(
                 result["status"] == "fail"

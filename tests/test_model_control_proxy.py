@@ -37,6 +37,57 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_deepseek_native_results_read_all_compressed_frames(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = (
+                root / "home/.dsh/sessions/project/session-id/session.v4.jsonl.zstd"
+            )
+            session.parent.mkdir(parents=True)
+            calls = ["pitot_tool_allow", "pitot_tool_deny"]
+            rows = [{"type": "session", "id": "session-id"}]
+            for index, call in enumerate(calls):
+                rows.append(
+                    {
+                        "type": "tool/call",
+                        "seq": index * 2,
+                        "data": {"callId": call, "name": "bash"},
+                    }
+                )
+                rows.append(
+                    {
+                        "type": "tool/result",
+                        "sourceEventSeqs": [index * 2],
+                        "data": {
+                            "message": {
+                                "toolCallId": call,
+                                "source": {"callId": call},
+                                "isError": index == 1,
+                            },
+                            "error": {"code": "PITOT_DENIED"} if index else {},
+                        },
+                    }
+                )
+            compressed = subprocess.run(
+                [
+                    "node",
+                    "-e",
+                    "const z=require('node:zlib');let s='';process.stdin.on('data',b=>s+=b).on('end',()=>{for(const row of JSON.parse(s))process.stdout.write(z.zstdCompressSync(Buffer.from(JSON.stringify(row)+'\\n')))})",
+                ],
+                input=json.dumps(rows).encode(),
+                capture_output=True,
+                check=True,
+            ).stdout
+            session.write_bytes(compressed)
+            witnesses = [
+                {"tool_call_id": call, "session_id": "session-id"} for call in calls
+            ]
+            result = driver.validate_deepseek_native_results(root, witnesses)
+            self.assertEqual(result["denial_code"], "PITOT_DENIED")
+            session.write_bytes(compressed + b"corrupt trailing bytes")
+            with self.assertRaises(subprocess.CalledProcessError):
+                driver.validate_deepseek_native_results(root, witnesses)
+
     def test_cursor_failure_diagnostics_preserve_phase_and_transport_failures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -855,6 +906,42 @@ class ModelControlProtocolTests(unittest.TestCase):
         self.assertEqual(
             json.loads(call["arguments"])["command"], "pitot-e2e-canary nonce"
         )
+
+    def test_shell_description_follows_advertised_required_schema(self):
+        for required, kind, expected in [
+            (["description"], "string", True),
+            ([], "string", False),
+            (["description"], "number", False),
+        ]:
+            body = {
+                "tools": [
+                    {
+                        "function": {
+                            "name": "bash",
+                            "parameters": {
+                                "required": required,
+                                "properties": {"description": {"type": kind}},
+                            },
+                        }
+                    }
+                ]
+            }
+            arguments = proxy.advertised_tool_arguments(body, "bash", "command")
+            self.assertEqual("description" in arguments, expected)
+            self.assertEqual(arguments["command"], "command")
+
+    def test_shell_description_ignores_malformed_schema(self):
+        for parameters in [
+            None,
+            {"required": None},
+            {"required": ["description"], "properties": []},
+            {"required": ["description"], "properties": {"description": None}},
+        ]:
+            body = {"tools": [{"function": {"name": "bash", "parameters": parameters}}]}
+            self.assertEqual(
+                proxy.advertised_tool_arguments(body, "bash", "command"),
+                {"command": "command"},
+            )
 
     def test_openai_responses_emits_native_shell_tool(self):
         value = proxy.responses("shell", "pitot-e2e-canary nonce", False)

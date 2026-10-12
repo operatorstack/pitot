@@ -125,6 +125,16 @@ func (m *Manager) Close() {
 // the synchronous action through its Controller. A nil response means the
 // action kind is observation-only.
 func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema.ControlResponse, error) {
+	return m.deliverEvent(ctx, event, false)
+}
+
+// DeliverControlledEvent requires an actual Controller reply. Configured
+// timeout/unavailable defaults and observation-only delivery cannot grant it.
+func (m *Manager) DeliverControlledEvent(ctx context.Context, event schema.Event) (*schema.ControlResponse, error) {
+	return m.deliverEvent(ctx, event, true)
+}
+
+func (m *Manager) deliverEvent(ctx context.Context, event schema.Event, explicit bool) (*schema.ControlResponse, error) {
 	if err := schema.ValidateEvent(event); err != nil {
 		return nil, err
 	}
@@ -141,7 +151,7 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 	}
 	worker, exists := m.controllers[event.Action.Kind]
 	if !exists {
-		if m.requireController {
+		if m.requireController || explicit {
 			return nil, ErrControllerRequired
 		}
 		// Observation-only is a feature; silence about it is not. Report the
@@ -158,13 +168,16 @@ func (m *Manager) DeliverEvent(ctx context.Context, event schema.Event) (*schema
 	if err != nil {
 		return nil, fmt.Errorf("pitot: encode controller event: %w", err)
 	}
-	response, resolveErr := worker.resolve(ctx, schema.ControlRequested{
+	response, resolveErr := worker.resolveMode(ctx, schema.ControlRequested{
 		PitotVersion: schema.Version,
 		Type:         schema.TypeControlRequested,
 		Kind:         event.Action.Kind,
 		ActionID:     event.Action.ID,
 		Data:         data,
-	})
+	}, explicit)
+	if explicit && resolveErr != nil {
+		return nil, resolveErr
+	}
 	m.reportDecision(event.Action.Kind, &response)
 	return &response, resolveErr
 }
@@ -268,6 +281,16 @@ func (w *controllerWorker) readResponses(reader io.Reader) {
 }
 
 func (w *controllerWorker) resolve(ctx context.Context, request schema.ControlRequested) (schema.ControlResponse, error) {
+	return w.resolveMode(ctx, request, false)
+}
+
+func (w *controllerWorker) resolveMode(ctx context.Context, request schema.ControlRequested, requireReply bool) (response schema.ControlResponse, err error) {
+	explicitReply := false
+	defer func() {
+		if requireReply && !explicitReply {
+			err = errors.Join(err, errors.New("pitot: explicit Controller reply required"))
+		}
+	}()
 	// A cancelled duplicate must not resolve the action owned by another caller.
 	if _, pending := w.pending.LoadOrStore(request.ActionID, struct{}{}); pending {
 		return schema.ControlResponse{}, bridge.ErrDuplicate
@@ -373,6 +396,7 @@ func (w *controllerWorker) resolve(ctx context.Context, request schema.ControlRe
 			}
 			response, err := w.router.Resolve(request, &result.response)
 			w.remember(request.ActionID)
+			explicitReply = err == nil
 			return response, err
 		case err := <-w.done:
 			if err == nil {

@@ -17,6 +17,17 @@ import (
 // config, and write the fragment witness. Idempotent; a DRIFTED entry is
 // refused without force (drift-is-named-not-silently-fixed).
 func runWireHost(host string, force bool, stdout io.Writer) error {
+	if host == "deepseek" {
+		root := "."
+		if found, err := config.FindRoot("."); err == nil {
+			root = found
+		}
+		if err := writeDeepSeekIntegration(root, force, stdout); err != nil {
+			return err
+		}
+		_, err := writeSubstrate(stdout, releaseVersion())
+		return err
+	}
 	if !wiring.Supported(host) {
 		return printWiringGuidance(host, stdout)
 	}

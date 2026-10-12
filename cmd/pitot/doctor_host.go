@@ -64,6 +64,9 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 	if host == adapters.Devin {
 		return doctorDevin(stdout, stderr)
 	}
+	if host == adapters.DeepSeek {
+		return doctorDeepSeek(stdout)
+	}
 
 	// Repo-wireable hosts report their wiring state against the fragment
 	// witness (drift-is-named-not-silently-fixed).

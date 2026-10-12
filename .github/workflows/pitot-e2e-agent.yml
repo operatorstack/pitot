@@ -90,7 +90,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pitot-e2e-${{ inputs.agent }}-${{ inputs.platform }}
-          path: ${{ runner.temp }}/pitot-e2e/result.json
+          path: |
+            ${{ runner.temp }}/pitot-e2e/result.json
+            ${{ runner.temp }}/pitot-e2e/deepseek-native-session.zstd
           if-no-files-found: error
           retention-days: 14
       - name: Upload endpoint provenance candidate

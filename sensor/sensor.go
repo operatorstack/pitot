@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/operatorstack/pitot/adapters"
 	"github.com/operatorstack/pitot/projection"
@@ -55,6 +56,13 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
 	}
+	if host == adapters.DeepSeek {
+		for _, id := range []string{event.SessionID, event.ToolCallID, event.RequestID} {
+			if strings.TrimSpace(id) == "" || len(id) > 1024 {
+				return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonMalformed}
+			}
+		}
+	}
 
 	// An empty or mismatched event name is a malformed boundary, not a decision.
 	eventName := host.EventNameFor(event)
@@ -63,7 +71,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 	}
 
 	command, ok := host.CommandFor(event)
-	if !ok {
+	if !ok || (host == adapters.DeepSeek && strings.TrimSpace(command) == "") {
 		return schema.Event{}, &FaultError{Host: host, Reason: schema.ReasonEmptyCommand}
 	}
 
@@ -83,7 +91,7 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 		source = schema.SourceHostEvent
 	}
 
-	return schema.Event{
+	normalized := schema.Event{
 		PitotVersion: schema.Version,
 		Type:         schema.TypeActionRequested,
 		Host: schema.Host{
@@ -96,7 +104,11 @@ func Decode(host adapters.Host, raw []byte, mode projection.Mode) (schema.Event,
 			Source:   source,
 			Fidelity: schema.FidelityDirect,
 		},
-	}, nil
+	}
+	if host == adapters.DeepSeek {
+		normalized.SessionID = event.SessionID
+	}
+	return normalized, nil
 }
 
 // AsFault returns the BoundaryFault for err when err is a sensor FaultError.

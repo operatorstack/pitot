@@ -73,9 +73,12 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 // runHook preserves observation-only behavior unless an authenticated runtime is selected.
 func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pitot: hook requires a host identifier (claude, codex, copilot, cursor, gemini, kimi, opencode, pi, qwen)")
+		return fmt.Errorf("pitot: hook requires a host identifier (claude, codex, copilot, cursor, deepseek, gemini, kimi, opencode, pi, qwen)")
 	}
 	host := adapters.Host(args[0])
+	if host == adapters.DeepSeek {
+		return runDeepSeekHook(ctx, args[1:], stdin, stdout, stderr)
+	}
 	if !adapters.IsSupported(host) {
 		return fmt.Errorf("pitot: unsupported hook host %q", host)
 	}
@@ -356,6 +359,7 @@ usage:
   pitot init --host HOST [--force]
   pitot dev --host HOST -- AGENT [ARGS...]
   pitot acp devin --runtime PATH --prompt TEXT [--exec PATH] [--model MODEL] [--agent-type TYPE] [--cwd PATH]
+  pitot acp deepseek --runtime PATH --prompt TEXT [--exec PATH] [--cwd PATH] [--model MODEL] [--base-url URL --api-key-env NAME] [--session-dir PATH]
   pitot doctor [--host HOST] [--fix]
   pitot run [--config PATH] [--strict] --runtime PATH
   pitot hook HOST [--runtime PATH]

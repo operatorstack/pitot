@@ -15,6 +15,9 @@ import (
 var runDevinACP = devinacp.Run
 
 func runACP(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "deepseek" {
+		return runDeepSeekACP(ctx, args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "devin" {
 		return errors.New("pitot acp: requires host devin")
 	}
