@@ -208,7 +208,29 @@ def stderr_matches(agent: dict[str, object], error: str) -> bool:
     return len(duration) > 4 or (len(duration) == 4 and duration > "5000")
 
 
+def require_kimi_ready(path: str, runtime: str) -> None:
+    """Refuse native updater artifacts before launching the selected Kimi CLI."""
+    if runtime != "native" or not Path(path).is_absolute():
+        raise RuntimeError("Kimi verification requires an absolute native entrypoint")
+    try:
+        executable = Path(path).resolve(strict=True)
+        try:
+            (executable.parent / ".staging").lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise RuntimeError("Kimi has adjacent native update staging state")
+        backup = re.compile(re.escape(executable.name) + r"(?:\.[0-9]+)?\.bak")
+        for sibling in executable.parent.iterdir():
+            if backup.fullmatch(sibling.name):
+                raise RuntimeError("Kimi has adjacent native update backup state")
+    except OSError as error:
+        raise RuntimeError("cannot inspect Kimi native update state") from error
+
+
 def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[str, str]:
+    if agent["id"] == "kimi":
+        require_kimi_ready(path, runtime)
     before = entrypoint_digest(path, runtime)
     command = [path, "--version"]
     if host_controls_wsl(runtime):
@@ -266,6 +288,8 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
 
 
 def verify_live_entrypoint(receipt: dict[str, object]) -> None:
+    if receipt.get("agent") == "kimi":
+        require_kimi_ready(receipt["executable"], receipt["runtime"])
     if (
         entrypoint_digest(receipt["executable"], receipt["runtime"])
         != receipt["executable_sha256"]

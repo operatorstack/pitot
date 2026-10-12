@@ -172,6 +172,7 @@ class VersionAdmissionTests(unittest.TestCase):
                     mock.patch.object(
                         identity, "entrypoint_digest", side_effect=digests
                     ),
+                    mock.patch.object(identity, "require_kimi_ready"),
                     mock.patch.object(identity.subprocess, "run", side_effect=observe),
                 ):
                     before = dict(os.environ)
@@ -451,18 +452,135 @@ class OwnedEntrypointTests(unittest.TestCase):
                 identity.subprocess,
                 "run",
                 return_value=subprocess.CompletedProcess(
-                    [], 0, (AGENTS["kimi"]["version"] + "\n").encode(), b""
+                    [], 0, (AGENTS["cursor"]["version"] + "\n").encode(), b""
                 ),
             ) as run,
         ):
             self.assertEqual(
-                identity.probe_version(AGENTS["kimi"], path, "wsl"),
-                (AGENTS["kimi"]["version"] + "\n", digest),
+                identity.probe_version(AGENTS["cursor"], path, "wsl"),
+                (AGENTS["cursor"]["version"] + "\n", digest),
             )
             self.assertEqual(
                 run.call_args.args[0],
                 ["wsl.exe", "--distribution", "Ubuntu", "--", path, "--version"],
             )
+
+
+class KimiUpdateStateTests(unittest.TestCase):
+    def test_updater_artifacts_refuse_both_launch_checks_without_mutation(self):
+        for name in (".staging", "kimi.bak", "kimi.123.bak"):
+            for directory in (False, True):
+                with (
+                    self.subTest(name=name, directory=directory),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    executable = Path(temporary) / "kimi"
+                    executable.write_bytes(b"selected entrypoint")
+                    artifact = executable.parent / name
+                    if directory:
+                        artifact.mkdir()
+                        (artifact / "sentinel").write_bytes(b"keep")
+                    else:
+                        artifact.write_bytes(b"keep")
+                    before = sorted(
+                        (p.name, p.is_dir()) for p in executable.parent.iterdir()
+                    )
+                    with mock.patch.object(identity.subprocess, "run") as run:
+                        with self.assertRaisesRegex(
+                            RuntimeError, "adjacent native update"
+                        ):
+                            identity.probe_version(
+                                AGENTS["kimi"], str(executable), "native"
+                            )
+                        with self.assertRaisesRegex(
+                            RuntimeError, "adjacent native update"
+                        ):
+                            identity.verify_live_entrypoint(
+                                {
+                                    "agent": "kimi",
+                                    "executable": str(executable),
+                                    "runtime": "native",
+                                    "executable_sha256": "a" * 64,
+                                }
+                            )
+                        run.assert_not_called()
+                    self.assertEqual(
+                        before,
+                        sorted(
+                            (p.name, p.is_dir()) for p in executable.parent.iterdir()
+                        ),
+                    )
+                    self.assertEqual(executable.read_bytes(), b"selected entrypoint")
+                    self.assertEqual(
+                        (artifact / "sentinel" if directory else artifact).read_bytes(),
+                        b"keep",
+                    )
+
+    def test_user_backups_and_non_ascii_pid_names_remain_allowed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "kimi"
+            executable.write_bytes(b"selected")
+            for name in (
+                "kimi.config.bak",
+                "kimi.12x.bak",
+                "kimi.\u0661.bak",
+                "another.bak",
+            ):
+                (executable.parent / name).write_bytes(b"keep")
+            identity.require_kimi_ready(str(executable), "native")
+            self.assertTrue(
+                all(
+                    p.read_bytes() == b"keep"
+                    for p in executable.parent.iterdir()
+                    if p != executable
+                )
+            )
+
+    def test_resolved_target_and_dangling_updater_links_are_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target_dir = base / "target"
+            target_dir.mkdir()
+            target = target_dir / "kimi"
+            target.write_bytes(b"selected")
+            alias = base / "alias"
+            try:
+                alias.symlink_to(target)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+            identity.require_kimi_ready(str(alias), "native")
+            for name in (".staging", "kimi.bak", "kimi.123.bak"):
+                with self.subTest(name=name):
+                    artifact = target_dir / name
+                    artifact.symlink_to(target_dir / "missing")
+                    with self.assertRaisesRegex(RuntimeError, "adjacent native update"):
+                        identity.require_kimi_ready(str(alias), "native")
+                    self.assertTrue(artifact.is_symlink())
+                    artifact.unlink()
+            self.assertEqual(target.read_bytes(), b"selected")
+
+    def test_inspection_errors_and_unsupported_runtime_refuse_before_spawn(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "kimi"
+            executable.write_bytes(b"selected")
+            for operation in ("resolve", "iterdir"):
+                with (
+                    self.subTest(operation=operation),
+                    mock.patch.object(
+                        Path, operation, side_effect=PermissionError("blocked")
+                    ),
+                    mock.patch.object(identity.subprocess, "run") as run,
+                    self.assertRaisesRegex(RuntimeError, "cannot inspect"),
+                ):
+                    identity.probe_version(AGENTS["kimi"], str(executable), "native")
+                run.assert_not_called()
+            with (
+                mock.patch.object(identity, "host_controls_wsl", return_value=True),
+                mock.patch.object(identity.subprocess, "run") as run,
+                self.assertRaisesRegex(RuntimeError, "native entrypoint"),
+            ):
+                identity.probe_version(AGENTS["kimi"], str(executable), "wsl")
+            run.assert_not_called()
 
 
 class ReceiptAdmissionTests(unittest.TestCase):
@@ -564,10 +682,8 @@ class ReceiptAdmissionTests(unittest.TestCase):
             path.chmod(0o755)
             output, digest = identity.probe_version(AGENTS["kimi"], str(path), "native")
             self.assertEqual(output, version + "\n")
-            self.assertEqual(
-                identity.probe_version(AGENTS["kimi"], str(path), "wsl"),
-                (output, digest),
-            )
+            with self.assertRaisesRegex(RuntimeError, "native entrypoint"):
+                identity.probe_version(AGENTS["kimi"], str(path), "wsl")
             receipt = self.receipt()
             receipt.update(executable=str(path), executable_sha256=digest)
             with mock.patch.object(
@@ -582,7 +698,8 @@ class ReceiptAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exact supervised version"):
                 identity.probe_version(AGENTS["kimi"], str(path), "native")
 
-    def test_probe_failure_timeout_encoding_and_changed_bytes(self):
+    @mock.patch.object(identity, "require_kimi_ready")
+    def test_probe_failure_timeout_encoding_and_changed_bytes(self, ready):
         agent = AGENTS["kimi"]
         for result in [
             subprocess.CompletedProcess(
