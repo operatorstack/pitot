@@ -219,6 +219,82 @@ function matchesShellResult(message, command, nonce, phase) {
   }
 }
 
+function rejectionShape(reason) {
+  const result = { reason_shape: "other" };
+  if (typeof reason !== "string") return { reason_shape: "malformed" };
+  const settings =
+    "To view or modify configured hooks, go to Cursor Settings > Hooks.";
+  const note = "Agent note: Do not suggest workarounds to the blocked tool.";
+  const header = "Command execution was blocked by a hook: ";
+  const suffix = `\n\n${settings}\n\n${note}`;
+  const closed =
+    "Tool blocked because this hook is configured to fail closed (block when it fails). ";
+  const execution = "Hook execution failed: ";
+  const unsafeStart = "Command blocked: cannot verify working directory `";
+  const unsafeEnd =
+    "` while resolving symlinks. This can happen when access is denied or the path contains a symlink loop.";
+  const unsafe = (value) =>
+    value.startsWith(unsafeStart) && value.endsWith(unsafeEnd);
+  let body;
+  if (reason === `Command execution was blocked by a hook.${suffix}`) body = "";
+  else if (reason.startsWith(header) && reason.endsWith(suffix)) {
+    body = reason.slice(header.length, -suffix.length);
+    if (body.includes(note)) return { reason_shape: "ambiguous" };
+  } else if (reason.startsWith(header) && reason.endsWith(`\n\n${settings}`)) {
+    const candidate = reason.slice(header.length, -`\n\n${settings}`.length);
+    if (candidate.includes(note)) body = candidate;
+  }
+  if (body !== undefined) {
+    if (reason.split(settings).length !== 2)
+      return { reason_shape: "ambiguous" };
+    result.reason_shape = "hook_block_shape";
+    result.fail_closed = body.startsWith(closed);
+    const validation = result.fail_closed ? body.slice(closed.length) : body;
+    if (
+      /^Hook "[\s\S]*" returned invalid JSON(?:\. The command was blocked for safety)?\.$/.test(
+        validation,
+      )
+    ) {
+      result.reason_shape = "hook_output_validation_shape";
+      result.validation_kind = "json";
+    } else if (
+      /^Hook "[\s\S]*" returned (?:invalid response\.|an invalid response for this hook step\. The command was blocked for safety\.)$/.test(
+        validation,
+      )
+    ) {
+      result.reason_shape = "hook_output_validation_shape";
+      result.validation_kind = "response";
+    } else if (body.startsWith(closed + execution)) {
+      result.reason_shape = "hook_execution_error_shape";
+      const detail = body.slice((closed + execution).length);
+      result.hook_detail_bytes = Buffer.byteLength(detail, "utf8");
+      result.hook_detail_sha256 = createHash("sha256")
+        .update(detail, "utf8")
+        .digest("hex");
+      if (unsafe(detail)) {
+        result.unsafe_cwd_shape = true;
+        result.cwd_slot_empty = detail === unsafeStart + unsafeEnd;
+        result.reason_location = "hookdetail";
+      }
+    }
+    return result;
+  }
+  if (unsafe(reason))
+    return {
+      reason_shape: "unsafe_cwd_resolution_shape",
+      cwd_slot_empty: reason === unsafeStart + unsafeEnd,
+      reason_location: "direct",
+    };
+  if (reason === "Command is not allowed")
+    return {
+      reason_shape: "generic_native_block_ambiguous",
+      approval_origin: "unknown_from_reason",
+    };
+  if (reason === "Command aborted")
+    return { reason_shape: "native_abort_shape" };
+  return result;
+}
+
 function shellObservation(message, commands, nonce) {
   const digest = (value) => createHash("sha256").update(value).digest("hex");
   const frame = { frame_length: message.length, frame_sha256: digest(message) };
@@ -302,6 +378,7 @@ function shellObservation(message, commands, nonce) {
         observation.is_readonly = readonly === 1n;
       }
     }
+    if (tag === 4) Object.assign(observation, rejectionShape(reason));
     observation.error_class =
       reason === "Parsing result is required"
         ? "missing_parsing_result"
@@ -468,6 +545,62 @@ function outstandingPhase(state, sent) {
 
 const args = parseArgs(process.argv);
 if (process.argv.includes("--self-test")) {
+  const settings =
+    "To view or modify configured hooks, go to Cursor Settings > Hooks.";
+  const note = "Agent note: Do not suggest workarounds to the blocked tool.";
+  const frameReason = (body) =>
+    `Command execution was blocked by a hook: ${body}\n\n${settings}\n\n${note}`;
+  const closed =
+    "Tool blocked because this hook is configured to fail closed (block when it fails). ";
+  const unsafe =
+    "Command blocked: cannot verify working directory `` while resolving symlinks. This can happen when access is denied or the path contains a symlink loop.";
+  for (const [reason, expected] of [
+    [
+      `Command execution was blocked by a hook.\n\n${settings}\n\n${note}`,
+      "hook_block_shape",
+    ],
+    [frameReason("dynamic diagnostic message"), "hook_block_shape"],
+    [
+      frameReason(closed + "Hook execution failed: hidden/path/secret"),
+      "hook_execution_error_shape",
+    ],
+    [
+      frameReason(closed + 'Hook "hidden/path/secret" returned invalid JSON.'),
+      "hook_output_validation_shape",
+    ],
+    [
+      frameReason(
+        'Hook "hidden/path/secret" returned an invalid response for this hook step. The command was blocked for safety.',
+      ),
+      "hook_output_validation_shape",
+    ],
+    [unsafe, "unsafe_cwd_resolution_shape"],
+    ["Command is not allowed", "generic_native_block_ambiguous"],
+    ["Command aborted", "native_abort_shape"],
+    ["quoted: " + frameReason("body"), "other"],
+    [frameReason(settings), "ambiguous"],
+    [frameReason("body " + note), "ambiguous"],
+    ["Hook execution failed: hidden/path/secret", "other"],
+    [null, "malformed"],
+  ]) {
+    const observed = rejectionShape(reason);
+    if (
+      observed.reason_shape !== expected ||
+      JSON.stringify(observed).includes("hidden/path/secret")
+    )
+      throw new Error(
+        "rejection shape diagnosis lost its boundary or exposed content",
+      );
+  }
+  const detailShape = rejectionShape(
+    frameReason(closed + "Hook execution failed: " + unsafe),
+  );
+  if (
+    !detailShape.unsafe_cwd_shape ||
+    !detailShape.cwd_slot_empty ||
+    detailShape.reason_location !== "hookdetail"
+  )
+    throw new Error("hook detail shape lost its source boundary");
   const command = "pitot-e2e-canary fixture-nonce";
   const message = shellExecution(command);
   const framed = connectEnvelope(message);

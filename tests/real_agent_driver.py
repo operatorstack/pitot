@@ -69,6 +69,13 @@ def cursor_failure_diagnostics(
             "content_type": str,
             "variant": str,
             "error_class": str,
+            "reason_shape": str,
+            "validation_kind": str,
+            "reason_location": str,
+            "approval_origin": str,
+            "fail_closed": bool,
+            "unsafe_cwd_shape": bool,
+            "cwd_slot_empty": bool,
             "routed_protocol": str,
             "source_sha": str,
             "client_message_kind": str,
@@ -83,6 +90,22 @@ def cursor_failure_diagnostics(
             "allow_canary_marker": bool,
             "signature_partial_match": bool,
         }
+        enums = {
+            "reason_shape": {
+                "other",
+                "malformed",
+                "ambiguous",
+                "hook_block_shape",
+                "hook_output_validation_shape",
+                "hook_execution_error_shape",
+                "unsafe_cwd_resolution_shape",
+                "generic_native_block_ambiguous",
+                "native_abort_shape",
+            },
+            "validation_kind": {"json", "response"},
+            "reason_location": {"direct", "hookdetail"},
+            "approval_origin": {"unknown_from_reason"},
+        }
         return {
             key: value[key][:512] if isinstance(value[key], str) else value[key]
             for key in keys
@@ -92,6 +115,7 @@ def cursor_failure_diagnostics(
             and (
                 not key.endswith("_sha256") or re.fullmatch(r"[0-9a-f]{64}", value[key])
             )
+            and (key not in enums or value[key] in enums[key])
         }
 
     state: dict[str, object] = {}
@@ -154,6 +178,15 @@ def cursor_failure_diagnostics(
                     "reason_bytes",
                     "reason_sha256",
                     "error_class",
+                    "reason_shape",
+                    "validation_kind",
+                    "reason_location",
+                    "approval_origin",
+                    "fail_closed",
+                    "unsafe_cwd_shape",
+                    "cwd_slot_empty",
+                    "hook_detail_bytes",
+                    "hook_detail_sha256",
                     "allow_canary_marker",
                 ),
             ),
