@@ -13,7 +13,7 @@
 
 <p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real action boundary → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>
 
-<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · Devin · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
+<p align="center"><sub>Supervised adapters: Claude · Cursor · Codex · Devin · DeepSeek Harness · GitHub Copilot CLI · Gemini · Kimi Code · OpenCode · Pi · Qwen Code</sub></p>
 
 <p align="center"><sub>Supervised runtime capabilities: action control · Consumer delivery · explicit request</sub></p>
 <!-- pitot-adapter-supervisor:end -->

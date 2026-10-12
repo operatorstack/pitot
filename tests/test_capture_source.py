@@ -59,6 +59,14 @@ class FixtureAPI:
                 index = len(self.artifacts)
                 check_id = 1000 + index
                 result = _result(agent_id, platform_id)
+                if agent_id == "deepseek":
+                    result["controller"]["native_tool_results"] = {
+                        "session_id": "controlled-fixture-session",
+                        "call_ids": ["pitot_tool_allow", "pitot_tool_deny"],
+                        "is_error": [False, True],
+                        "denial_code": "PITOT_DENIED",
+                        "session_sha256": "a" * 64,
+                    }
                 cell = copy.deepcopy(
                     next(
                         item
