@@ -35,6 +35,7 @@ jobs:
       - name: Verify native Windows capture source boundaries
         if: runner.os == 'Windows'
         run: |
+          python -c 'import hashlib,json,pathlib,subprocess; p=pathlib.Path("adapter-verification.json"); data=p.read_bytes(); committed=subprocess.check_output(["git","show","HEAD:adapter-verification.json"]); config=subprocess.run(["git","config","--get","core.autocrlf"],capture_output=True,text=True); print("core.autocrlf",config.returncode,config.stdout.strip()); print({"checkout_sha256":hashlib.sha256(data).hexdigest(),"git_sha256":hashlib.sha256(committed).hexdigest(),"record_sha256":json.loads(pathlib.Path("tests/endpoint-provenance.json").read_text())["source"]["catalog_sha256"],"checkout_crlf":data.count(bytes([13,10])),"git_crlf":committed.count(bytes([13,10]))})'
           python -m unittest discover -s tests -p test_capture_source.py
           python scripts/pitot_adapter_supervisor.py check
       - name: Test module (isolated)
