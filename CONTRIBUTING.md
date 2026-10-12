@@ -155,18 +155,33 @@ the selected current attempt; a partial rerun cannot borrow earlier cells.
 Local JSON files cannot authorize a capture refresh. Acquisition or validation
 failure preserves the accepted file; success replaces it atomically.
 
-The new schema3 record keeps wire cells and their hash meaning, and adds an
-inline index of the source run, job/check-run IDs and artifact digests. Review
-the redacted wire diff and source index before committing. Ordinary CI checks
-the committed record's consistency and never rewrites it. Historical schema2
-captures remain readable at their original scope and gain no retrospective
-source authentication.
+The schema4 record keeps wire cells and their hash meaning, and adds the
+`capture-direct/v1` producer profile to the source run, job/check-run IDs and
+artifact digests. Its sorted file hashes cover the capture orchestration,
+proxies, witness and canary helpers, catalog-declared integrations, and agent
+test wrappers. Acquisition checks these files against regular blobs in the
+approved Git tree and checks the local bytes again before publication. Ordinary
+verification compares the saved hashes with the supplied checkout; a later
+helper edit requires fresh capture evidence. JSON-only validation checks record
+structure and does not establish current checkout identity.
+
+Paths must be canonical relative paths. Local file or parent symlinks, Windows
+reparse points, nonregular files, and approved-tree symlinks or submodules are
+refused. Source files are limited to 1 MB and the selected tree listing to 1,000
+entries; truncated listings are refused. These checks cover file bytes, not
+executable permissions or a filesystem frozen against concurrent changes.
+
+Review the redacted wire diff, source index and producer hashes before committing.
+Ordinary CI never rewrites the record. Historical schema2 and schema3 captures
+remain readable at their original scopes; they gain no retrospective source or
+current-helper authentication.
 
 Source acquisition trusts GitHub and the reviewed producer workflow on its
 runner. Artifact metadata does not cryptographically attest the producing
 job: the job association also depends on that workflow's unique artifact names
 and host-assigned check-run context. This does not authenticate agent
-publishers or every program loaded by an agent. A copied source index cannot
+publishers, transitive compiled Go dependencies, or every program loaded by an
+agent. A copied source index cannot
 authenticate itself; fresh acquisition requires the selected run to remain
 available through GitHub.
 

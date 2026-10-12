@@ -15,8 +15,13 @@ import stat
 import subprocess
 import tempfile
 import zipfile
+from urllib.parse import quote
 
-from pitot_adapter_supervisor import validate_endpoint_value
+from pitot_adapter_supervisor import (
+    canonical_relative_path,
+    validate_endpoint_value,
+    validate_manifest,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +38,13 @@ PRODUCER_FILES = (
     "scripts/pitot_capture_source.py",
     "scripts/pitot_adapter_supervisor.py",
     ".github/scripts/pitot_e2e_report.py",
+    "tests/model_control_proxy.py",
+    "tests/cursor_control_proxy.mjs",
+    "tests/devin_control_proxy.py",
+    "tests/witness/main.go",
+    "internal/testrole/main.go",
 )
+PRODUCER_PROFILE = "capture-direct/v1"
 MAX_BYTES = 1_000_000
 MAX_RECORDS = 1000
 SOURCE_FIELDS = {
@@ -85,6 +96,76 @@ def digest(value: object, length: int = 64) -> bool:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
+
+
+def producer_paths(manifest: dict[str, object]) -> list[str]:
+    validate_manifest(manifest)
+    paths = set(PRODUCER_FILES)
+    for agent in manifest["agents"]:
+        paths.update(agent["artifacts"])
+        paths.add(f"tests/e2e_{agent['id']}_cli_test.sh")
+    require(
+        all(canonical_relative_path(path) for path in paths), "invalid producer path"
+    )
+    return sorted(paths)
+
+
+def local_producer_bytes(root: Path, path: str) -> bytes:
+    require(canonical_relative_path(path), "invalid producer path")
+    root = root.resolve(strict=True)
+    current = root
+    parts = path.split("/")
+    for index, part in enumerate(parts):
+        current = current / part
+        info = current.lstat()
+        require(
+            not stat.S_ISLNK(info.st_mode)
+            and not (getattr(info, "st_file_attributes", 0) & 0x400),
+            "producer file or parent is an alias",
+        )
+        require(
+            stat.S_ISREG(info.st_mode)
+            if index == len(parts) - 1
+            else stat.S_ISDIR(info.st_mode),
+            "producer path is not a regular file or directory parent",
+        )
+    require(current.resolve(strict=True).is_relative_to(root), "producer escapes root")
+    with current.open("rb") as stream:
+        data = stream.read(MAX_BYTES + 1)
+    require(len(data) <= MAX_BYTES, "local producer exceeds limit")
+    return data
+
+
+def validate_producer_index(source: dict, manifest: dict[str, object]) -> None:
+    rows = source.get("producer_files")
+    require(
+        source.get("producer_profile") == PRODUCER_PROFILE, "invalid producer profile"
+    )
+    expected = producer_paths(manifest)
+    require(
+        isinstance(rows, list) and len(rows) == len(expected),
+        "incomplete producer files",
+    )
+    for row, path in zip(rows, expected):
+        require(
+            isinstance(row, dict)
+            and set(row) == {"path", "sha256"}
+            and row["path"] == path
+            and digest(row["sha256"]),
+            "invalid producer file binding",
+        )
+
+
+def validate_current_producers(
+    root: Path, source: dict, manifest: dict[str, object]
+) -> None:
+    validate_producer_index(source, manifest)
+    for row in source["producer_files"]:
+        require(
+            hashlib.sha256(local_producer_bytes(root, row["path"])).hexdigest()
+            == row["sha256"],
+            f"capture producer differs from current checkout: {row['path']}",
+        )
 
 
 def strict_json(data: bytes) -> object:
@@ -209,13 +290,22 @@ def atomic_json(path: Path, value: object) -> None:
 
 
 def validate_source_index(
-    source: object, cells: list[dict[str, object]], manifest: dict[str, object]
+    source: object,
+    cells: list[dict[str, object]],
+    manifest: dict[str, object],
+    *,
+    producer_binding: bool = False,
 ) -> None:
     """Check committed consistency; this is not fresh GitHub authentication."""
     require(
-        isinstance(source, dict) and set(source) == INDEX_FIELDS,
+        isinstance(source, dict)
+        and set(source)
+        == INDEX_FIELDS
+        | ({"producer_profile", "producer_files"} if producer_binding else set()),
         "invalid capture source index",
     )
+    if producer_binding:
+        validate_producer_index(source, manifest)
     require(
         isinstance(source["repository"], str)
         and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source["repository"])
@@ -343,7 +433,9 @@ def validate_run(
 
 
 def source_bytes(client, path: str, source_sha: str) -> bytes:
-    value = client.request("GET", f"/contents/{path}?ref={source_sha}")
+    require(canonical_relative_path(path), "invalid source path")
+    encoded = "/".join(quote(part, safe="") for part in path.split("/"))
+    value = client.request("GET", f"/contents/{encoded}?ref={source_sha}")
     require(
         isinstance(value, dict)
         and value.get("type") == "file"
@@ -354,6 +446,66 @@ def source_bytes(client, path: str, source_sha: str) -> bytes:
     require(len(value["content"]) <= MAX_BYTES * 2, "source file exceeds limit")
     data = base64.b64decode(value["content"])
     require(len(data) <= MAX_BYTES, "source file exceeds limit")
+    return data
+
+
+def source_tree(client, source_sha: str) -> dict:
+    commit = client.request("GET", f"/git/commits/{source_sha}")
+    require(
+        isinstance(commit, dict)
+        and commit.get("sha") == source_sha
+        and isinstance(commit.get("tree"), dict)
+        and digest(commit["tree"].get("sha"), 40),
+        "invalid approved commit tree identity",
+    )
+    tree_sha = commit["tree"]["sha"]
+    tree = client.request("GET", f"/git/trees/{tree_sha}?recursive=1")
+    require(
+        isinstance(tree, dict)
+        and tree.get("sha") == tree_sha
+        and tree.get("truncated") is False
+        and isinstance(tree.get("tree"), list)
+        and len(tree["tree"]) <= MAX_RECORDS,
+        "invalid or truncated approved source tree",
+    )
+    entries = {}
+    for entry in tree["tree"]:
+        require(
+            isinstance(entry, dict)
+            and canonical_relative_path(entry.get("path"))
+            and digest(entry.get("sha"), 40)
+            and isinstance(entry.get("type"), str)
+            and isinstance(entry.get("mode"), str)
+            and (entry.get("type"), entry.get("mode"))
+            in {
+                ("tree", "040000"),
+                ("blob", "100644"),
+                ("blob", "100755"),
+                ("blob", "120000"),
+                ("commit", "160000"),
+            }
+            and entry["path"] not in entries,
+            "invalid or duplicate source tree path",
+        )
+        entries[entry["path"]] = entry
+    return entries
+
+
+def regular_source_bytes(client, tree: dict, path: str, source_sha: str) -> bytes:
+    entry = tree.get(path)
+    require(
+        isinstance(entry, dict)
+        and entry.get("type") == "blob"
+        and entry.get("mode") in {"100644", "100755"}
+        and digest(entry.get("sha"), 40),
+        "approved source path is not a regular blob",
+    )
+    data = source_bytes(client, path, source_sha)
+    blob = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+    require(
+        hashlib.sha1(blob, usedforsecurity=False).hexdigest() == entry["sha"],
+        "approved source blob bytes differ from tree",
+    )
     return data
 
 
@@ -422,11 +574,28 @@ def collect(
         workflow["id"],
     )
     attempt = run["run_attempt"]
+    tree = source_tree(client, source_sha)
+    catalog = regular_source_bytes(
+        client, tree, "adapter-verification.json", source_sha
+    )
+    require(
+        catalog == local_producer_bytes(root, "adapter-verification.json"),
+        "approved catalog differs from checkout",
+    )
+    approved_manifest = strict_json(catalog)
+    validate_manifest(approved_manifest)
+    require(
+        approved_manifest == manifest, "approved catalog differs from selected manifest"
+    )
     producer_bytes = {}
-    for path in PRODUCER_FILES:
-        producer_bytes[path] = source_bytes(client, path, source_sha)
+    for path in producer_paths(approved_manifest):
+        producer_bytes[path] = (
+            catalog
+            if path == "adapter-verification.json"
+            else regular_source_bytes(client, tree, path, source_sha)
+        )
         require(
-            producer_bytes[path] == (root / path).read_bytes(),
+            producer_bytes[path] == local_producer_bytes(root, path),
             "approved producer source differs from checkout",
         )
     jobs = listing(client, f"/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs")
@@ -611,12 +780,13 @@ def collect(
     )
     require(
         all(
-            (root / path).read_bytes() == data for path, data in producer_bytes.items()
+            local_producer_bytes(root, path) == data
+            for path, data in producer_bytes.items()
         ),
         "local producer changed during collection",
     )
     value = {
-        "schema_version": 3,
+        "schema_version": 4,
         "capture_policy": "pinned_real_cli_capture",
         "cells": cells,
         "source": {
@@ -631,6 +801,11 @@ def collect(
                 producer_bytes["adapter-verification.json"]
             ).hexdigest(),
             "artifacts": bindings,
+            "producer_profile": PRODUCER_PROFILE,
+            "producer_files": [
+                {"path": path, "sha256": hashlib.sha256(data).hexdigest()}
+                for path, data in producer_bytes.items()
+            ],
         },
     }
     validate_endpoint_value(value, manifest)

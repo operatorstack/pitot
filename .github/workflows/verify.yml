@@ -28,6 +28,15 @@ jobs:
           cache-dependency-path: go.sum
       - name: Show toolchain
         run: go version
+      - uses: actions/setup-python@v6
+        if: runner.os == 'Windows'
+        with:
+          python-version: "3.11"
+      - name: Verify native Windows capture source boundaries
+        if: runner.os == 'Windows'
+        run: |
+          python -m unittest discover -s tests -p test_capture_source.py
+          python scripts/pitot_adapter_supervisor.py check
       - name: Test module (isolated)
         env:
           GOWORK: "off"
