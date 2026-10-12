@@ -36,6 +36,23 @@ INTEGRATIONS = {"native_command_hook", "pi_extension", "opencode_plugin", "acp_c
 INSTALLERS = {"npm", "kimi_release", "cursor_release", "devin_release"}
 
 
+def canonical_relative_path(value: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.startswith("/")
+        or "\\" in value
+        or "\x00" in value
+        or any(part in {"", ".", ".."} for part in value.split("/"))
+    ):
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    return True
+
+
 class ContractError(ValueError):
     pass
 
@@ -138,11 +155,12 @@ def validate_manifest(value: object) -> None:
         artifact_prefix = f"integrations/{agent_id}/"
         if (
             not isinstance(artifacts, list)
-            or len(artifacts) != len(set(artifacts))
             or any(
-                not isinstance(path, str) or not path.startswith(artifact_prefix)
+                not canonical_relative_path(path)
+                or not path.startswith(artifact_prefix)
                 for path in artifacts
             )
+            or len(artifacts) != len(set(artifacts))
         ):
             raise ContractError(
                 f"agent {agent_id} has invalid supervised integration artifacts"
@@ -180,13 +198,22 @@ def validate_endpoint_provenance(root: Path, manifest: dict[str, object]) -> Non
         raise ContractError(f"cannot load {ENDPOINT_PROVENANCE}: {error}") from error
     validate_endpoint_value(value, manifest)
     if (
-        value["schema_version"] == 3
+        value["schema_version"] in {3, 4}
         and value["source"]["catalog_sha256"]
         != hashlib.sha256((root / MANIFEST).read_bytes()).hexdigest()
     ):
         raise ContractError(
             "endpoint capture source catalog digest differs from current manifest"
         )
+    if value["schema_version"] == 4:
+        from pitot_capture_source import validate_current_producers
+
+        try:
+            validate_current_producers(root, value["source"], manifest)
+        except (OSError, ValueError, RuntimeError) as error:
+            raise ContractError(
+                f"invalid current capture producers: {error}"
+            ) from error
 
 
 def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
@@ -195,7 +222,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
         "capture_policy",
         "cells",
     }
-    if isinstance(value, dict) and value.get("schema_version") == 3:
+    if isinstance(value, dict) and value.get("schema_version") in {3, 4}:
         required.add("source")
     if not isinstance(value, dict) or set(value) != required:
         raise ContractError(
@@ -203,7 +230,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
         )
     if (
         type(value["schema_version"]) is not int
-        or value["schema_version"] not in {2, 3}
+        or value["schema_version"] not in {2, 3, 4}
         or value["capture_policy"] != "pinned_real_cli_capture"
     ):
         raise ContractError("endpoint provenance must require pinned real-CLI capture")
@@ -341,11 +368,16 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
             raise ContractError(
                 f"endpoint fixture {agent_id}/{platform} has a fabricated capture digest"
             )
-    if value["schema_version"] == 3:
+    if value["schema_version"] in {3, 4}:
         from pitot_capture_source import validate_source_index
 
         try:
-            validate_source_index(value["source"], cells, manifest)
+            validate_source_index(
+                value["source"],
+                cells,
+                manifest,
+                producer_binding=value["schema_version"] == 4,
+            )
         except (ValueError, KeyError, TypeError) as error:
             raise ContractError(f"invalid endpoint capture source: {error}") from error
 
