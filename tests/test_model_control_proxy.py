@@ -1080,5 +1080,60 @@ class ModelControlProtocolTests(unittest.TestCase):
                     process.communicate(timeout=5)
 
 
+class CursorFixtureIdentityTests(unittest.TestCase):
+    def test_native_windows_resolves_existing_owned_root_once(self):
+        original, canonical = mock.Mock(), mock.Mock()
+        original.resolve.return_value = canonical
+        canonical.samefile.return_value = True
+        with mock.patch.object(driver, "windows_host", return_value=True):
+            self.assertIs(
+                driver.owned_fixture_base(original, "cursor", "native"), canonical
+            )
+        original.resolve.assert_called_once_with(strict=True)
+        canonical.samefile.assert_called_once_with(original)
+
+    def test_other_hosts_and_runtimes_keep_the_original_root(self):
+        for agent, runtime, windows in (
+            ("cursor", "native", False),
+            ("cursor", "wsl", True),
+            ("claude", "native", True),
+        ):
+            with self.subTest(agent=agent, runtime=runtime, windows=windows):
+                original = mock.Mock()
+                with mock.patch.object(driver, "windows_host", return_value=windows):
+                    self.assertIs(
+                        driver.owned_fixture_base(original, agent, runtime), original
+                    )
+                original.resolve.assert_not_called()
+
+    def test_missing_or_unresolvable_root_refuses_without_fallback(self):
+        for error in (
+            FileNotFoundError(),
+            PermissionError(),
+            OSError(),
+            RuntimeError(),
+        ):
+            with self.subTest(error=type(error).__name__):
+                original = mock.Mock()
+                original.resolve.side_effect = error
+                with mock.patch.object(driver, "windows_host", return_value=True):
+                    with self.assertRaises(type(error)):
+                        driver.owned_fixture_base(original, "cursor", "native")
+                original.resolve.assert_called_once_with(strict=True)
+
+    def test_changed_or_unverifiable_identity_refuses(self):
+        for outcome in (False, PermissionError()):
+            original, canonical = mock.Mock(), mock.Mock()
+            original.resolve.return_value = canonical
+            if isinstance(outcome, Exception):
+                canonical.samefile.side_effect = outcome
+            else:
+                canonical.samefile.return_value = outcome
+            with self.subTest(outcome=outcome):
+                with mock.patch.object(driver, "windows_host", return_value=True):
+                    with self.assertRaises((RuntimeError, PermissionError)):
+                        driver.owned_fixture_base(original, "cursor", "native")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1315,6 +1315,16 @@ def validate_receipts(
     }
 
 
+def owned_fixture_base(base: Path, agent: str, runtime: str) -> Path:
+    """Use one filesystem identity for native Windows Cursor fixture paths."""
+    if agent == "cursor" and windows_host() and runtime == "native":
+        canonical = base.resolve(strict=True)
+        if not canonical.samefile(base):
+            raise RuntimeError("Cursor temporary directory identity changed")
+        return canonical
+    return base
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", required=True)
@@ -1340,8 +1350,8 @@ def main() -> int:
             prefix="pitot-real-agent-", ignore_cleanup_errors=True
         ) as temporary,
     ):
-        base = Path(temporary)
         runtime = installation["runtime"]
+        base = owned_fixture_base(Path(temporary), args.agent, runtime)
         host_controls_wsl = runtime == "wsl" and os.name == "nt"
         home, project, bin_dir = base / "home", base / "project", base / "bin"
         home.mkdir()
