@@ -16,7 +16,7 @@ pitot doctor --host deepseek
 Start a prompt with your Pitot configuration:
 
 ```sh
-pitot dev --host deepseek --prompt "Inspect this project"
+pitot dev --host deepseek --prompt "Inspect this project" -- dsh
 ```
 
 Configure a shell Controller in `pitot.json`. Shell execution requires an

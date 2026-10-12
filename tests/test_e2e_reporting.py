@@ -377,6 +377,36 @@ class ResultGenerationTests(unittest.TestCase):
 
 
 class ReporterContractTests(unittest.TestCase):
+    def test_deepseek_requires_typed_native_result_receipts(self):
+        value = _result("deepseek")
+        native = {
+            "session_id": "session-id",
+            "call_ids": ["pitot_tool_allow", "pitot_tool_deny"],
+            "is_error": [False, True],
+            "denial_code": "PITOT_DENIED",
+            "session_sha256": "a" * 64,
+        }
+        value["controller"]["native_tool_results"] = native
+        self.assertIs(
+            reporter.validate_result(value, agent="deepseek", platform="ubuntu"), value
+        )
+        for key, invalid in [
+            ("call_ids", ["foreign", "pitot_tool_deny"]),
+            ("is_error", [0, 1]),
+            ("denial_code", "UNKNOWN"),
+            ("session_sha256", "invalid"),
+            ("session_sha256", int("1" * 64)),
+            ("session_id", " "),
+        ]:
+            original = native[key]
+            native[key] = invalid
+            with self.assertRaises(ValueError):
+                reporter.validate_result(value, agent="deepseek", platform="ubuntu")
+            native[key] = original
+        del value["controller"]["native_tool_results"]
+        with self.assertRaises(ValueError):
+            reporter.validate_result(value, agent="deepseek", platform="ubuntu")
+
     def test_artifact_listing_includes_inventory_beyond_default_page(self):
         github = reporter.GitHub("operatorstack/pitot", "test-token")
         calls = []
