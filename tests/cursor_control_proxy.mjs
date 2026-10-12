@@ -8,6 +8,7 @@ import http from "node:http";
 import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 function parseArgs(argv) {
   const values = {};
@@ -71,6 +72,7 @@ function envelopeShapes(body) {
         Buffer.from(`PITOT_CANARY_RESULT ${args.nonce}`),
       ),
       printable,
+      client_message_kind: clientMessageKind(message),
     });
     offset += 5 + length;
   }
@@ -217,6 +219,108 @@ function matchesShellResult(message, command, nonce, phase) {
   }
 }
 
+function shellObservation(message, commands, nonce) {
+  const digest = (value) => createHash("sha256").update(value).digest("hex");
+  const frame = { frame_length: message.length, frame_sha256: digest(message) };
+  try {
+    const top = protobufFields(message);
+    const executionBytes = singleField(top, 2, 2);
+    if (!executionBytes) return null;
+    if (top.filter((f) => f.number >= 1 && f.number <= 8).length !== 1)
+      throw new Error("ambiguous execution");
+    const execution = protobufFields(executionBytes);
+    const shell = singleField(execution, 2, 2);
+    if (!shell) return null;
+    const resultNumbers = new Set([
+      2, 3, 4, 5, 7, 8, 9, 10, 11, 14, 16, 17, 18, 20, 21, 22, 23, 27, 28, 29,
+      30, 31, 36, 37, 38, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53,
+      54, 55, 56,
+    ]);
+    if (execution.filter((f) => resultNumbers.has(f.number)).length !== 1)
+      throw new Error("ambiguous result");
+    const id = singleField(execution, 1, 0) ?? 0n;
+    if (id > 0xffffffffn) throw new Error("invalid uint32");
+    const echo = stringField(execution, 15);
+    const results = protobufFields(shell);
+    const variants = {
+      1: "success",
+      2: "failure",
+      3: "timeout",
+      4: "rejected",
+      5: "spawn_error",
+      7: "permission_denied",
+    };
+    const selected = results.filter((f) => Object.hasOwn(variants, f.number));
+    if (selected.length !== 1 || selected[0].wire !== 2)
+      throw new Error("ambiguous shell variant");
+    const tag = selected[0].number;
+    const details = protobufFields(selected[0].value);
+    const command = stringField(details, 1);
+    stringField(details, 2);
+    const phase = id === 1n ? "allow" : id === 2n ? "deny" : null;
+    const exactCommand = phase !== null && command === commands[phase];
+    const observation = {
+      ...frame,
+      native_id: Number(id),
+      variant: variants[tag],
+      issued_phase_id_match: phase !== null,
+      command_sha256: digest(Buffer.from(command, "utf8")),
+      issued_exact_command_match: exactCommand,
+      nonce_bound: exactCommand && command.includes(nonce),
+      exec_id_present: echo !== "",
+      exec_id_sha256: digest(Buffer.from(echo, "utf8")),
+      exec_id_match:
+        echo === "" || (phase !== null && echo === `pitot-exec-${phase}`),
+    };
+    const retainTextShape = (name, field) => {
+      const value = stringField(details, field);
+      const bytes = Buffer.from(value, "utf8");
+      observation[`${name}_bytes`] = bytes.length;
+      observation[`${name}_sha256`] = digest(bytes);
+      return value;
+    };
+    let reason = "";
+    if (tag === 1 || tag === 2) {
+      observation.exit_code = Number(
+        BigInt.asIntN(32, singleField(details, 3, 0) ?? 0n),
+      );
+      stringField(details, 4);
+      const stdout = retainTextShape("stdout", 5);
+      reason = retainTextShape("stderr", 6);
+      observation.allow_canary_marker = stdout
+        .split(/\r?\n/)
+        .includes(`PITOT_CANARY_RESULT PITOT_ALLOW ${nonce}`);
+    } else if (tag === 3) {
+      observation.timeout_ms = Number(
+        BigInt.asIntN(32, singleField(details, 3, 0) ?? 0n),
+      );
+    } else {
+      reason = retainTextShape("reason", 3);
+      if (tag === 4 || tag === 7) {
+        const readonly = singleField(details, 4, 0) ?? 0n;
+        if (![0n, 1n].includes(readonly)) throw new Error("invalid bool");
+        observation.is_readonly = readonly === 1n;
+      }
+    }
+    observation.error_class =
+      reason === "Parsing result is required"
+        ? "missing_parsing_result"
+        : reason === "Command blocked by permissions configuration"
+          ? "permissions_configuration_block"
+          : reason ===
+              "Neither 'pwsh' (PowerShell Core) nor 'powershell' (Windows PowerShell) found in PATH"
+            ? "shell_selection_unavailable"
+            : "other";
+    return observation;
+  } catch {
+    return {
+      ...frame,
+      variant: "malformed",
+      error_class: "malformed_native_result",
+    };
+  }
+}
+
 function connectReader() {
   let pending = Buffer.alloc(0);
   let refused = false;
@@ -242,6 +346,84 @@ function connectReader() {
     }
     return messages;
   };
+}
+
+function clientMessageKind(message) {
+  try {
+    const kinds = {
+      1: "run_request",
+      2: "exec_client_message",
+      3: "kv_client_message",
+      4: "conversation_action",
+      5: "exec_client_control_message",
+      6: "interaction_response",
+      7: "client_heartbeat",
+      8: "prewarm_request",
+    };
+    const known = protobufFields(message).filter((f) =>
+      Object.hasOwn(kinds, f.number),
+    );
+    if (known.length === 0) return "unknown";
+    return known.length === 1 && known[0].wire === 2
+      ? kinds[known[0].number]
+      : "malformed";
+  } catch {
+    return "malformed";
+  }
+}
+
+function controlObservation(message, nonce) {
+  const digest = (value) => createHash("sha256").update(value).digest("hex");
+  const frame = { frame_length: message.length, frame_sha256: digest(message) };
+  try {
+    const top = protobufFields(message);
+    const control = singleField(top, 5, 2);
+    if (!control) return null;
+    if (clientMessageKind(message) !== "exec_client_control_message")
+      throw new Error("ambiguous control");
+    const variants = { 1: "stream_close", 2: "throw", 3: "heartbeat" };
+    const known = protobufFields(control).filter((f) =>
+      Object.hasOwn(variants, f.number),
+    );
+    if (known.length !== 1 || known[0].wire !== 2)
+      throw new Error("ambiguous control variant");
+    const fields = protobufFields(known[0].value);
+    const id = singleField(fields, 1, 0) ?? 0n;
+    if (id > 0xffffffffn) throw new Error("invalid uint32");
+    const result = {
+      ...frame,
+      variant: variants[known[0].number],
+      native_id: Number(id),
+      issued_phase_id_match: [1n, 2n].includes(id),
+      nonce_present: message.includes(Buffer.from(nonce)),
+    };
+    if (known[0].number === 2) {
+      let error = "";
+      for (const [name, number] of [
+        ["error", 2],
+        ["stack_trace", 3],
+        ["error_code", 4],
+      ]) {
+        const value = stringField(fields, number);
+        const bytes = Buffer.from(value, "utf8");
+        result[`${name}_bytes`] = bytes.length;
+        result[`${name}_sha256`] = digest(bytes);
+        if (number === 2) error = value;
+      }
+      result.error_class =
+        error ===
+        "Neither 'pwsh' (PowerShell Core) nor 'powershell' (Windows PowerShell) found in PATH"
+          ? "shell_selection_unavailable"
+          : "other";
+    }
+    return result;
+  } catch {
+    return {
+      ...frame,
+      variant: "malformed",
+      error_class: "malformed_control_message",
+    };
+  }
 }
 
 function textUpdate(text) {
@@ -415,6 +597,140 @@ if (process.argv.includes("--self-test")) {
       throw new Error("unrelated or malformed allowed result admitted");
   }
   const deniedCommand = quotedCommand.replace("PITOT_ALLOW", "PITOT_DENY");
+  const diagnosticCommands = { allow: quotedCommand, deny: deniedCommand };
+  const controlThrow = fieldBytes(
+    5,
+    fieldBytes(
+      2,
+      Buffer.concat([
+        fieldVarint(1, 1),
+        fieldBytes(
+          2,
+          "Neither 'pwsh' (PowerShell Core) nor 'powershell' (Windows PowerShell) found in PATH",
+        ),
+        fieldBytes(3, "private stack"),
+        fieldBytes(4, "private code"),
+      ]),
+    ),
+  );
+  const controlSummary = controlObservation(controlThrow, nonce);
+  if (
+    clientMessageKind(controlThrow) !== "exec_client_control_message" ||
+    controlSummary.variant !== "throw" ||
+    controlSummary.native_id !== 1 ||
+    controlSummary.error_class !== "shell_selection_unavailable" ||
+    Object.hasOwn(controlSummary, "issued_exact_command_match") ||
+    /private stack|private code/.test(JSON.stringify(controlSummary)) ||
+    shellObservation(controlThrow, diagnosticCommands, nonce) !== null
+  )
+    throw new Error(
+      "control diagnostic conflated shell results or exposed content",
+    );
+  if (
+    clientMessageKind(Buffer.concat([controlThrow, controlThrow])) !==
+      "malformed" ||
+    controlObservation(Buffer.concat([controlThrow, controlThrow]), nonce)
+      .variant !== "malformed"
+  )
+    throw new Error("ambiguous control diagnostic admitted");
+  const spawned = shellObservation(
+    clientResult({
+      tag: 5,
+      reason: "Parsing result is required",
+    }),
+    diagnosticCommands,
+    nonce,
+  );
+  if (
+    spawned.variant !== "spawn_error" ||
+    spawned.native_id !== 1 ||
+    !spawned.issued_exact_command_match ||
+    spawned.error_class !== "missing_parsing_result" ||
+    JSON.stringify(spawned).includes("C:/private/path")
+  )
+    throw new Error(
+      "native spawn diagnostic lost correlation or exposed content",
+    );
+  if (shellObservation(valid, diagnosticCommands, nonce).variant !== "success")
+    throw new Error("native success diagnostic refused");
+  const failure = fieldBytes(
+    2,
+    Buffer.concat([
+      fieldVarint(1, 1),
+      fieldBytes(
+        2,
+        fieldBytes(
+          2,
+          Buffer.concat([
+            fieldBytes(1, quotedCommand),
+            Buffer.from([
+              0x18, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+            ]),
+            fieldBytes(6, "private stderr content"),
+          ]),
+        ),
+      ),
+    ]),
+  );
+  const failedObservation = shellObservation(
+    failure,
+    diagnosticCommands,
+    nonce,
+  );
+  if (
+    failedObservation.variant !== "failure" ||
+    failedObservation.exit_code !== -1 ||
+    JSON.stringify(failedObservation).includes("private stderr content")
+  )
+    throw new Error(
+      "signed failure diagnostic was misdecoded or exposed stderr",
+    );
+  for (const [tag, expected] of [
+    [4, "rejected"],
+    [7, "permission_denied"],
+  ]) {
+    if (
+      shellObservation(clientResult({ tag }), diagnosticCommands, nonce)
+        .variant !== expected
+    )
+      throw new Error("native rejection diagnostic refused");
+  }
+  const timeout = fieldBytes(
+    2,
+    Buffer.concat([
+      fieldVarint(1, 1),
+      fieldBytes(
+        2,
+        fieldBytes(
+          3,
+          Buffer.concat([fieldBytes(1, quotedCommand), fieldVarint(3, 5000)]),
+        ),
+      ),
+    ]),
+  );
+  if (shellObservation(timeout, diagnosticCommands, nonce).timeout_ms !== 5000)
+    throw new Error("native timeout diagnostic refused");
+  if (
+    shellObservation(clientResult({ id: 3 }), diagnosticCommands, nonce)
+      .issued_phase_id_match
+  )
+    throw new Error("unrelated diagnostic ID correlated");
+  if (
+    shellObservation(
+      clientResult({ extra: fieldVarint(1, 1) }),
+      diagnosticCommands,
+      nonce,
+    ).variant !== "malformed"
+  )
+    throw new Error("ambiguous native diagnostic admitted");
+  if (
+    shellObservation(
+      fieldBytes(1, Buffer.from(nonce)),
+      diagnosticCommands,
+      nonce,
+    ) !== null
+  )
+    throw new Error("non-execution frame diagnosed as a shell result");
   const denied = clientResult({ id: 2, tag: 4, resultCommand: deniedCommand });
   if (!matchesShellResult(denied, deniedCommand, nonce, "deny"))
     throw new Error("typed rejected result refused");
@@ -517,7 +833,25 @@ const receipt = {
   cursor_requests: [],
   response_attempts: { allow: 0, deny: 0, final: 0 },
   transport_errors: [],
+  native_shell_results: [],
+  native_control_results: [],
+  control_heartbeats: 0,
+  front_connections: [],
 };
+
+let eventSequence = 0;
+let connectionSequence = 0;
+let runSequence = 0;
+const backendConnections = new Map();
+const connectionId = (socket) =>
+  backendConnections.get(socket?.remotePort) ?? null;
+function sessionConnectionId(session) {
+  try {
+    return connectionId(session?.socket);
+  } catch {
+    return null;
+  }
+}
 
 function save() {
   const temporary = `${args.receipt}.tmp`;
@@ -530,16 +864,23 @@ function save() {
 
 const h2Server = http2.createServer();
 
-function recordTransportError(scope, error) {
+function recordTransportError(scope, error, context = {}) {
   receipt.transport_errors.push({
     scope,
     code: String(error?.code || "unknown"),
+    ...context,
+    event_sequence: ++eventSequence,
   });
   receipt.transport_errors = receipt.transport_errors.slice(-20);
   save();
 }
 
 h2Server.on("stream", (stream, headers) => {
+  const context = {
+    connection_id: connectionId(stream.session.socket),
+    stream_id: stream.id,
+    attempt_id: ++runSequence,
+  };
   const path = String(headers[":path"] || "").split("?", 1)[0];
   const contentType = String(headers["content-type"] || "");
   const chunks = [];
@@ -548,9 +889,45 @@ h2Server.on("stream", (stream, headers) => {
   let allowSent = false;
   let denySent = false;
   let finalSent = false;
-  stream.on("error", (error) => recordTransportError("run_stream", error));
+  stream.on("error", (error) =>
+    recordTransportError("run_stream", error, context),
+  );
   stream.on("data", (chunk) => {
     const messages = readMessages(chunk);
+    for (const message of messages) {
+      const observation = shellObservation(
+        message,
+        {
+          allow: phaseCommand("allow"),
+          deny: phaseCommand("deny"),
+        },
+        args.nonce,
+      );
+      if (observation)
+        receipt.native_shell_results.push({
+          ...observation,
+          ...context,
+          source_sha: /^[0-9a-f]{40}$/.test(args["source-sha"] || "")
+            ? args["source-sha"]
+            : "unbound",
+          event_sequence: ++eventSequence,
+        });
+    }
+    for (const message of messages) {
+      const control = controlObservation(message, args.nonce);
+      if (control?.variant === "heartbeat") receipt.control_heartbeats += 1;
+      else if (control)
+        receipt.native_control_results.push({
+          ...control,
+          ...context,
+          source_sha: /^[0-9a-f]{40}$/.test(args["source-sha"] || "")
+            ? args["source-sha"]
+            : "unbound",
+          event_sequence: ++eventSequence,
+        });
+    }
+    receipt.native_shell_results = receipt.native_shell_results.slice(-8);
+    receipt.native_control_results = receipt.native_control_results.slice(-8);
     chunks.push(chunk);
     const body = Buffer.concat(chunks);
     receipt.cursor_inbound = {
@@ -578,6 +955,7 @@ h2Server.on("stream", (stream, headers) => {
         path,
         content_type: contentType,
         request_bytes: body.length,
+        ...context,
       };
       save();
       stream.respond({
@@ -696,8 +1074,10 @@ h2Server.on("stream", (stream, headers) => {
     stream.end(contentType.includes("json") ? Buffer.from("{}") : payload);
   });
 });
-h2Server.on("sessionError", (error) =>
-  recordTransportError("h2_session", error),
+h2Server.on("sessionError", (error, session) =>
+  recordTransportError("h2_session", error, {
+    connection_id: sessionConnectionId(session),
+  }),
 );
 h2Server.on("error", (error) => recordTransportError("h2_server", error));
 
@@ -725,23 +1105,44 @@ const http1Server = http.createServer((request, response) => {
   });
 });
 http1Server.on("clientError", (error, socket) => {
-  recordTransportError("http1_client", error);
+  recordTransportError("http1_client", error, {
+    connection_id: connectionId(socket),
+  });
   socket.destroy();
 });
 http1Server.on("error", (error) => recordTransportError("http1_server", error));
 
 const frontServer = net.createServer((client) => {
-  client.on("error", (error) => recordTransportError("front_client", error));
+  const id = ++connectionSequence;
+  client.on("error", (error) =>
+    recordTransportError("front_client", error, { connection_id: id }),
+  );
   client.once("data", (first) => {
     const isHttp2 = first.subarray(0, 14).toString() === "PRI * HTTP/2.0";
+    const signature = Buffer.from("PRI * HTTP/2.0");
+    receipt.front_connections.push({
+      connection_id: id,
+      first_data_bytes: first.length,
+      signature_partial_match: first
+        .subarray(0, Math.min(first.length, 14))
+        .equals(signature.subarray(0, Math.min(first.length, 14))),
+      routed_protocol: isHttp2 ? "http2" : "http1",
+      event_sequence: ++eventSequence,
+    });
+    receipt.front_connections = receipt.front_connections.slice(-20);
+    save();
     const target = isHttp2
       ? h2Server.address().port
       : http1Server.address().port;
-    const backend = net.connect(target, "127.0.0.1", () =>
-      backend.write(first),
-    );
+    let backendPort;
+    const backend = net.connect(target, "127.0.0.1", () => {
+      backendPort = backend.localPort;
+      backendConnections.set(backendPort, id);
+      backend.write(first);
+    });
+    backend.on("close", () => backendConnections.delete(backendPort));
     backend.on("error", (error) => {
-      recordTransportError("front_backend", error);
+      recordTransportError("front_backend", error, { connection_id: id });
       client.destroy();
     });
     client.pipe(backend).pipe(client);

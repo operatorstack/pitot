@@ -67,13 +67,31 @@ def cursor_failure_diagnostics(
             "code": str,
             "path": str,
             "content_type": str,
+            "variant": str,
+            "error_class": str,
+            "routed_protocol": str,
+            "source_sha": str,
+            "client_message_kind": str,
             "nonce_present": bool,
             "canary_result_present": bool,
+            "issued_phase_id_match": bool,
+            "issued_exact_command_match": bool,
+            "nonce_bound": bool,
+            "exec_id_present": bool,
+            "exec_id_match": bool,
+            "is_readonly": bool,
+            "allow_canary_marker": bool,
+            "signature_partial_match": bool,
         }
         return {
             key: value[key][:512] if isinstance(value[key], str) else value[key]
             for key in keys
-            if key in value and type(value[key]) is types.get(key, int)
+            if key in value
+            and type(value[key])
+            is (str if key.endswith("_sha256") else types.get(key, int))
+            and (
+                not key.endswith("_sha256") or re.fullmatch(r"[0-9a-f]{64}", value[key])
+            )
         }
 
     state: dict[str, object] = {}
@@ -95,17 +113,109 @@ def cursor_failure_diagnostics(
             receipt.get("response_attempts"), ("allow", "deny", "final")
         )
         for key, names in (
-            ("transport_errors", ("scope", "code")),
+            (
+                "transport_errors",
+                (
+                    "scope",
+                    "code",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                ),
+            ),
             ("cursor_requests", ("path", "content_type", "request_bytes")),
+            (
+                "native_shell_results",
+                (
+                    "source_sha",
+                    "frame_length",
+                    "frame_sha256",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                    "native_id",
+                    "variant",
+                    "issued_phase_id_match",
+                    "command_sha256",
+                    "issued_exact_command_match",
+                    "nonce_bound",
+                    "exec_id_present",
+                    "exec_id_sha256",
+                    "exec_id_match",
+                    "exit_code",
+                    "timeout_ms",
+                    "is_readonly",
+                    "stdout_bytes",
+                    "stdout_sha256",
+                    "stderr_bytes",
+                    "stderr_sha256",
+                    "reason_bytes",
+                    "reason_sha256",
+                    "error_class",
+                    "allow_canary_marker",
+                ),
+            ),
+            (
+                "front_connections",
+                (
+                    "connection_id",
+                    "first_data_bytes",
+                    "signature_partial_match",
+                    "routed_protocol",
+                    "event_sequence",
+                ),
+            ),
+            (
+                "native_control_results",
+                (
+                    "source_sha",
+                    "frame_length",
+                    "frame_sha256",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                    "native_id",
+                    "variant",
+                    "issued_phase_id_match",
+                    "nonce_present",
+                    "error_class",
+                    "error_bytes",
+                    "error_sha256",
+                    "stack_trace_bytes",
+                    "stack_trace_sha256",
+                    "error_code_bytes",
+                    "error_code_sha256",
+                ),
+            ),
         ):
             values = receipt.get(key, [])
             state[key] = (
-                [fields(value, names) for value in values[-20:]]
+                [
+                    fields(value, names)
+                    for value in values[
+                        -(
+                            8
+                            if key in {"native_shell_results", "native_control_results"}
+                            else 20
+                        ) :
+                    ]
+                ]
                 if isinstance(values, list)
                 else []
             )
         state["cursor_run"] = fields(
-            receipt.get("cursor_run"), ("path", "content_type", "request_bytes")
+            receipt.get("cursor_run"),
+            (
+                "path",
+                "content_type",
+                "request_bytes",
+                "connection_id",
+                "stream_id",
+                "attempt_id",
+            ),
         )
         inbound = receipt.get("cursor_inbound", {})
         state["cursor_inbound"] = fields(inbound, ("request_bytes",))
@@ -113,7 +223,14 @@ def cursor_failure_diagnostics(
         state["cursor_inbound"]["envelopes"] = (
             [
                 fields(
-                    value, ("flags", "length", "nonce_present", "canary_result_present")
+                    value,
+                    (
+                        "flags",
+                        "length",
+                        "nonce_present",
+                        "canary_result_present",
+                        "client_message_kind",
+                    ),
                 )
                 for value in envelopes[-20:]
             ]
@@ -133,7 +250,19 @@ def cursor_failure_diagnostics(
             ],
         }
     state["carrier"] = carrier
-    return json.dumps(state, ensure_ascii=False, sort_keys=True)[:12000]
+    text = json.dumps(state, ensure_ascii=False, sort_keys=True)
+    for key in (
+        "cursor_requests",
+        "front_connections",
+        "transport_errors",
+        "native_shell_results",
+        "native_control_results",
+    ):
+        while len(text) > 12000 and len(state.get(key, [])) > 1:
+            state[key].pop(0)
+            state["diagnostics_trimmed"] = True
+            text = json.dumps(state, ensure_ascii=False, sort_keys=True)
+    return text[:12000]
 
 
 def hook_group(event: str, matcher: str, command: str) -> dict[str, object]:
@@ -1390,6 +1519,9 @@ def main() -> int:
                     "--response-fault",
                     args.response_fault,
                 ]
+            proxy_command.extend(
+                ["--source-sha", os.environ.get("PITOT_SOURCE_SHA", "")]
+            )
         elif args.agent == "devin":
             proxy_command = [
                 sys.executable,

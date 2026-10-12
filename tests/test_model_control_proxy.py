@@ -95,6 +95,50 @@ class ModelControlProtocolTests(unittest.TestCase):
             state = json.loads(driver.cursor_failure_diagnostics(root, root, nonce))
             self.assertEqual(state["receipt"], "missing, malformed or oversized")
 
+    def test_cursor_native_diagnostics_keep_identity_and_omit_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "proxy.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "native_shell_results": [
+                            {
+                                "source_sha": "a" * 40,
+                                "connection_id": 7,
+                                "stream_id": 11,
+                                "attempt_id": 3,
+                                "event_sequence": 4,
+                                "native_id": 1,
+                                "variant": "spawn_error",
+                                "command_sha256": "b" * 64,
+                                "issued_exact_command_match": True,
+                                "nonce_bound": True,
+                                "reason_sha256": "c" * 64,
+                                "reason_bytes": 100,
+                                "error_class": "missing_parsing_result",
+                                "reason": "private text",
+                                "frame_sha256": "not a digest private text",
+                            }
+                        ],
+                        "transport_errors": [
+                            {"scope": "run_stream", "code": "RESET", "connection_id": 7}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            text = driver.cursor_failure_diagnostics(receipt, root, "d" * 32)
+            self.assertNotIn("private text", text)
+            state = json.loads(text)
+            result = state["native_shell_results"][0]
+            self.assertEqual(
+                result["connection_id"], state["transport_errors"][0]["connection_id"]
+            )
+            self.assertEqual(result["variant"], "spawn_error")
+            self.assertEqual(result["command_sha256"], "b" * 64)
+            self.assertTrue(result["issued_exact_command_match"])
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "host has no filesystem FIFO")
     def test_cursor_failure_diagnostics_refuse_fifo_before_open(self):
         with tempfile.TemporaryDirectory() as directory:
