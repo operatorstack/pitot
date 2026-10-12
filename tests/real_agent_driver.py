@@ -4,21 +4,31 @@
 from __future__ import annotations
 
 import argparse
+import base64
+from datetime import datetime
+from contextlib import ExitStack
 import hashlib
+from itertools import islice
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import secrets
 import re
 import shlex
 import shutil
 import subprocess
+import stat
 import sys
 import tempfile
 import time
 import urllib.parse
 
-from agent_identity import agent_environment, inspect_receipt, verify_live_entrypoint
+from agent_identity import (
+    agent_environment,
+    cursor_context,
+    inspect_receipt,
+    verify_live_entrypoint,
+)
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -32,6 +42,260 @@ ENDPOINT_PROVENANCE = json.loads(
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def cursor_failure_diagnostics(
+    proxy_receipt: Path, carrier_root: Path, nonce: str
+) -> str:
+    def bounded_read(path: Path, limit: int) -> str:
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                return "<nonregular file refused>"
+            with path.open("rb") as stream:
+                raw = stream.read(limit + 1)
+            if len(raw) > limit:
+                return "<oversized file>"
+            return raw.decode("utf-8", errors="replace")
+        except OSError as error:
+            return f"<read failed: {type(error).__name__}>"
+
+    def fields(value: object, keys: tuple[str, ...]) -> dict[str, object]:
+        if not isinstance(value, dict):
+            return {}
+        types = {
+            "scope": str,
+            "code": str,
+            "path": str,
+            "content_type": str,
+            "variant": str,
+            "error_class": str,
+            "reason_shape": str,
+            "validation_kind": str,
+            "reason_location": str,
+            "approval_origin": str,
+            "fail_closed": bool,
+            "unsafe_cwd_shape": bool,
+            "cwd_slot_empty": bool,
+            "routed_protocol": str,
+            "source_sha": str,
+            "client_message_kind": str,
+            "nonce_present": bool,
+            "canary_result_present": bool,
+            "issued_phase_id_match": bool,
+            "issued_exact_command_match": bool,
+            "nonce_bound": bool,
+            "exec_id_present": bool,
+            "exec_id_match": bool,
+            "is_readonly": bool,
+            "allow_canary_marker": bool,
+            "signature_partial_match": bool,
+        }
+        enums = {
+            "reason_shape": {
+                "other",
+                "malformed",
+                "ambiguous",
+                "hook_block_shape",
+                "hook_output_validation_shape",
+                "hook_execution_error_shape",
+                "unsafe_cwd_resolution_shape",
+                "generic_native_block_ambiguous",
+                "native_abort_shape",
+            },
+            "validation_kind": {"json", "response"},
+            "reason_location": {"direct", "hookdetail"},
+            "approval_origin": {"unknown_from_reason"},
+        }
+        return {
+            key: value[key][:512] if isinstance(value[key], str) else value[key]
+            for key in keys
+            if key in value
+            and type(value[key])
+            is (str if key.endswith("_sha256") else types.get(key, int))
+            and (
+                not key.endswith("_sha256") or re.fullmatch(r"[0-9a-f]{64}", value[key])
+            )
+            and (key not in enums or value[key] in enums[key])
+        }
+
+    state: dict[str, object] = {}
+    try:
+        receipt = json.loads(bounded_read(proxy_receipt, 1048576))
+        if not isinstance(receipt, dict):
+            raise ValueError("invalid receipt")
+        for key in (
+            "initial_prompt_observed",
+            "allow_tool_call_response_emitted",
+            "allow_tool_result_observed",
+            "deny_tool_call_response_emitted",
+            "denied_result_observed",
+            "final_response_emitted",
+        ):
+            if type(receipt.get(key)) is bool:
+                state[key] = receipt[key]
+        state["response_attempts"] = fields(
+            receipt.get("response_attempts"), ("allow", "deny", "final")
+        )
+        for key, names in (
+            (
+                "transport_errors",
+                (
+                    "scope",
+                    "code",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                ),
+            ),
+            ("cursor_requests", ("path", "content_type", "request_bytes")),
+            (
+                "native_shell_results",
+                (
+                    "source_sha",
+                    "frame_length",
+                    "frame_sha256",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                    "native_id",
+                    "variant",
+                    "issued_phase_id_match",
+                    "command_sha256",
+                    "issued_exact_command_match",
+                    "nonce_bound",
+                    "exec_id_present",
+                    "exec_id_sha256",
+                    "exec_id_match",
+                    "exit_code",
+                    "timeout_ms",
+                    "is_readonly",
+                    "stdout_bytes",
+                    "stdout_sha256",
+                    "stderr_bytes",
+                    "stderr_sha256",
+                    "reason_bytes",
+                    "reason_sha256",
+                    "error_class",
+                    "reason_shape",
+                    "validation_kind",
+                    "reason_location",
+                    "approval_origin",
+                    "fail_closed",
+                    "unsafe_cwd_shape",
+                    "cwd_slot_empty",
+                    "hook_detail_bytes",
+                    "hook_detail_sha256",
+                    "allow_canary_marker",
+                ),
+            ),
+            (
+                "front_connections",
+                (
+                    "connection_id",
+                    "first_data_bytes",
+                    "signature_partial_match",
+                    "routed_protocol",
+                    "event_sequence",
+                ),
+            ),
+            (
+                "native_control_results",
+                (
+                    "source_sha",
+                    "frame_length",
+                    "frame_sha256",
+                    "connection_id",
+                    "stream_id",
+                    "attempt_id",
+                    "event_sequence",
+                    "native_id",
+                    "variant",
+                    "issued_phase_id_match",
+                    "nonce_present",
+                    "error_class",
+                    "error_bytes",
+                    "error_sha256",
+                    "stack_trace_bytes",
+                    "stack_trace_sha256",
+                    "error_code_bytes",
+                    "error_code_sha256",
+                ),
+            ),
+        ):
+            values = receipt.get(key, [])
+            state[key] = (
+                [
+                    fields(value, names)
+                    for value in values[
+                        -(
+                            8
+                            if key in {"native_shell_results", "native_control_results"}
+                            else 20
+                        ) :
+                    ]
+                ]
+                if isinstance(values, list)
+                else []
+            )
+        state["cursor_run"] = fields(
+            receipt.get("cursor_run"),
+            (
+                "path",
+                "content_type",
+                "request_bytes",
+                "connection_id",
+                "stream_id",
+                "attempt_id",
+            ),
+        )
+        inbound = receipt.get("cursor_inbound", {})
+        state["cursor_inbound"] = fields(inbound, ("request_bytes",))
+        envelopes = inbound.get("envelopes", []) if isinstance(inbound, dict) else []
+        state["cursor_inbound"]["envelopes"] = (
+            [
+                fields(
+                    value,
+                    (
+                        "flags",
+                        "length",
+                        "nonce_present",
+                        "canary_result_present",
+                        "client_message_kind",
+                    ),
+                )
+                for value in envelopes[-20:]
+            ]
+            if isinstance(envelopes, list)
+            else []
+        )
+    except (ValueError, TypeError):
+        state["receipt"] = "missing, malformed or oversized"
+    carrier = {}
+    for phase in ("allow", "deny"):
+        carrier[phase] = {
+            "draft_present": (carrier_root / f"{nonce}-{phase}.draft.json").is_file(),
+            "final_present": (carrier_root / f"{nonce}-{phase}.json").is_file(),
+            "errors": [
+                bounded_read(path, 1024)
+                for path in islice(carrier_root.glob(f"{nonce}-{phase}-*.error.txt"), 2)
+            ],
+        }
+    state["carrier"] = carrier
+    text = json.dumps(state, ensure_ascii=False, sort_keys=True)
+    for key in (
+        "cursor_requests",
+        "front_connections",
+        "transport_errors",
+        "native_shell_results",
+        "native_control_results",
+    ):
+        while len(text) > 12000 and len(state.get(key, [])) > 1:
+            state[key].pop(0)
+            state["diagnostics_trimmed"] = True
+            text = json.dumps(state, ensure_ascii=False, sort_keys=True)
+    return text[:12000]
 
 
 def hook_group(event: str, matcher: str, command: str) -> dict[str, object]:
@@ -70,6 +334,51 @@ def render_canary_command(executable: str, receipt: str, native_windows: bool) -
     return shlex.join([executable, "--role", "canary", "--receipt", receipt])
 
 
+def cursor_powershell() -> str:
+    """Require the same modern shell selected by Cursor's Windows hook runner."""
+    executable = shutil.which("pwsh")
+    if not executable or not Path(executable).is_absolute():
+        raise RuntimeError("Cursor native Windows verification requires PowerShell 7")
+    result = subprocess.run(
+        [
+            executable,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$PSVersionTable.PSVersion.Major",
+        ],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+    )
+    if (
+        result.stderr
+        or not re.fullmatch(rb"[0-9]{1,3}\r?\n?", result.stdout)
+        or int(result.stdout) < 7
+    ):
+        raise RuntimeError("Cursor native Windows verification requires PowerShell 7")
+    return executable
+
+
+def powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def render_cursor_canary_command(executable: str, receipt: str) -> str:
+    """Invoke a native Windows executable as a PowerShell literal command."""
+    arguments = [
+        executable.replace("\\", "/"),
+        "--role",
+        "canary",
+        "--receipt",
+        receipt.replace("\\", "/"),
+    ]
+    return "& " + " ".join(powershell_quote(value) for value in arguments)
+
+
 def configure(
     agent: str,
     home: Path,
@@ -81,6 +390,7 @@ def configure(
     witness_receipt: str,
     nonce: str,
     runtime_path: str,
+    cursor_carrier: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     env: dict[str, str] = {
         "HOME": str(home),
@@ -222,18 +532,47 @@ def configure(
             "--no-remote",
         ]
     elif agent == "cursor":
-        source = LAB / "integrations/cursor/beforeShellExecution"
-        target = project / ".cursor/hooks/beforeShellExecution"
+        name = "beforeShellExecution.ps1" if windows_host() else "beforeShellExecution"
+        source = LAB / "integrations/cursor" / name
+        target = project / ".cursor/hooks" / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Cursor runs in WSL on the Windows cell. A Windows checkout may expose
-        # CRLF bytes through /mnt/<drive>, which turns the bridge shebang into
-        # `bash\r` and makes Cursor fail the hook closed before Pitot can run.
+        # Canonical bytes keep the Unix shebang valid when the source was
+        # checked out on Windows; the native PowerShell bridge uses UTF-8.
         target.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
         target.chmod(0o755)
-        hook_command = (
-            f'"{target}" "{witness_command}" "{pitot_command}" '
-            f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
-        )
+        if windows_host():
+            shell = cursor_powershell()
+            hook_command = (
+                "& "
+                + powershell_quote(shell)
+                + " -NoLogo -NoProfile -NonInteractive -File "
+                + powershell_quote(str(target))
+            )
+            for key, value in (
+                ("Pitot", witness_command),
+                ("RealBin", pitot_command),
+                ("Receipt", witness_receipt),
+                ("Nonce", nonce),
+                ("Runtime", runtime_path),
+            ):
+                hook_command += f" -{key} " + powershell_quote(value)
+            env["PATH"] = (
+                str(Path(shell).parent) + os.pathsep + os.environ.get("PATH", "")
+            )
+            env["SHELL"] = shell
+            if cursor_carrier is not None:
+                hook_command += " -VerifyCarrier"
+                env.update(cursor_carrier)
+                env["PITOT_CURSOR_PARENT_SHELL"] = shell
+                env["PITOT_CURSOR_PARENT_SHELL_SHA256"] = hashlib.sha256(
+                    Path(shell).read_bytes()
+                ).hexdigest()
+                env["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"] = hook_command
+        else:
+            hook_command = (
+                f'"{target}" "{witness_command}" "{pitot_command}" '
+                f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
+            )
         write_json(
             project / ".cursor/hooks.json",
             {
@@ -252,7 +591,14 @@ def configure(
         # The pinned CLI supports an in-memory store for this synthetic token.
         # Endpoint/hook tests must not depend on or modify an OS login keychain.
         env["AGENT_CLI_CREDENTIAL_STORE"] = "memory"
-        prompt_flag = ["--endpoint", proxy, "--print", "--force"]
+        env.update(cursor_context(home, home / "d"))
+        prompt_flag = [
+            "--disable-auto-update",
+            "--endpoint",
+            proxy,
+            "--print",
+            "--force",
+        ]
     elif agent == "gemini":
         hooks = home / ".gemini/hooks"
         hooks.mkdir(parents=True, exist_ok=True)
@@ -524,6 +870,197 @@ def json_lines(path: Path) -> list[dict[str, object]]:
     ]
 
 
+def validate_cursor_commands(
+    requests: list[dict[str, object]], expected: list[str]
+) -> list[str]:
+    """Match the measured hook command, including Unicode, at the Controller."""
+    if len(requests) != 2 or len(expected) != 2:
+        raise RuntimeError("Cursor command proof requires both boundary actions")
+    digests = []
+    for request, command in zip(requests, expected):
+        if not isinstance(request, dict) or not isinstance(command, str) or not command:
+            raise RuntimeError("Cursor command proof is malformed")
+        event = request.get("data")
+        if not isinstance(event, dict):
+            raise RuntimeError("Cursor Controller request has no measured event")
+        action, content, host = (
+            event.get("action"),
+            event.get("content"),
+            event.get("host"),
+        )
+        if (
+            event.get("type") != "action.requested"
+            or not isinstance(host, dict)
+            or host.get("name") != "cursor"
+            or not isinstance(request.get("action_id"), str)
+            or not request["action_id"].startswith("act_")
+            or not isinstance(action, dict)
+            or action.get("id") != request.get("action_id")
+            or action.get("kind") != "shell"
+            or not isinstance(content, dict)
+            or content.get("mode") != "full"
+            or content.get("full") != command
+        ):
+            raise RuntimeError("Cursor hook command changed before the Controller")
+        digests.append(hashlib.sha256(command.encode("utf-8")).hexdigest())
+    return digests
+
+
+def validate_cursor_carrier(
+    records: list[dict[str, object]],
+    context: dict[str, str],
+    nonce: str,
+    commands: list[str],
+    action_ids: list[str],
+) -> None:
+    """Check snapshots made by the actual Windows hook's bounded observer."""
+    if len(records) != 2 or len(commands) != 2 or len(action_ids) != 2:
+        raise RuntimeError("Cursor carrier proof requires both actions")
+
+    def same_path(left, right):
+        return isinstance(left, str) and PureWindowsPath(left) == PureWindowsPath(right)
+
+    def owned_path(value):
+        if not isinstance(value, str):
+            raise RuntimeError("Cursor carrier path is missing")
+        path = PureWindowsPath(value)
+        root = PureWindowsPath(context["PITOT_CURSOR_CARRIER_TEMP"])
+        if not path.is_absolute() or not path.drive.endswith(":") or ".." in path.parts:
+            raise RuntimeError("Cursor carrier path is unsafe")
+        try:
+            path.relative_to(root)
+        except ValueError as error:
+            raise RuntimeError("Cursor carrier escaped its owned directory") from error
+        return path
+
+    for index, (record, command, action_id) in enumerate(
+        zip(records, commands, action_ids)
+    ):
+        try:
+            if (
+                record["schema_version"] != 1
+                or record["status"] != "observed"
+                or record["source_candidate_sha"] != context["PITOT_CURSOR_CANDIDATE"]
+                or record["nonce"] != nonce
+                or record["phase"] != ("allow" if index == 0 else "deny")
+                or record["action_id"] != action_id
+                or record["observed_command"] != command
+                or record["expected_command"] != command
+                or record.get("input_prefix_bom_removed") is not True
+                or not same_path(
+                    record["owned_temp_root"], context["PITOT_CURSOR_CARRIER_TEMP"]
+                )
+                or type(record["elapsed_ms"]) is not int
+                or not 0 <= record["elapsed_ms"] <= 5000
+            ):
+                raise RuntimeError("Cursor carrier identity mismatch")
+            inner, parent, node = (
+                record["inner"],
+                record["parent"],
+                record["grandparent"],
+            )
+            pids = [item["pid"] for item in (inner, parent, node)]
+            if len(set(pids)) != 3 or any(
+                type(pid) is not int or pid <= 0 for pid in pids
+            ):
+                raise RuntimeError("Cursor carrier ancestry is missing")
+            if (
+                inner["parent_pid"] != parent["pid"]
+                or parent["parent_pid"] != node["pid"]
+            ):
+                raise RuntimeError("Cursor carrier parent relationship is wrong")
+            dates = [
+                datetime.fromisoformat(item["creation_date"])
+                for item in (inner, parent, node)
+            ]
+            if (
+                any(date.tzinfo is None for date in dates)
+                or not dates[2] <= dates[1] <= dates[0]
+            ):
+                raise RuntimeError("Cursor carrier ancestry dates are invalid")
+            for shell in (inner, parent):
+                if (
+                    not same_path(
+                        shell["image_path"], context["PITOT_CURSOR_PARENT_SHELL"]
+                    )
+                    or shell["image_sha256"]
+                    != context["PITOT_CURSOR_PARENT_SHELL_SHA256"]
+                    or not isinstance(shell["creation_date"], str)
+                    or not shell["creation_date"]
+                ):
+                    raise RuntimeError("Cursor carrier shell image mismatch")
+            if (
+                type(parent["file_major_part"]) is not int
+                or parent["file_major_part"] < 7
+            ):
+                raise RuntimeError("Cursor carrier did not use PowerShell 7")
+            if (
+                not same_path(node["image_path"], context["PITOT_CURSOR_RELEASE_NODE"])
+                or node["image_sha256"] != context["PITOT_CURSOR_RELEASE_NODE_SHA256"]
+                or not same_path(
+                    node["version_prefix"],
+                    str(PureWindowsPath(context["PITOT_CURSOR_RELEASE_NODE"]).parent),
+                )
+            ):
+                raise RuntimeError("Cursor carrier released node mismatch")
+            snapshots = {}
+            for kind in ("carrier", "payload"):
+                snapshot = record[kind]
+                path = owned_path(snapshot["path"])
+                raw = base64.b64decode(snapshot["bytes_base64"], validate=True)
+                if (
+                    len(raw) > 1048576
+                    or hashlib.sha256(raw).hexdigest() != snapshot["sha256"]
+                ):
+                    raise RuntimeError("Cursor carrier snapshot digest mismatch")
+                snapshots[kind] = (path, raw)
+            script_path, script_bytes = snapshots["carrier"]
+            payload_path, payload_bytes = snapshots["payload"]
+            if not re.fullmatch(
+                r"ps-script-[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\.ps1",
+                script_path.name,
+            ):
+                raise RuntimeError("Cursor carrier script name mismatch")
+            if payload_path.name != "payload.json" or not re.fullmatch(
+                r"cursor-hooks-[A-Za-z0-9]+", payload_path.parent.name
+            ):
+                raise RuntimeError("Cursor carrier payload name mismatch")
+            if not script_bytes.startswith(b"\xef\xbb\xbf"):
+                raise RuntimeError(
+                    "Cursor carrier script is missing its UTF8 signature"
+                )
+            script = script_bytes[3:].decode("utf-8", errors="strict")
+            payload = json.loads(payload_bytes.decode("utf-8", errors="strict"))
+            if not isinstance(payload, dict) or payload.get("command") != command:
+                raise RuntimeError("Cursor vendor payload changed the command")
+            wrappers = re.findall(
+                r"\$OutputEncoding = \[System.Text.Encoding\]::UTF8; Get-Content -LiteralPath '((?:[^']|'')*)' -Raw \| & \{ \$input \| "
+                + re.escape(context["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"])
+                + r" \}",
+                script,
+            )
+            if len(wrappers) != 1 or not same_path(
+                wrappers[0].replace("''", "'"), record["payload"]["path"]
+            ):
+                raise RuntimeError("Cursor vendor wrapper is unrelated")
+            executable = re.escape(context["PITOT_CURSOR_PARENT_SHELL"])
+            argv = re.fullmatch(
+                r'\s*(?:"'
+                + executable
+                + '"|'
+                + executable
+                + r')\s+-ExecutionPolicy\s+Bypass\s+(?:-NonInteractive\s+)?-File\s+(?:"(?P<quoted>[^"\r\n]+)"|(?P<bare>[^\s"]+))\s*',
+                parent["argv"],
+                flags=re.IGNORECASE,
+            )
+            if argv is None or not same_path(
+                argv.group("quoted") or argv.group("bare"), record["carrier"]["path"]
+            ):
+                raise RuntimeError("Cursor parent did not execute the observed carrier")
+        except (KeyError, TypeError, ValueError, UnicodeError) as error:
+            raise RuntimeError("Cursor carrier proof is malformed") from error
+
+
 def validate_receipts(
     agent: dict[str, object],
     platform: str,
@@ -539,6 +1076,9 @@ def validate_receipts(
     output: str,
     prompt: str,
     capture_output: Path | None = None,
+    expected_cursor_commands: list[str] | None = None,
+    cursor_carrier_records: list[dict[str, object]] | None = None,
+    cursor_carrier_context: dict[str, str] | None = None,
 ) -> dict[str, object]:
     proxy = (
         json.loads(proxy_path.read_text(encoding="utf-8"))
@@ -633,6 +1173,25 @@ def validate_receipts(
     if len(requests) != 2 or len(responses) != 2:
         raise RuntimeError(
             f"Controller did not receive and resolve both boundary actions: {controller}"
+        )
+    cursor_command_digests = None
+    if agent["id"] == "cursor" and platform == "windows":
+        if not expected_cursor_commands or not all(
+            any(ord(char) > 127 for char in command)
+            for command in expected_cursor_commands
+        ):
+            raise RuntimeError("Cursor Windows proof requires Unicode commands")
+        cursor_command_digests = validate_cursor_commands(
+            requests, expected_cursor_commands
+        )
+        if cursor_carrier_records is None or cursor_carrier_context is None:
+            raise RuntimeError("Cursor Windows carrier snapshots are missing")
+        validate_cursor_carrier(
+            cursor_carrier_records,
+            cursor_carrier_context,
+            nonce,
+            expected_cursor_commands,
+            [request.get("action_id") for request in requests],
         )
     action_ids = [item.get("action_id") for item in requests]
     if len(set(action_ids)) != 2 or not all(
@@ -738,6 +1297,14 @@ def validate_receipts(
             "id": "e2e-shell-controller",
             "action_ids": action_ids,
             "outcomes": ["allow", "deny"],
+            **(
+                {
+                    "command_sha256": cursor_command_digests,
+                    "windows_carrier": cursor_carrier_records,
+                }
+                if cursor_command_digests is not None
+                else {}
+            ),
         },
         "consumer": {
             "id": "e2e-audit",
@@ -746,6 +1313,25 @@ def validate_receipts(
         },
         "canary": {"executions": canary, "denied_executions": 0},
     }
+
+
+def owned_fixture_base(base: Path, agent: str, runtime: str) -> Path:
+    """Use one filesystem identity for native Windows Cursor fixture paths."""
+    if agent == "cursor" and windows_host() and runtime == "native":
+        canonical = base.resolve(strict=True)
+        if not canonical.samefile(base):
+            raise RuntimeError("Cursor temporary directory identity changed")
+        return canonical
+    return base
+
+
+def require_fixture_removed(base: Path) -> None:
+    """Refuse success when the owned fixture remains or cannot be inspected."""
+    try:
+        base.lstat()
+    except FileNotFoundError:
+        return
+    raise RuntimeError("Cursor temporary fixture cleanup failed")
 
 
 def main() -> int:
@@ -767,11 +1353,16 @@ def main() -> int:
     )
     nonce = secrets.token_hex(16)
     prompt = f"Pitot E2E session {nonce}: execute the requested verification command"
-    with tempfile.TemporaryDirectory(
-        prefix="pitot-real-agent-", ignore_cleanup_errors=True
-    ) as temporary:
-        base = Path(temporary)
+    with (
+        ExitStack() as cleanup,
+        tempfile.TemporaryDirectory(
+            prefix="pitot-real-agent-", ignore_cleanup_errors=True
+        ) as temporary,
+    ):
         runtime = installation["runtime"]
+        base = owned_fixture_base(Path(temporary), args.agent, runtime)
+        if args.agent == "cursor" and windows_host() and runtime == "native":
+            cleanup.callback(require_fixture_removed, base)
         host_controls_wsl = runtime == "wsl" and os.name == "nt"
         home, project, bin_dir = base / "home", base / "project", base / "bin"
         home.mkdir()
@@ -779,6 +1370,12 @@ def main() -> int:
         bin_dir.mkdir()
         canary_receipt = base / "canary.jsonl"
         canary_executable = args.test_role.resolve()
+        if args.agent == "cursor" and windows_host() and not host_controls_wsl:
+            canary_dir = base / "cursor 工具 path"
+            canary_dir.mkdir()
+            canary_executable = canary_dir / args.test_role.name
+            shutil.copy2(args.test_role.resolve(), canary_executable)
+            canary_receipt = canary_dir / "résult.jsonl"
         cursor_system_canary = False
         if args.agent == "cursor" and host_controls_wsl:
             occupied = subprocess.run(
@@ -840,6 +1437,21 @@ def main() -> int:
             receipt_argument,
             windows_host() and not host_controls_wsl,
         )
+        if args.agent == "cursor" and windows_host() and not host_controls_wsl:
+            canary_command = render_cursor_canary_command(
+                str(canary_executable), receipt_argument
+            )
+        cursor_canary_argv = [
+            str(canary_executable).replace("\\", "/")
+            if windows_host() and not host_controls_wsl
+            else str(canary_executable),
+            "--role",
+            "canary",
+            "--receipt",
+            receipt_argument.replace("\\", "/")
+            if windows_host() and not host_controls_wsl
+            else receipt_argument,
+        ]
         ready, proxy_receipt, witness_receipt = (
             base / "proxy.url",
             base / "proxy.json",
@@ -940,6 +1552,8 @@ def main() -> int:
                     wsl_path(ready),
                     "--canary-command",
                     canary_command,
+                    "--canary-argv",
+                    json.dumps(cursor_canary_argv),
                     "--response-fault",
                     args.response_fault,
                 ]
@@ -955,9 +1569,14 @@ def main() -> int:
                     str(ready),
                     "--canary-command",
                     canary_command,
+                    "--canary-argv",
+                    json.dumps(cursor_canary_argv),
                     "--response-fault",
                     args.response_fault,
                 ]
+            proxy_command.extend(
+                ["--source-sha", os.environ.get("PITOT_SOURCE_SHA", "")]
+            )
         elif args.agent == "devin":
             proxy_command = [
                 sys.executable,
@@ -1030,6 +1649,22 @@ def main() -> int:
             receipt_command = (
                 wsl_path(witness_receipt) if host_controls_wsl else str(witness_receipt)
             )
+            cursor_carrier = None
+            if args.agent == "cursor" and windows_host():
+                carrier_temp, carrier_root = base / "ct", base / "cp"
+                carrier_temp.mkdir()
+                carrier_root.mkdir()
+                released_node = Path(installation["executable"]).parent / "node.exe"
+                cursor_carrier = {
+                    "PITOT_CURSOR_CARRIER_TEMP": str(carrier_temp),
+                    "PITOT_CURSOR_CARRIER_ROOT": str(carrier_root),
+                    "PITOT_CURSOR_RELEASE_NODE": str(released_node),
+                    "PITOT_CURSOR_RELEASE_NODE_SHA256": hashlib.sha256(
+                        released_node.read_bytes()
+                    ).hexdigest(),
+                    "PITOT_CURSOR_CANDIDATE": os.environ.get("PITOT_SOURCE_SHA", ""),
+                    "PITOT_CURSOR_ISSUED_COMMAND": canary_command,
+                }
             flags, extra_env = configure(
                 args.agent,
                 home,
@@ -1040,17 +1675,34 @@ def main() -> int:
                 witness_receipt=receipt_command,
                 nonce=nonce,
                 runtime_path=str(runtime_descriptor),
+                cursor_carrier=cursor_carrier,
             )
+            if args.agent == "cursor":
+                extra_env["CURSOR_DATA_DIR"] = cleanup.enter_context(
+                    tempfile.TemporaryDirectory(
+                        prefix="pcd-", dir="/tmp" if os.name != "nt" else None
+                    )
+                )
+                if windows_host():
+                    extra_env["TMP"] = str(carrier_temp)
+                    extra_env["TEMP"] = str(carrier_temp)
             environment = {
                 **os.environ,
                 **extra_env,
-                "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                "PATH": str(bin_dir)
+                + os.pathsep
+                + extra_env.get("PATH", os.environ.get("PATH", "")),
                 "PITOT_REAL_BIN": str(args.pitot.resolve()),
                 "PITOT_WITNESS_RECEIPT": str(witness_receipt),
                 "PITOT_E2E_NONCE": nonce,
                 "PITOT_RUNTIME": str(runtime_descriptor),
             }
             environment = agent_environment(args.agent, environment)
+            if args.agent == "cursor" and windows_host():
+                # Cursor's terminal hint precedes SHELL selection. Avoid the
+                # verification runner's Git Bash hint overriding checked pwsh.
+                environment.pop("MSYSTEM", None)
+                environment.pop("EXEPATH", None)
             executable = installation["executable"]
             if host_controls_wsl:
                 wsl_environment = {
@@ -1151,6 +1803,12 @@ def main() -> int:
             # reporting layer cannot fail after a successful agent session.
             sys.stdout.buffer.write(completed.stdout.encode("utf-8", errors="replace"))
             sys.stdout.buffer.flush()
+            if proxy_process.poll() is not None:
+                proxy_output = proxy_process.communicate(timeout=5)[0] or ""
+                raise RuntimeError(
+                    f"model-control proxy exited during the released-agent session "
+                    f"(exit {proxy_process.returncode}): {proxy_output[-4000:]}"
+                )
             if args.agent == "devin" and proxy_request_log.is_file():
                 # Connection-level journal from the proxy: shows whether a
                 # hanging fetch ever reached the server and on which socket.
@@ -1183,6 +1841,24 @@ def main() -> int:
                     )
                 print("PITOT_INCOMPATIBLE_RESPONSE_REJECTED evidence=binary-observed")
                 return 0
+            carrier_records = None
+            if cursor_carrier is not None:
+                carrier_records = []
+                for phase in ("allow", "deny"):
+                    proof_path = carrier_root / f"{nonce}-{phase}.json"
+                    if (
+                        not proof_path.is_file()
+                        or proof_path.stat().st_size > 3 * 1048576
+                    ):
+                        raise RuntimeError(
+                            "Cursor carrier snapshot is missing or oversized; "
+                            + cursor_failure_diagnostics(
+                                proxy_receipt, carrier_root, nonce
+                            )
+                        )
+                    carrier_records.append(
+                        json.loads(proof_path.read_text(encoding="utf-8"))
+                    )
             evidence = validate_receipts(
                 agent,
                 args.platform,
@@ -1198,6 +1874,16 @@ def main() -> int:
                 completed.stdout,
                 prompt,
                 args.capture_output,
+                expected_cursor_commands=[
+                    f"{canary_command} PITOT_ALLOW {nonce}",
+                    f"{canary_command} PITOT_DENY {nonce}",
+                ]
+                if args.agent == "cursor" and windows_host()
+                else None,
+                cursor_carrier_records=carrier_records,
+                cursor_carrier_context=extra_env
+                if cursor_carrier is not None
+                else None,
             )
             args.evidence.parent.mkdir(parents=True, exist_ok=True)
             args.evidence.write_text(

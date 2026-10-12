@@ -165,15 +165,20 @@ def validate_manifest(value: object) -> None:
             raise ContractError(
                 f"agent {agent_id} has invalid supervised integration artifacts"
             )
+        if agent_id == "cursor" and set(artifacts) != {
+            "integrations/cursor/beforeShellExecution",
+            "integrations/cursor/beforeShellExecution.ps1",
+        }:
+            raise ContractError(
+                "Cursor must supervise its Unix and native Windows bridges"
+            )
         expected_runtime_keys = {platform["id"] for platform in platforms}
         runtime = agent["runtime"]
         if not isinstance(runtime, dict) or set(runtime) != expected_runtime_keys:
             raise ContractError(f"agent {agent_id} must declare every platform runtime")
         if any(item not in {"native", "wsl"} for item in runtime.values()):
             raise ContractError(f"agent {agent_id} has an unsupported platform runtime")
-        if agent_id == "cursor" and runtime["windows"] != "wsl":
-            raise ContractError("Cursor must use its supported WSL runtime on Windows")
-        if agent_id != "cursor" and "wsl" in runtime.values():
+        if "wsl" in runtime.values():
             raise ContractError(f"agent {agent_id} must run natively on every platform")
         if (
             agent["driver"] != "real_agent_driver.py"
@@ -694,19 +699,29 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         errors.append("unified runner permits synthetic E2E success")
     if "real_agent_driver.py" not in runner_text or "--test-role" not in runner_text:
         errors.append("unified runner does not invoke the canonical real-agent driver")
+    native_runner_fragments = (
+        'go build -o "$PITOT_BINARY" "$PITOT_MAIN"',
+        'go build -o "$WITNESS_BINARY" "$SCRIPT_DIR/witness/main.go"',
+        'go build -o "$TESTROLE_BINARY" "$LAB_DIR/internal/testrole"',
+        'if [[ "${RUNNER_OS:-}" == "Windows" ]]; then',
+        'PITOT_BINARY="${PITOT_BINARY}.exe"',
+        'WITNESS_BINARY="${WITNESS_BINARY}.exe"',
+        'TESTROLE_BINARY="${TESTROLE_BINARY}.exe"',
+        'DRIVER=(python3 "$SCRIPT_DIR/real_agent_driver.py" "${DRIVER_ARGS[@]}")',
+        '--pitot "$PITOT_BINARY"',
+        '--witness "$WITNESS_BINARY"',
+        '--test-role "$TESTROLE_BINARY"',
+        "set -euo pipefail",
+        "--response-fault text",
+        "--expect-incompatible-response",
+    )
     if (
-        runner_text.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build") != 3
-        or "pitot-linux" not in runner_text
-        or "pitot-witness-linux" not in runner_text
-        or "pitot-testrole-linux" not in runner_text
-        or "wsl.exe --distribution Ubuntu -- env" not in runner_text
-        or 'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"'
-        not in runner_text
-        or "MSYS2_ARG_CONV_EXCL='*'" not in runner_text
+        any(fragment not in runner_text for fragment in native_runner_fragments)
+        or runner_text.count("go build -o") != 3
+        or runner_text.count('"${DRIVER[@]}"') != 2
+        or any(fragment in runner_text for fragment in ("wsl.exe", "GOOS=", "GOARCH="))
     ):
-        errors.append(
-            "unified runner does not preserve Cursor's native WSL controller boundary"
-        )
+        errors.append("unified runner does not preserve native host verification")
     expected_files = {
         UNIFIED_WORKFLOW: unified_workflow(),
     }
@@ -732,10 +747,9 @@ def contract_errors(root: Path, adapters: list[str] | None = None) -> list[str]:
         '--evidence "${{ runner.temp }}/pitot-e2e/evidence.json"',
         "install_real_agent.py",
         "PITOT_CAPTURE_OUTPUT:",
-        "node_version=22.23.1",
-        "SHASUMS256.txt",
-        "[System.IO.File]::WriteAllText",
-        "wsl.exe --distribution Ubuntu -- bash $wslInstallPath",
+        "name: Verify Cursor native Windows shell",
+        "shell: pwsh",
+        "$PSVersionTable.PSVersion.Major -lt 7",
         "pitot-endpoint-capture-${{ inputs.agent }}-${{ inputs.platform }}",
         "name: pitot-e2e-${{ inputs.agent }}-${{ inputs.platform }}",
     )

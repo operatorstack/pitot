@@ -41,34 +41,14 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Enable supported Cursor WSL runtime
+      - name: Verify Cursor native Windows shell
         if: inputs.agent == 'cursor' && runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
-          wsl.exe --status
-          if (-not ((wsl.exe --list --quiet) -replace "`0", "" | Where-Object { $_.Trim() -eq "Ubuntu" })) {
-            wsl.exe --install --distribution Ubuntu --no-launch --web-download
+          if ($PSVersionTable.PSVersion.Major -lt 7) {
+            throw "Cursor native Windows hooks require PowerShell 7"
           }
-          $installScript = @'
-            set -euo pipefail
-            node_version=22.23.1
-            archive="node-v${node_version}-linux-x64.tar.xz"
-            curl -fsSLO "https://nodejs.org/dist/v${node_version}/${archive}"
-            curl -fsSLO "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
-            grep " ${archive}$" SHASUMS256.txt | sha256sum --check --strict
-            tar -xJf "${archive}" -C /usr/local --strip-components=1
-            test "$(node --version)" = "v${node_version}"
-            uname -a
-            command -v python3
-          '@
-          $installPath = Join-Path $env:RUNNER_TEMP "pitot-install-wsl-node.sh"
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText($installPath, ($installScript -replace "`r`n", "`n"), $utf8NoBom)
-          $drive = $installPath.Substring(0, 1).ToLowerInvariant()
-          $tail = $installPath.Substring(2).Replace("\", "/")
-          $wslInstallPath = "/mnt/$drive$tail"
-          wsl.exe --distribution Ubuntu -- bash $wslInstallPath
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $PSVersionTable.PSVersion.ToString()
       - name: Resolve Bash runtime
         shell: bash
         run: |

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import tomllib
 import unittest
 from unittest import mock
@@ -33,6 +37,323 @@ devin_spec.loader.exec_module(devin_proxy)
 
 
 class ModelControlProtocolTests(unittest.TestCase):
+    def test_cursor_failure_diagnostics_preserve_phase_and_transport_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nonce = "a" * 32
+            receipt = root / "proxy.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "initial_prompt_observed": True,
+                        "allow_tool_call_response_emitted": True,
+                        "allow_tool_result_observed": False,
+                        "transport_errors": [{"scope": "run_stream", "code": "RESET"}],
+                        "unrelated_content": "must not be emitted",
+                        "denied_result_observed": "unrelated wrong type",
+                        "response_attempts": {"allow": "unrelated wrong type"},
+                        "cursor_inbound": {
+                            "request_bytes": 100,
+                            "envelopes": [
+                                {
+                                    "flags": 0,
+                                    "length": 95,
+                                    "printable": ["unrelated secret"],
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / f"{nonce}-allow.draft.json").write_text("{}", encoding="utf-8")
+            (root / f"{nonce}-allow-id.error.txt").write_text(
+                "Carrier failure café", encoding="utf-8"
+            )
+            (root / "unrelated.error.txt").write_text("unrelated", encoding="utf-8")
+            text = driver.cursor_failure_diagnostics(receipt, root, nonce)
+            state = json.loads(text)
+            self.assertNotIn("unrelated", text)
+            self.assertTrue(state["carrier"]["allow"]["draft_present"])
+            self.assertFalse(state["carrier"]["allow"]["final_present"])
+            self.assertEqual(
+                state["carrier"]["allow"]["errors"], ["Carrier failure café"]
+            )
+            self.assertFalse(state["allow_tool_result_observed"])
+            self.assertEqual(state["response_attempts"], {})
+
+    def test_cursor_failure_diagnostics_bound_bad_and_large_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nonce = "a" * 32
+            receipt = root / "proxy.json"
+            receipt.write_bytes(b"x" * 1048577)
+            (root / f"{nonce}-deny-id.error.txt").write_bytes(b"x" * 1025)
+            state = json.loads(driver.cursor_failure_diagnostics(receipt, root, nonce))
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+            self.assertEqual(state["carrier"]["deny"]["errors"], ["<oversized file>"])
+            state = json.loads(driver.cursor_failure_diagnostics(root, root, nonce))
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+
+    def test_cursor_native_diagnostics_keep_identity_and_omit_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "proxy.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "native_shell_results": [
+                            {
+                                "source_sha": "a" * 40,
+                                "connection_id": 7,
+                                "stream_id": 11,
+                                "attempt_id": 3,
+                                "event_sequence": 4,
+                                "native_id": 1,
+                                "variant": "spawn_error",
+                                "command_sha256": "b" * 64,
+                                "issued_exact_command_match": True,
+                                "nonce_bound": True,
+                                "reason_sha256": "c" * 64,
+                                "reason_bytes": 100,
+                                "error_class": "missing_parsing_result",
+                                "reason": "private text",
+                                "frame_sha256": "not a digest private text",
+                            }
+                        ],
+                        "transport_errors": [
+                            {"scope": "run_stream", "code": "RESET", "connection_id": 7}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            text = driver.cursor_failure_diagnostics(receipt, root, "d" * 32)
+            self.assertNotIn("private text", text)
+            state = json.loads(text)
+            result = state["native_shell_results"][0]
+            self.assertEqual(
+                result["connection_id"], state["transport_errors"][0]["connection_id"]
+            )
+            self.assertEqual(result["variant"], "spawn_error")
+            self.assertEqual(result["command_sha256"], "b" * 64)
+            self.assertTrue(result["issued_exact_command_match"])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "host has no filesystem FIFO")
+    def test_cursor_failure_diagnostics_refuse_fifo_before_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "proxy.json"
+            os.mkfifo(receipt)
+            state = json.loads(
+                driver.cursor_failure_diagnostics(receipt, root, "a" * 32)
+            )
+            self.assertEqual(state["receipt"], "missing, malformed or oversized")
+
+    def test_cursor_carrier_rejects_unrelated_or_corrupt_snapshots(self):
+        nonce = "a" * 32
+        context = {
+            "PITOT_CURSOR_CANDIDATE": "b" * 40,
+            "PITOT_CURSOR_CARRIER_TEMP": "C:/owned/ct",
+            "PITOT_CURSOR_PARENT_SHELL": "C:/PowerShell/pwsh.exe",
+            "PITOT_CURSOR_PARENT_SHELL_SHA256": "c" * 64,
+            "PITOT_CURSOR_RELEASE_NODE": "C:/release/node.exe",
+            "PITOT_CURSOR_RELEASE_NODE_SHA256": "d" * 64,
+            "PITOT_CURSOR_VERIFICATION_HOOK_COMMAND": "& 'C:/PowerShell/pwsh.exe' -File 'C:/owned/bridge.ps1' -VerifyCarrier",
+        }
+        commands = [
+            f"& 'C:/工具 path/canary.exe' PITOT_{phase} {nonce}"
+            for phase in ("ALLOW", "DENY")
+        ]
+        records = []
+        for index, phase in enumerate(("allow", "deny")):
+            payload_path = f"C:/owned/ct/cursor-hooks-abc{index}/payload.json"
+            payload = json.dumps(
+                {"command": commands[index]}, ensure_ascii=False
+            ).encode("utf-8")
+            script = (
+                "\ufeff$OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content -LiteralPath '"
+                + payload_path
+                + "' -Raw | & { $input | "
+                + context["PITOT_CURSOR_VERIFICATION_HOOK_COMMAND"]
+                + " }"
+            ).encode("utf-8")
+            records.append(
+                {
+                    "schema_version": 1,
+                    "status": "observed",
+                    "nonce": nonce,
+                    "source_candidate_sha": context["PITOT_CURSOR_CANDIDATE"],
+                    "phase": phase,
+                    "action_id": f"act_{index}",
+                    "observed_command": commands[index],
+                    "expected_command": commands[index],
+                    "owned_temp_root": context["PITOT_CURSOR_CARRIER_TEMP"],
+                    "elapsed_ms": 100,
+                    "input_prefix_bom_removed": True,
+                    "inner": {
+                        "pid": 10 + index,
+                        "parent_pid": 20 + index,
+                        "image_path": context["PITOT_CURSOR_PARENT_SHELL"],
+                        "image_sha256": "c" * 64,
+                        "creation_date": "2026-10-12T12:00:00Z",
+                    },
+                    "parent": {
+                        "pid": 20 + index,
+                        "parent_pid": 30,
+                        "image_path": context["PITOT_CURSOR_PARENT_SHELL"],
+                        "image_sha256": "c" * 64,
+                        "creation_date": "2026-10-12T11:59:59Z",
+                        "file_major_part": 7,
+                        "argv": 'C:/PowerShell/pwsh.exe -ExecutionPolicy Bypass -NonInteractive -File "C:/owned/ct/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1"',
+                    },
+                    "grandparent": {
+                        "pid": 30,
+                        "creation_date": "2026-10-12T11:59:58Z",
+                        "image_path": context["PITOT_CURSOR_RELEASE_NODE"],
+                        "image_sha256": "d" * 64,
+                        "version_prefix": "C:/release",
+                    },
+                    "carrier": {
+                        "path": "C:/owned/ct/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1",
+                        "bytes_base64": base64.b64encode(script).decode(),
+                        "sha256": hashlib.sha256(script).hexdigest(),
+                    },
+                    "payload": {
+                        "path": payload_path,
+                        "bytes_base64": base64.b64encode(payload).decode(),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    },
+                }
+            )
+        driver.validate_cursor_carrier(
+            records, context, nonce, commands, ["act_0", "act_1"]
+        )
+        mutations = [
+            lambda r: r[0].pop("input_prefix_bom_removed"),
+            lambda r: r[0].update(input_prefix_bom_removed=False),
+            lambda r: r[0].update(input_prefix_bom_removed=1),
+            lambda r: r[0].update(input_prefix_bom_removed="true"),
+            lambda r: r[0].update(status="draft"),
+            lambda r: r[0].update(source_candidate_sha="f" * 40),
+            lambda r: r[0].update(nonce="0" * 32),
+            lambda r: r[0].update(action_id="act_other"),
+            lambda r: r[0].update(elapsed_ms=5001),
+            lambda r: r[0]["parent"].update(file_major_part=5),
+            lambda r: r[0]["parent"].update(image_sha256="0" * 64),
+            lambda r: r[0]["inner"].update(parent_pid=999),
+            lambda r: r[0]["grandparent"].update(image_path="C:/other/node.exe"),
+            lambda r: r[0]["carrier"].update(
+                path="C:/foreign/ps-script-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.ps1"
+            ),
+            lambda r: r[0]["payload"].update(
+                path="C:/owned/ct/../escaped/payload.json"
+            ),
+            lambda r: r[0]["payload"].update(sha256="0" * 64),
+            lambda r: r[0]["carrier"].update(bytes_base64="not base64"),
+            lambda r: r[0]["parent"].update(argv="pwsh -File unrelated.ps1"),
+            lambda r: r[0]["parent"].update(argv="echo " + r[0]["carrier"]["path"]),
+            lambda r: r[0]["parent"].update(creation_date="not a date"),
+            lambda r: r[0]["parent"].update(creation_date="2026-10-12T12:00:01Z"),
+            lambda r: r[0]["grandparent"].pop("creation_date"),
+            lambda r: r.reverse(),
+            lambda r: r.pop(),
+        ]
+        for mutation in mutations:
+            broken = copy.deepcopy(records)
+            mutation(broken)
+            with self.assertRaises(RuntimeError):
+                driver.validate_cursor_carrier(
+                    broken, context, nonce, commands, ["act_0", "act_1"]
+                )
+
+    def test_cursor_windows_requires_modern_powershell_without_legacy_fallback(self):
+        with (
+            mock.patch.object(driver.shutil, "which", return_value=None),
+            mock.patch.object(driver.subprocess, "run") as run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "PowerShell 7"):
+                driver.cursor_powershell()
+            run.assert_not_called()
+        for output, error, accepted in (
+            (b"7\r\n", b"", True),
+            (b"5\r\n", b"", False),
+            (b"7\n", b"warning", False),
+            (b"7 extra\n", b"", False),
+            (b"", b"", False),
+        ):
+            with (
+                self.subTest(output=output, error=error),
+                mock.patch.object(driver.shutil, "which", return_value="/owned/pwsh"),
+                mock.patch.object(
+                    driver.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, output, error),
+                ) as run,
+            ):
+                if accepted:
+                    self.assertEqual(driver.cursor_powershell(), "/owned/pwsh")
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "PowerShell 7"):
+                        driver.cursor_powershell()
+                self.assertEqual(run.call_args.kwargs["timeout"], 30)
+                self.assertIn("-NoProfile", run.call_args.args[0])
+                self.assertIn("-NonInteractive", run.call_args.args[0])
+
+    def test_cursor_fixture_preserves_unix_bridge_and_uses_explicit_windows_shell(self):
+        for windows in (False, True):
+            with (
+                self.subTest(windows=windows),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                home = Path(directory) / "owner's é home"
+                project = Path(directory) / "project with spaces"
+                with (
+                    mock.patch.object(driver, "windows_host", return_value=windows),
+                    mock.patch.object(
+                        driver,
+                        "cursor_powershell",
+                        return_value="/owned PowerShell/pwsh",
+                    ) as shell,
+                ):
+                    flags, env = driver.configure(
+                        "cursor",
+                        home,
+                        project,
+                        "witness with spaces",
+                        "http://127.0.0.1:9123",
+                        pitot_command="pitot with spaces",
+                        witness_receipt="receipt's file",
+                        nonce="nonce",
+                        runtime_path="runtime's file",
+                    )
+                hooks = json.loads((project / ".cursor/hooks.json").read_text())
+                hook = hooks["hooks"]["beforeShellExecution"][0]
+                self.assertTrue(hook["failClosed"])
+                if windows:
+                    shell.assert_called_once()
+                    self.assertIn("& '/owned PowerShell/pwsh'", hook["command"])
+                    self.assertIn("beforeShellExecution.ps1", hook["command"])
+                    self.assertIn("-Receipt 'receipt''s file'", hook["command"])
+                    self.assertIn("-Runtime 'runtime''s file'", hook["command"])
+                    self.assertEqual(env["SHELL"], "/owned PowerShell/pwsh")
+                else:
+                    shell.assert_not_called()
+                    self.assertEqual(
+                        (project / ".cursor/hooks/beforeShellExecution").read_bytes(),
+                        (
+                            ROOT / "integrations/cursor/beforeShellExecution"
+                        ).read_bytes(),
+                    )
+                self.assertEqual(env["CURSOR_CONFIG_DIR"], str(home / ".cursor"))
+                self.assertEqual(env["CURSOR_DATA_DIR"], str(home / "d"))
+                self.assertEqual(
+                    env["NODE_COMPILE_CACHE"], str(home / ".cache/cursor-node")
+                )
+                self.assertEqual(env["CURSOR_AUTH_TOKEN"], "pitot-local-only")
+                self.assertEqual(env["AGENT_CLI_CREDENTIAL_STORE"], "memory")
+                self.assertIn("--disable-auto-update", flags)
+
     def test_kimi_uses_owned_provider_and_native_cache_despite_ambient_settings(self):
         for native_windows in (False, True):
             with (
@@ -458,6 +779,58 @@ class ModelControlProtocolTests(unittest.TestCase):
         self.assertIn(b"exec", payload)
         self.assertIn(b'{"command":"echo nonce"}', payload)
 
+    def test_cursor_controller_command_proof_rejects_corruption_and_wrong_projection(
+        self,
+    ):
+        expected = [
+            "& 'C:/工具 path/canary.exe' PITOT_ALLOW nonce",
+            "& 'C:/工具 path/canary.exe' PITOT_DENY nonce",
+        ]
+        requests = [
+            {
+                "action_id": f"act_{index}",
+                "data": {
+                    "type": "action.requested",
+                    "host": {"name": "cursor"},
+                    "action": {"id": f"act_{index}", "kind": "shell"},
+                    "content": {"mode": "full", "full": command},
+                },
+            }
+            for index, command in enumerate(expected)
+        ]
+        hashes = driver.validate_cursor_commands(requests, expected)
+        self.assertEqual(len(hashes), 2)
+        self.assertNotEqual(hashes[0], hashes[1])
+        for mutation in (
+            lambda value: value[0]["data"]["content"].update(full="corrupted 工具"),
+            lambda value: value[0]["data"]["content"].update(
+                full=expected[0].encode("utf-8").decode("latin1")
+            ),
+            lambda value: value[0]["data"]["content"].update(mode="sha256"),
+            lambda value: value[0]["data"].update(command=expected[0], content={}),
+            lambda value: value[0]["data"]["action"].update(id="act_unrelated"),
+            lambda value: value[0]["data"].update(host=None),
+            lambda value: value[0]["data"].update(host={"name": "copilot"}),
+            lambda value: value[0].update(action_id=None),
+            lambda value: value.reverse(),
+            lambda value: value.pop(),
+        ):
+            broken = copy.deepcopy(requests)
+            mutation(broken)
+            with self.assertRaises(RuntimeError):
+                driver.validate_cursor_commands(broken, expected)
+
+    def test_cursor_windows_canary_uses_powershell_literal_invocation(self):
+        command = driver.render_cursor_canary_command(
+            "C:\\owned dir\\工具's $literal\\pitot-testrole.exe",
+            "C:\\owned dir\\résult's $literal.json",
+        )
+        self.assertEqual(
+            command,
+            "& 'C:/owned dir/工具''s $literal/pitot-testrole.exe' "
+            "'--role' 'canary' '--receipt' 'C:/owned dir/résult''s $literal.json'",
+        )
+
     def test_windows_canary_command_is_shell_portable(self):
         command = driver.render_canary_command(
             r"D:\a\temp\pitot-testrole.exe",
@@ -658,6 +1031,142 @@ class ModelControlProtocolTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
         )
         self.assertIn("PASS", completed.stdout)
+
+    def test_cursor_proxy_persists_native_path_before_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = root / "cursor 工具 café # percent%" / "receipt.json"
+            ready = root / "ready.txt"
+            process = subprocess.Popen(
+                [
+                    "node",
+                    str(ROOT / "tests/cursor_control_proxy.mjs"),
+                    "--nonce",
+                    "a" * 32,
+                    "--receipt",
+                    str(receipt),
+                    "--ready-file",
+                    str(ready),
+                    "--canary-command",
+                    "unused",
+                    "--canary-argv",
+                    json.dumps(["unused", "--role", "canary", "--receipt", "unused"]),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while not ready.is_file() and time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        self.fail(process.communicate(timeout=5)[0])
+                    time.sleep(0.01)
+                self.assertTrue(ready.is_file())
+                self.assertIsNone(process.poll())
+                self.assertEqual(
+                    json.loads(receipt.read_text(encoding="utf-8"))["nonce"], "a" * 32
+                )
+                self.assertRegex(
+                    ready.read_text(encoding="utf-8"), r"^http://127\.0\.0\.1:\d+\n$"
+                )
+            finally:
+                process.terminate()
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=5)
+
+
+class CursorFixtureIdentityTests(unittest.TestCase):
+    def test_native_windows_resolves_existing_owned_root_once(self):
+        original, canonical = mock.Mock(), mock.Mock()
+        original.resolve.return_value = canonical
+        canonical.samefile.return_value = True
+        with mock.patch.object(driver, "windows_host", return_value=True):
+            self.assertIs(
+                driver.owned_fixture_base(original, "cursor", "native"), canonical
+            )
+        original.resolve.assert_called_once_with(strict=True)
+        canonical.samefile.assert_called_once_with(original)
+
+    def test_other_hosts_and_runtimes_keep_the_original_root(self):
+        for agent, runtime, windows in (
+            ("cursor", "native", False),
+            ("cursor", "wsl", True),
+            ("claude", "native", True),
+        ):
+            with self.subTest(agent=agent, runtime=runtime, windows=windows):
+                original = mock.Mock()
+                with mock.patch.object(driver, "windows_host", return_value=windows):
+                    self.assertIs(
+                        driver.owned_fixture_base(original, agent, runtime), original
+                    )
+                original.resolve.assert_not_called()
+
+    def test_missing_or_unresolvable_root_refuses_without_fallback(self):
+        for error in (
+            FileNotFoundError(),
+            PermissionError(),
+            OSError(),
+            RuntimeError(),
+        ):
+            with self.subTest(error=type(error).__name__):
+                original = mock.Mock()
+                original.resolve.side_effect = error
+                with mock.patch.object(driver, "windows_host", return_value=True):
+                    with self.assertRaises(type(error)):
+                        driver.owned_fixture_base(original, "cursor", "native")
+                original.resolve.assert_called_once_with(strict=True)
+
+    def test_changed_or_unverifiable_identity_refuses(self):
+        for outcome in (False, PermissionError()):
+            original, canonical = mock.Mock(), mock.Mock()
+            original.resolve.return_value = canonical
+            if isinstance(outcome, Exception):
+                canonical.samefile.side_effect = outcome
+            else:
+                canonical.samefile.return_value = outcome
+            with self.subTest(outcome=outcome):
+                with mock.patch.object(driver, "windows_host", return_value=True):
+                    with self.assertRaises((RuntimeError, PermissionError)):
+                        driver.owned_fixture_base(original, "cursor", "native")
+
+
+class CursorFixtureCleanupTests(unittest.TestCase):
+    def test_existing_directory_refuses_and_absent_directory_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                driver.require_fixture_removed(base)
+            self.assertTrue(base.is_dir())
+        driver.require_fixture_removed(base)
+
+    def test_any_remaining_entry_refuses_without_deleting(self):
+        base = mock.Mock()
+        base.lstat.return_value = object()
+        with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+            driver.require_fixture_removed(base)
+        base.lstat.assert_called_once_with()
+        base.unlink.assert_not_called()
+        base.rmdir.assert_not_called()
+
+    def test_inspection_errors_are_not_absence(self):
+        for error in (PermissionError(), OSError(), ValueError()):
+            with self.subTest(error=type(error).__name__):
+                base = mock.Mock()
+                base.lstat.side_effect = error
+                with self.assertRaises(type(error)):
+                    driver.require_fixture_removed(base)
+                base.lstat.assert_called_once_with()
+
+    def test_only_not_found_is_accepted(self):
+        base = mock.Mock()
+        base.lstat.side_effect = FileNotFoundError()
+        driver.require_fixture_removed(base)
+        base.lstat.assert_called_once_with()
 
 
 if __name__ == "__main__":

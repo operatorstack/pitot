@@ -7,10 +7,11 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform as host_platform
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -33,6 +34,61 @@ def npm_executable() -> str:
     """Resolve npm's platform launcher instead of relying on PATHEXT in Python."""
     name = "npm.cmd" if os.name == "nt" else "npm"
     return shutil.which(name) or name
+
+
+def extract_cursor_windows(archive: Path, destination: Path) -> Path:
+    """Validate the complete Windows package before extracting any member."""
+    required = {"cursor-agent.cmd", "cursor-agent.ps1", "node.exe", "index.js"}
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {
+        f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+    }
+    with zipfile.ZipFile(archive) as bundle:
+        entries = bundle.infolist()
+        if len(entries) > 10000 or sum(item.file_size for item in entries) > 1 << 30:
+            raise RuntimeError("Cursor Windows archive exceeds extraction limits")
+        names = set()
+        files = set()
+        for item in entries:
+            name = item.filename
+            path = PurePosixPath(name)
+            mode = stat.S_IFMT(item.external_attr >> 16)
+            if (
+                not path.parts
+                or path.is_absolute()
+                or path.parts[0] != "dist-package"
+                or "\\" in name
+                or name != path.as_posix() + ("/" if item.is_dir() else "")
+                or any(
+                    part in {".", ".."}
+                    or part.endswith((".", " "))
+                    or any(ord(char) < 32 or char in ':*?"<>|' for char in part)
+                    or part.split(".", 1)[0].upper() in reserved
+                    for part in path.parts
+                )
+                or mode not in {0, stat.S_IFREG, stat.S_IFDIR}
+                or (mode == stat.S_IFDIR and not item.is_dir())
+                or (mode == stat.S_IFREG and item.is_dir())
+            ):
+                raise RuntimeError("Cursor Windows archive has an unsafe member")
+            key = path.as_posix().casefold()
+            if key in names:
+                raise RuntimeError("Cursor Windows archive has duplicate members")
+            names.add(key)
+            if not item.is_dir():
+                files.add(path.as_posix())
+        if not {f"dist-package/{name}" for name in required}.issubset(files):
+            raise RuntimeError(
+                "Cursor Windows archive is missing its owned launch files"
+            )
+        file_keys = {name.casefold() for name in files}
+        for name in names:
+            path = PurePosixPath(name)
+            if any(
+                parent.as_posix().casefold() in file_keys for parent in path.parents
+            ):
+                raise RuntimeError("Cursor Windows archive has conflicting members")
+        bundle.extractall(destination)
+    return destination / "dist-package"
 
 
 def install_kimi_macos(package: str, version: str) -> None:
@@ -142,10 +198,33 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
                 }
                 run(["bash", str(target)], env=environment)
     elif kind == "cursor_release":
-        os_name = {"ubuntu": "linux", "macos": "darwin"}[platform]
+        os_name = {"ubuntu": "linux", "macos": "darwin", "windows": "windows"}[platform]
         machine = host_platform.machine().lower()
         arch = "arm64" if machine in {"arm64", "aarch64"} else "x64"
-        url = f"{package}/{os_name}/{arch}/agent-cli-package.tar.gz"
+        suffix = "zip" if platform == "windows" else "tar.gz"
+        url = f"{package}/{os_name}/{arch}/agent-cli-package.{suffix}"
+        if platform == "windows":
+            release = Path.home() / ".local/share/pitot-cursor" / version
+            with tempfile.TemporaryDirectory() as directory:
+                temporary = Path(directory)
+                archive = temporary / "cursor.zip"
+                run(
+                    [
+                        "curl",
+                        "-fsSL",
+                        "--connect-timeout",
+                        "20",
+                        "--max-time",
+                        "120",
+                        url,
+                        "-o",
+                        str(archive),
+                    ]
+                )
+                payload = extract_cursor_windows(archive, temporary / "payload")
+                release.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(payload, release)
+            return str(release / "cursor-agent.cmd")
         destination = Path.home() / ".local" / "bin"
         destination.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as directory:

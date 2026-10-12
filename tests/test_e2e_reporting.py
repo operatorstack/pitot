@@ -3,11 +3,13 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import urllib.request
 
 
@@ -260,6 +262,61 @@ class ResultGenerationTests(unittest.TestCase):
             self.assertEqual(result["platform"], "windows")
             self.assertEqual(result["status"], "pass")
 
+    def test_cursor_windows_carrier_evidence_survives_reporting(self):
+        receipt = _receipt("cursor", "windows")
+        snapshots = [
+            {
+                "schema_version": 1,
+                "status": "observed",
+                "input_prefix_bom_removed": True,
+                "source_candidate_sha": "a" * 40,
+                "nonce": receipt["nonce"],
+                "phase": phase,
+                "action_id": receipt["controller"]["action_ids"][index],
+                "observed_command": f"工具 PITOT_{phase.upper()} {receipt['nonce']}",
+            }
+            for index, phase in enumerate(("allow", "deny"))
+        ]
+        receipt["controller"]["windows_carrier"] = snapshots
+        receipt["controller"]["command_sha256"] = [
+            hashlib.sha256(item["observed_command"].encode()).hexdigest()
+            for item in snapshots
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "evidence.json"
+            evidence.write_text(json.dumps(receipt), encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "PITOT_SOURCE_SHA": "a" * 40,
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "operatorstack/pitot",
+                    "GITHUB_RUN_ID": "1",
+                },
+            ):
+                result = runner.result_for(
+                    "cursor",
+                    "windows",
+                    0,
+                    "PITOT_E2E_RESULT mode=real_cli evidence=nonce-correlated\n",
+                    evidence,
+                )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["controller"], receipt["controller"])
+        self.assertIs(
+            reporter.validate_result(result, agent="cursor", platform="windows"), result
+        )
+        for invalid in (False, 1, "true", None):
+            result["controller"]["windows_carrier"][0]["input_prefix_bom_removed"] = (
+                invalid
+            )
+            with self.assertRaisesRegex(ValueError, "carrier action correlation"):
+                reporter.validate_result(result, agent="cursor", platform="windows")
+        result["controller"]["windows_carrier"][0]["input_prefix_bom_removed"] = True
+        result["controller"]["windows_carrier"][0]["action_id"] = "act_unrelated"
+        with self.assertRaisesRegex(ValueError, "carrier action correlation"):
+            reporter.validate_result(result, agent="cursor", platform="windows")
+
     def test_missing_or_duplicate_marker_fails(self):
         self.assertEqual(
             runner.result_for("codex", "ubuntu", 0, "ok\n")["status"], "fail"
@@ -393,25 +450,19 @@ class ReporterContractTests(unittest.TestCase):
         self.assertIn('--platform "${{ inputs.platform }}"', workflow)
         self.assertIn('bash_path="$(cygpath -m "$bash_path")"', workflow)
         self.assertIn('-- "$PITOT_BASH"', workflow)
-        self.assertIn("node_version=22.23.1", workflow)
-        self.assertIn("SHASUMS256.txt", workflow)
+        self.assertIn("name: Verify Cursor native Windows shell", workflow)
+        self.assertIn("$PSVersionTable.PSVersion.Major -lt 7", workflow)
+        self.assertNotIn("name: Enable Cursor WSL runtime", workflow)
+        self.assertNotIn("wsl --install", workflow)
         self.assertNotIn('-- bash "tests/e2e_', workflow)
         self.assertIn("fromJSON(needs.inventory.outputs.agent_matrix)", unified)
         self.assertIn("fromJSON(needs.inventory.outputs.runtime_matrix)", unified)
         self.assertIn("pitot-e2e-runtime-${{ matrix.platform }}", unified)
         self.assertIn('-- "$PITOT_BASH" tests/e2e_runtime_cli_test.sh', unified)
         self.assertIn("name: pitot-e2e-inventory", unified)
-        self.assertEqual(
-            runner_script.count("GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build"), 3
-        )
-        self.assertIn("pitot-linux", runner_script)
-        self.assertIn("pitot-witness-linux", runner_script)
-        self.assertIn("pitot-testrole-linux", runner_script)
-        self.assertIn("wsl.exe --distribution Ubuntu -- env", runner_script)
-        self.assertIn(
-            'python3 "$(to_wsl_path "$SCRIPT_DIR/real_agent_driver.py")"', runner_script
-        )
-        self.assertIn("MSYS2_ARG_CONV_EXCL='*'", runner_script)
+        self.assertEqual(runner_script.count("go build -o"), 3)
+        self.assertNotIn("GOOS=linux", runner_script)
+        self.assertNotIn("wsl.exe", runner_script)
 
     def test_inventory_schema_rejects_identity_injection(self):
         inventory = json.loads((ROOT / "adapter-verification.json").read_text())

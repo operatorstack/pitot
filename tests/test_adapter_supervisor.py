@@ -370,13 +370,27 @@ class AdapterSupervisorTests(unittest.TestCase):
             for item in matrix
             if item["agent"] == "cursor" and item["platform"] == "windows"
         )
-        self.assertEqual(cursor_windows["runtime"], "wsl")
-        self.assertEqual(cursor_windows["version"], "2026.07.20-8cc9c0b")
+        self.assertEqual(cursor_windows["runtime"], "native")
+        self.assertEqual(cursor_windows["version"], "2026.10.01-e373342")
         self.assertNotIn("protocol", cursor_windows)
         self.assertEqual(
             cursor_windows["endpoint_fixture"],
             "tests/endpoint-provenance.json#cursor/windows",
         )
+
+    def test_cursor_native_runtime_requires_both_supervised_bridges(self):
+        manifest = copy.deepcopy(_manifest())
+        cursor = next(agent for agent in manifest["agents"] if agent["id"] == "cursor")
+        cursor["artifacts"].remove("integrations/cursor/beforeShellExecution.ps1")
+        with self.assertRaisesRegex(
+            supervisor.ContractError, "Unix and native Windows bridges"
+        ):
+            supervisor.validate_manifest(manifest)
+        manifest = copy.deepcopy(_manifest())
+        cursor = next(agent for agent in manifest["agents"] if agent["id"] == "cursor")
+        cursor["runtime"]["windows"] = "wsl"
+        with self.assertRaisesRegex(supervisor.ContractError, "natively"):
+            supervisor.validate_manifest(manifest)
 
     def test_stale_or_missing_endpoint_provenance_fails(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -396,6 +410,25 @@ class AdapterSupervisorTests(unittest.TestCase):
                 any("stale for its pinned CLI" in error for error in errors)
             )
 
+    def test_native_runner_contract_rejects_legacy_or_incomplete_routes(self):
+        for old, new in (
+            ('go build -o "$PITOT_BINARY"', 'GOOS=linux go build -o "$PITOT_BINARY"'),
+            ('go build -o "$WITNESS_BINARY"', 'wsl.exe go build -o "$WITNESS_BINARY"'),
+            ('PITOT_BINARY="${PITOT_BINARY}.exe"', 'PITOT_BINARY="${PITOT_BINARY}"'),
+            ("--expect-incompatible-response", "--omit-negative-check"),
+        ):
+            with self.subTest(old=old), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                _, ids = _fixture(root)
+                runner = root / "tests/e2e_unified_runner.sh"
+                text = (ROOT / "tests/e2e_unified_runner.sh").read_text()
+                self.assertIn(old, text)
+                runner.write_text(text.replace(old, new, 1))
+                self.assertIn(
+                    "unified runner does not preserve native host verification",
+                    supervisor.contract_errors(root, ids),
+                )
+
     def test_platform_swap_and_fabricated_capture_digest_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -407,7 +440,7 @@ class AdapterSupervisorTests(unittest.TestCase):
                 for item in fixture["cells"]
                 if item["agent"] == "cursor" and item["platform"] == "windows"
             )
-            cell["runtime"] = "native"
+            cell["runtime"] = "wsl"
             fixture_path.write_text(json.dumps(fixture))
             self.assertTrue(
                 any(
