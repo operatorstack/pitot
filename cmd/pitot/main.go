@@ -246,7 +246,14 @@ func doctor(args []string, stdout, stderr io.Writer) error {
 		if fix {
 			// The only mutation doctor ever performs, and only on request:
 			// restore Pitot's own marked entries (foreign config untouched).
-			return runWireHost(host, true, stdout)
+			if err := runWireHost(host, true, stdout); err != nil {
+				return err
+			}
+			if host == "codex" || host == "qwen" || host == "deepseek" {
+				fmt.Fprintln(stdout, "Setup step finished; checking static setup separately:")
+				return doctorHost(adapters.Host(host), stdout, stderr)
+			}
+			return nil
 		}
 		return doctorHost(adapters.Host(host), stdout, stderr)
 	}

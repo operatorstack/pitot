@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -112,20 +111,24 @@ func checkDeepSeekCommandVersion(ctx context.Context, executable string, argumen
 }
 
 func doctorDeepSeek(stdout io.Writer) error {
-	executable, err := exec.LookPath("dsh")
-	if err != nil {
-		return errors.New("pitot doctor: dsh is not on PATH")
-	}
-	if err := checkDeepSeekVersion(context.Background(), executable); err != nil {
-		return err
+	report := &readinessReport{out: stdout}
+	if executable := report.binary("dsh"); executable != "" {
+		if err := checkDeepSeekVersion(context.Background(), executable); err != nil {
+			report.result("DeepSeek version", "UNVERIFIED", "bounded version check failed or the version is unsupported; install @deepseek-ai/dsh@"+deepseek.Version, true)
+		} else {
+			report.result("DeepSeek version", "PASS", deepseek.Version, false)
+		}
 	}
 	root, err := config.FindRoot(".")
 	if err != nil {
 		root = "."
 	}
 	if err := checkDeepSeekIntegration(root); err != nil {
-		return err
+		report.result("native shell plugin", "INVALID", "owned integration files are missing or changed; run pitot init --host deepseek after reviewing existing files", true)
+	} else {
+		report.result("native shell plugin", "FOUND", "owned integration files match this release", false)
 	}
-	fmt.Fprintf(stdout, "  DeepSeek Harness %s: FOUND\n  native shell plugin: FOUND\n  live readiness: checked before each prompt by pitot dev\n", deepseek.Version)
-	return nil
+	report.selectedRuntime()
+	fmt.Fprintln(stdout, "  live readiness: checked before each prompt by pitot dev")
+	return report.finish()
 }
