@@ -443,6 +443,7 @@ def probe_version(
                 str(agent["id"]), installation, options.get("env", dict(os.environ))
             )
         probe_error = None
+        result = None
         try:
             result = subprocess.run(
                 command,
@@ -470,7 +471,14 @@ def probe_version(
                     verify_installation(installation)
                 except RuntimeError:
                     if probe_error is None:
-                        raise
+                        if result is None:
+                            raise
+                        probe_error = VersionProbeError(
+                            "identity-recheck-failed",
+                            result.stdout,
+                            result.stderr,
+                            result.returncode,
+                        )
                     probe_error.diagnostic["identity_recheck"] = "failed"
         if probe_error is not None:
             raise probe_error from None

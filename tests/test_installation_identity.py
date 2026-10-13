@@ -543,6 +543,35 @@ class InstalledReceiptTests(unittest.TestCase):
             self.assertEqual(caught.exception.stderr, b"err")
             self.assertEqual(caught.exception.diagnostic["identity_recheck"], "failed")
 
+    def test_completed_probe_streams_survive_failed_identity_recheck(self):
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(Path, "home", return_value=Path(d)),
+        ):
+            agent, _, receipt, _ = self.fixture(Path(d))
+            with (
+                mock.patch.object(
+                    agent_identity,
+                    "verify_installation",
+                    side_effect=[None, RuntimeError("changed")],
+                ),
+                mock.patch.object(
+                    agent_identity.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        [], 0, b"unexpected banner", b"private output"
+                    ),
+                ),
+                self.assertRaises(agent_identity.VersionProbeError) as caught,
+            ):
+                agent_identity.probe_version(
+                    agent, receipt["executable"], "native", receipt["installation"]
+                )
+            self.assertEqual(caught.exception.reason, "identity-recheck-failed")
+            self.assertEqual(caught.exception.stdout, b"unexpected banner")
+            self.assertEqual(caught.exception.stderr, b"private output")
+            self.assertNotIn("private output", str(caught.exception))
+
     def test_qwen_null_pin_is_authored_after_inherited_override_removal(self):
         with tempfile.TemporaryDirectory() as d:
             home = str(Path(d) / "qwen")
