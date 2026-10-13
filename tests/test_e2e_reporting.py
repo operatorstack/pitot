@@ -779,6 +779,10 @@ class ReporterContractTests(unittest.TestCase):
             results, {"claude": "https://example.test/run"}, "b" * 40
         )
         self.assertIn(reporter.MARKER, body)
+        self.assertIn(
+            "These results come from this repository's CI at the commit shown below",
+            body,
+        )
         self.assertIn("Pass · real CLI", body)
         self.assertNotIn("hook verified", body)
         self.assertIn(

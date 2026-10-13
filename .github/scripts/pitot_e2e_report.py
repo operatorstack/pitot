@@ -506,7 +506,7 @@ def render_comment(
         MARKER,
         "## Pitot coding-agent E2E",
         "",
-        "Intelligence Flow is the verification source; Pitot's public README carries the latest `main` status.",
+        "These results come from this repository's CI at the commit shown below; the README links to the latest `main` status.",
         "",
         "| Agent | Ubuntu | macOS | Windows | Result | Evidence |",
         "|---|---|---|---|---|---|",

@@ -61,5 +61,5 @@ if __name__ == "__main__":
 pitot dev --host claude -- claude -p "…"    # discovers your fragment, starts the controller
 ```
 
-See the repository [README](../../../public-readme-preview/README.md) for the full
+See the repository [README](../../README.md) for the full
 runtime, host-hook wiring, and the enforcement boundary.

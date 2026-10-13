@@ -8,7 +8,7 @@ same fixture cases so their observable protocol behavior stays identical:
   * deny outcome       - the handler's deny is faithfully serialized
   * consumer stream    - events are delivered and stdout stays protocol-clean
 
-Paths are resolved relative to this file (no hardcoded monorepo depth), and each
+Paths are resolved within this repository, and each
 language is skipped cleanly when its toolchain is unavailable.
 """
 
@@ -25,11 +25,9 @@ FIXTURES_DIR = SDK_DIR / "tests" / "_fixtures"
 
 
 def go_module_dir() -> Path | None:
-    """Locate the Go module root in either the monorepo or flattened layout."""
-    for candidate in (SDK_DIR.parent, SDK_DIR.parent.parent / "pitot"):
-        if (candidate / "go.mod").exists():
-            return candidate
-    return None
+    """Locate this repository's Go module root."""
+    candidate = SDK_DIR.parent
+    return candidate if (candidate / "go.mod").is_file() else None
 
 
 def control_request(action_id: str) -> str:
@@ -234,8 +232,7 @@ class RunnerContract:
 
     @classmethod
     def tearDownClass(cls):
-        # Generated fixtures must never linger under the published sdk/ tree, or
-        # they would show up as projection drift in UPSTREAM.json.
+        # Remove generated fixtures so subsequent runs start with a clean SDK tree.
         shutil.rmtree(FIXTURES_DIR, ignore_errors=True)
 
     def _wire_cases(self, envelope):

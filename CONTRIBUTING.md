@@ -208,7 +208,6 @@ available through GitHub.
 ## Repository ownership
 
 This repository owns Pitot source, maintenance tooling, CI, and releases.
-`UPSTREAM.json` records the historical import; it is not an active sync contract.
 Changes are made directly here.
 
 Maintenance commands run from this repository root:
