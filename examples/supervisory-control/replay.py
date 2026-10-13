@@ -23,6 +23,8 @@ class Replay:
                 self.tools[function["name"]] = function
         action = "dispatch" if self.actor == "codex" else "release"
         if self.last_call:
+            # Follow the result of the call we issued. Text in a prompt or an
+            # unrelated tool result must not advance the demonstration.
             items = body.get("input", []) if responses else body.get("messages", [])
             results = [
                 item.get("output") if responses else item.get("content")

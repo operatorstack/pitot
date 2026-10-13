@@ -1,5 +1,7 @@
 # Supervisory control
 
+**Give agents room to act, with a shared program deciding what is admissible now.**
+
 A real Codex CLI delegates a delivery task to a real Qwen or DeepSeek CLI.
 Both agents cross Pitot's action boundary. One Python application owns the
 supervisor, delivery state and external tester. A loopback LLM replay server
@@ -10,6 +12,32 @@ Codex <-> Pitot <-> Python supervisor <-> Pitot <-> Qwen or DeepSeek
                          |
                   artifact + tester
 ```
+
+## The control idea, in plain English
+
+A permission such as “this agent may publish” is often too broad. The useful
+question is whether this particular artifact may be published in the current
+state. A new edit or failed test can change the answer without changing the agent.
+
+In classical Ramadge–Wonham supervisory control, a supervisor observes system
+events and disables controllable actions that would violate a specification.
+Uncontrollable events can still occur; the supervisor must respond to their
+effects. See [Wonham, Cai and Rudie's introduction and history](https://www.control.utoronto.ca/~wonham/Wonham_SCDES_history.pdf).
+
+| Concept              | Plain meaning                                   | In this example                                   |
+| -------------------- | ----------------------------------------------- | ------------------------------------------------- |
+| Plant                | The system whose behavior is being controlled   | The artifact and delivery process                 |
+| State                | Facts that determine what can happen next       | Delivery stage, artifact revision and test result |
+| Controllable action  | An action the supervisor can prevent            | A worker's build or release                       |
+| Uncontrollable event | An event outside the agent's permission to stop | The tester invalidating a result                  |
+| Specification        | The behavior that must remain acceptable        | Release only the current tested artifact          |
+| Feedback             | Observations that change the next decision      | Completed work, test results and denial messages  |
+
+Good supervision also leaves a path to the objective. Denying every action would
+prevent a bad release, but would also prevent useful work. Here a denied worker
+can build, obtain a current test result and try again. This illustrates the
+nonblocking idea of keeping completion reachable; it does not promise that an
+arbitrary agent or external tester will eventually succeed.
 
 ## System and specification
 
@@ -27,17 +55,104 @@ through the action interface.
 | Environment invalidates tests | Withdraws verification and returns to `built`                                |
 | Worker releases               | Allowed only in `verified`; copies the tested artifact and enters `released` |
 
+```mermaid
+stateDiagram-v2
+    [*] --> Draft
+    Draft --> Draft: release denied
+    Draft --> Built: build completed
+    Built --> Built: release denied
+    Built --> Verified: external test passed
+    Verified --> Built: external test invalidated
+    Verified --> Released: release completed
+    Released --> [*]
+```
+
+The arrows record completed operations or observed events. An approval alone
+does not move the system to another state.
+
 The specification forbids releasing an unverified or changed artifact. Permission
 does not mean completion: the plant records a build only after the write succeeds.
 A release consumes a short-lived admission reservation and rechecks the current
 state, revision and artifact under the same lock. An intervening invalidation
 revokes permission. Unknown commands and wrong agent roles are denied.
 
-This illustrates the controllable/uncontrollable distinction in discrete-event
-supervisory control. The supervisor constrains proposed behavior; it does not
-choose the agent's next action. The finite toy has a recovery path from each
-unfinished state, but makes no guarantee that an arbitrary agent will follow it
-or that an external tester will eventually pass.
+The agent remains responsible for choosing its next action. The application
+supervisor determines which proposed actions are currently admissible.
+
+## Why this helps coding agents
+
+An agent's explanation of what happened is useful context. The program can
+ground permission in completed operations and independent observations: the
+artifact exists, its revision was tested, and that result is still current.
+When permission changes, the agent receives feedback and can revise its plan.
+
+The same pattern can be adapted to real development systems:
+
+| Use case           | State-dependent rule                                                | Event that changes permission         |
+| ------------------ | ------------------------------------------------------------------- | ------------------------------------- |
+| Software delivery  | Publish only the exact tested artifact                              | A new commit or failed CI result      |
+| Database migration | Apply changes only with a verified backup and an open change window | Backup failure or the window closing  |
+| Workspace changes  | Perform destructive operations only within an approved scope        | A branch or ownership change          |
+| Multi-agent work   | Accept a worker's result only for the revision it was assigned      | Another worker changing that revision |
+
+The demo implements the delivery case. The other rows are application designs
+you can build around Pitot's existing Controller boundary.
+
+## Program checks first, expensive reasoning when needed
+
+The supervisor does not need another model call to answer a known rule such as
+“is this the revision that passed its tests?” Python can answer that from shared
+state. The agent can keep planning; relevant actions cross the control boundary
+when they are proposed.
+
+An application can use a small decision hierarchy:
+
+| Situation                              | Decision path                                                               |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| A known rule is satisfied              | The program permits the action                                              |
+| A known rule is violated               | The program denies it and explains how to recover                           |
+| Required state is missing or stale     | Wait for a trustworthy observation before permitting the action             |
+| A case needs judgment beyond the rules | Request focused human or model review, while retaining the hard constraints |
+
+This example uses deterministic Python policy throughout, so its permission
+checks use no model tokens. Selective human or model escalation is an extension
+for a real application; it is not implemented by this demo. The replay server
+also avoids real model calls, and the example makes no measured cost or latency
+savings claim.
+
+## Interchanging the supervisor
+
+`--worker qwen` and `--worker deepseek` already exercise the same shared policy
+with different native worker connections. The supervisor is application code:
+the Python SDK handler receives `ControlRequested` and returns an `Outcome`.
+An application can replace that decision handler with another program, a human
+approval path or an agent-backed review without changing Pitot's wire interface.
+
+Keep the shared state owner, action correlation, completed-operation records and
+external event handling across that replacement. A different reviewer must not
+turn an old test result into permission to release a new artifact. In this demo,
+Codex delegates the task and receives the result; Python owns the admissibility
+rules. Replacing those rules is an application change, not another demo CLI flag.
+
+## An aerospace lesson: observations and authority matter
+
+Boeing's MCAS is flight-control augmentation, rather than an instance of this
+discrete-event example. It nevertheless makes the importance of control
+boundaries concrete. The [FAA's 2020 review, sections 13.1–13.3](https://www.faa.gov/sites/faa.gov/files/2022-08/737_RTS_Summary.pdf)
+describes the original reliance on one angle-of-attack sensor at a time and
+repeated activation. The redesign compared both sensors and limited control
+commands. The [NTSB's 2019 recommendations](https://www.ntsb.gov/news/press-releases/pages/nr20190926.aspx)
+also addressed assumptions about pilot response when multiple alerts occurred.
+
+For a coding-agent application, the engineering questions are smaller but still
+useful: Is the observed state trustworthy? How much authority does one decision
+grant? Can repeated actions accumulate harmful effects? What happens when a
+check fails, and is the recovery path actually usable?
+
+That is why this example uses independently tested artifact revisions, limited
+one-use permissions, explicit denial feedback and checks at execution time.
+The analogy motivates those questions; it does not establish aviation-grade
+safety or claim that Pitot could have prevented an aircraft accident.
 
 ## Run
 

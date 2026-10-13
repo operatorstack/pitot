@@ -45,6 +45,7 @@ def controller(connection: Path) -> None:
     from pitot import allow, deny, run_controller
 
     def decide(request):
+        # The SDK supplies response IDs; this handler returns only the decision.
         try:
             result = post(
                 connection,
@@ -133,6 +134,8 @@ class Application:
     def environment(self, actor: str) -> dict[str, str]:
         home = self.directory / (actor + "-home")
         home.mkdir(exist_ok=True)
+        # Use an owned file because some CLIs filter secret-named environment
+        # variables before executing a tool. No connection secrets enter prompts.
         write_json(
             self.directory / (actor + "-connection.json"),
             {
@@ -308,6 +311,8 @@ class Application:
         return [stdout, stderr]
 
     def admit(self, body: dict) -> dict:
+        # Native event data arrives as JSON. Require the fields used by the policy
+        # and verify that this event belongs to the pending Pitot request.
         event = body.get("data")
         if not isinstance(event, dict):
             return {"allowed": False, "reason": "SUPERVISOR_DENY missing native event"}
@@ -335,6 +340,8 @@ class Application:
         result = self.supervisor.execute(actor, action)
         # No state lock or Controller handler is held across these callbacks.
         if action == "dispatch":
+            # The approval handler has returned, so the worker's own hooks can
+            # now reach the same Controller while Codex waits for completion.
             self.launch(self.worker)
             if self.supervisor.state != "released":
                 raise ValueError("Worker finished without reaching released state")

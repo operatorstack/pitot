@@ -19,6 +19,7 @@ class Supervisor:
         self.revision = 0
         self.tested_revision: int | None = None
         self.tested_digest: str | None = None
+        # A changed state invalidates permissions issued against older state.
         self.epoch = 0
         self.dispatched = False
         self.pending: dict[tuple[str, str], tuple[int, float]] = {}
@@ -64,6 +65,8 @@ class Supervisor:
 
     def execute(self, actor: str, action: str) -> dict:
         with self.lock:
+            # Consume permission once and check again: conditions may have changed
+            # since the agent received an allow response.
             grant = self.pending.pop((actor, action), None)
             if (
                 not grant
@@ -88,6 +91,7 @@ class Supervisor:
                 self.record("build_completed", actor=actor, revision=self.revision)
                 return {"result": "BUILD_OK", "revision": self.revision}
             artifact = (self.project / "artifact.txt").read_bytes()
+            # A matching revision alone is insufficient if the bytes were edited.
             if hashlib.sha256(artifact).hexdigest() != self.tested_digest:
                 self.invalidate("artifact changed since test")
                 raise ValueError("Tested artifact changed; release refused")
