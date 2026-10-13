@@ -13,6 +13,9 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from installation_identity import validate_identity_evidence
+
 MANIFEST = Path("adapter-verification.json")
 ENDPOINT_PROVENANCE = Path("tests/endpoint-provenance.json")
 README = Path("README.md")
@@ -209,14 +212,14 @@ def validate_endpoint_provenance(root: Path, manifest: dict[str, object]) -> Non
         raise ContractError(f"cannot load {ENDPOINT_PROVENANCE}: {error}") from error
     validate_endpoint_value(value, manifest)
     if (
-        value["schema_version"] in {3, 4}
+        value["schema_version"] in {3, 4, 5}
         and value["source"]["catalog_sha256"]
         != hashlib.sha256((root / MANIFEST).read_bytes()).hexdigest()
     ):
         raise ContractError(
             "endpoint capture source catalog digest differs from current manifest"
         )
-    if value["schema_version"] == 4:
+    if value["schema_version"] in {4, 5}:
         from pitot_capture_source import validate_current_producers
 
         try:
@@ -233,7 +236,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
         "capture_policy",
         "cells",
     }
-    if isinstance(value, dict) and value.get("schema_version") in {3, 4}:
+    if isinstance(value, dict) and value.get("schema_version") in {3, 4, 5}:
         required.add("source")
     if not isinstance(value, dict) or set(value) != required:
         raise ContractError(
@@ -241,7 +244,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
         )
     if (
         type(value["schema_version"]) is not int
-        or value["schema_version"] not in {2, 3, 4}
+        or value["schema_version"] not in {2, 3, 4, 5}
         or value["capture_policy"] != "pinned_real_cli_capture"
     ):
         raise ContractError("endpoint provenance must require pinned real-CLI capture")
@@ -274,6 +277,8 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
         "provenance",
         "capture_sha256",
     }
+    if value["schema_version"] == 5:
+        required.add("installation")
     for cell in cells:
         agent_id, platform = cell["agent"], cell["platform"]
         if set(cell) != required:
@@ -281,6 +286,11 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
                 f"endpoint fixture {agent_id}/{platform} has an invalid schema"
             )
         agent = declared[agent_id]
+        if value["schema_version"] == 5:
+            try:
+                validate_identity_evidence(agent_id, platform, cell["installation"])
+            except ValueError as error:
+                raise ContractError(str(error)) from error
         if (
             cell["version"] != agent["version"]
             or cell["runtime"] != agent["runtime"][platform]
@@ -379,7 +389,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
             raise ContractError(
                 f"endpoint fixture {agent_id}/{platform} has a fabricated capture digest"
             )
-    if value["schema_version"] in {3, 4}:
+    if value["schema_version"] in {3, 4, 5}:
         from pitot_capture_source import validate_source_index
 
         try:
@@ -387,7 +397,7 @@ def validate_endpoint_value(value: object, manifest: dict[str, object]) -> None:
                 value["source"],
                 cells,
                 manifest,
-                producer_binding=value["schema_version"] == 4,
+                producer_binding=value["schema_version"] in {4, 5},
             )
         except (ValueError, KeyError, TypeError) as error:
             raise ContractError(f"invalid endpoint capture source: {error}") from error

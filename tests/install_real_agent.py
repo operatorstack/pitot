@@ -18,7 +18,17 @@ import tempfile
 import urllib.request
 import zipfile
 
-from agent_identity import owned_entrypoint, probe_version
+from installation_identity import persist_probe_error
+from agent_identity import owned_entrypoint, probe_version, VersionProbeError
+from installation_identity import (
+    PRIORITY_AGENTS,
+    installation_prefix,
+    observe_installation,
+    node_environment,
+    node_probe,
+    node_output,
+    prepare_installation,
+)
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -151,29 +161,73 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
         run([*wsl, "chmod", "0755", f"{release}/cursor-agent"])
         run([*wsl, "ln", "-sfn", f"{release}/cursor-agent", "/usr/local/bin/agent"])
         return f"{release}/cursor-agent"
-    if kind == "npm" and agent["id"] == "deepseek":
-        prefix = Path.home() / ".local/share/pitot-deepseek" / version
-        run(
-            [
-                npm_executable(),
-                "install",
-                "--prefix",
-                str(prefix),
-                "--ignore-scripts",
-                "--no-audit",
-                "--no-fund",
-                "--save-exact",
-                f"{package}@{version}",
-            ]
-        )
-        lock = json.loads((prefix / "package-lock.json").read_text(encoding="utf-8"))
-        selected = lock["packages"]["node_modules/@deepseek-ai/dsh"]
-        if (
-            selected["version"] != version
-            or selected["integrity"]
-            != "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
-        ):
-            raise RuntimeError("DeepSeek release integrity mismatch")
+    if kind == "npm" and agent["id"] in PRIORITY_AGENTS:
+        prefix = installation_prefix(agent)
+        prepare_installation(prefix)
+        with tempfile.TemporaryDirectory(prefix="pitot-npm-") as temporary:
+            owned = Path(temporary)
+            userconfig, globalconfig = owned / "user.npmrc", owned / "global.npmrc"
+            userconfig.write_text("", encoding="utf-8")
+            globalconfig.write_text("", encoding="utf-8")
+            environment = node_environment(
+                {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.lower().startswith("npm_config_")
+                }
+            )
+            run(
+                [
+                    npm_executable(),
+                    "install",
+                    "--prefix",
+                    str(prefix),
+                    "--userconfig",
+                    str(userconfig),
+                    "--globalconfig",
+                    str(globalconfig),
+                    "--cache",
+                    str(owned / "cache"),
+                    "--ignore-scripts"
+                    if agent["id"] == "deepseek"
+                    else "--ignore-scripts=false",
+                    "--no-audit",
+                    "--no-fund",
+                    "--save-exact",
+                    f"{package}@{version}",
+                ],
+                cwd=owned,
+                env=environment,
+            )
+        if agent["id"] == "qwen":
+            node = shutil.which("node.exe" if os.name == "nt" else "node")
+            if node is None:
+                raise RuntimeError("Node runtime is unavailable")
+            target = json.loads(
+                node_output(
+                    node_probe(
+                        [node, "-p", "JSON.stringify([process.platform, process.arch])"]
+                    )
+                )
+            )
+            if (
+                not isinstance(target, list)
+                or len(target) != 2
+                or not all(isinstance(item, str) for item in target)
+            ):
+                raise RuntimeError("Node did not identify its installation platform")
+            initialize_qwen_ripgrep(prefix, *target)
+        if agent["id"] == "deepseek":
+            lock = json.loads(
+                (prefix / "package-lock.json").read_text(encoding="utf-8")
+            )
+            selected = lock["packages"]["node_modules/@deepseek-ai/dsh"]
+            if (
+                selected["version"] != version
+                or selected["integrity"]
+                != "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
+            ):
+                raise RuntimeError("DeepSeek release integrity mismatch")
     elif kind == "npm":
         run(
             [
@@ -341,13 +395,41 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
     return owned_entrypoint(agent, platform, runtime)
 
 
+def initialize_qwen_ripgrep(
+    prefix: Path, node_platform: str, architecture: str
+) -> None:
+    """Finish the pinned CLI's first-use executable setup before observing it."""
+    if node_platform == "win32":
+        return
+    if node_platform not in {"darwin", "linux"} or architecture not in {"arm64", "x64"}:
+        raise RuntimeError("unsupported Qwen bundled ripgrep platform")
+    binary = (
+        prefix
+        / "node_modules/@qwen-code/qwen-code/vendor/ripgrep"
+        / f"{architecture}-{node_platform}"
+        / "rg"
+    )
+    info = binary.lstat()
+    if not stat.S_ISREG(info.st_mode) or not binary.resolve(strict=True).is_relative_to(
+        prefix.resolve(strict=True)
+    ):
+        raise RuntimeError("Qwen bundled ripgrep must be a regular owned file")
+    # Qwen's first search applies exactly this repair when all execute bits are absent.
+    if info.st_mode & 0o111 == 0:
+        binary.chmod(0o755)
+
+
 def executable_receipt(
     agent: dict[str, object], platform: str, runtime: str, path: str | None = None
 ) -> dict[str, object]:
     path = path if path is not None else owned_entrypoint(agent, platform, runtime)
-    output, digest = probe_version(agent, path, runtime)
+    installation = (
+        observe_installation(agent) if agent["id"] in PRIORITY_AGENTS else None
+    )
+    output, digest = probe_version(agent, path, runtime, installation)
     return {
-        "schema_version": 1,
+        **({"installation": installation} if installation is not None else {}),
+        "schema_version": 2 if installation is not None else 1,
         "agent": agent["id"],
         "version": agent["version"],
         "executable": path,
@@ -373,8 +455,12 @@ def main() -> int:
     runtime = agent["runtime"].get(args.platform)
     if runtime is None:
         raise SystemExit(f"unsupported platform: {args.platform}")
-    path = install(agent, args.platform, runtime)
-    receipt = executable_receipt(agent, args.platform, runtime, path)
+    try:
+        path = install(agent, args.platform, runtime)
+        receipt = executable_receipt(agent, args.platform, runtime, path)
+    except VersionProbeError as error:
+        persist_probe_error(error, args.output)
+        raise SystemExit(str(error)) from None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"

@@ -366,7 +366,7 @@ usage:
   pitot init --host HOST [--force]
   pitot dev --host HOST -- AGENT [ARGS...]
   pitot acp devin --runtime PATH --prompt TEXT [--exec PATH] [--model MODEL] [--agent-type TYPE] [--cwd PATH]
-  pitot acp deepseek --runtime PATH --prompt TEXT [--exec PATH] [--cwd PATH] [--model MODEL] [--base-url URL --api-key-env NAME] [--session-dir PATH]
+  pitot acp deepseek --runtime PATH --prompt TEXT [--exec PATH] [--entrypoint JS_PATH] [--cwd PATH] [--model MODEL] [--base-url URL --api-key-env NAME] [--session-dir PATH]
   pitot doctor [--host HOST] [--fix]
   pitot run [--config PATH] [--strict] --runtime PATH
   pitot hook HOST [--runtime PATH]

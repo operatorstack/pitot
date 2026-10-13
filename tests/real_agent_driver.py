@@ -23,6 +23,14 @@ import tempfile
 import time
 import urllib.parse
 
+from installation_identity import (
+    VersionProbeError,
+    persist_probe_error,
+    installation_command,
+    installation_environment,
+    identity_evidence,
+)
+
 from agent_identity import (
     agent_environment,
     cursor_context,
@@ -825,6 +833,7 @@ def capture_record(
         "runtime": installation["runtime"],
         "version": installation["version"],
         "executable_sha256": digest,
+        "installation": identity_evidence(installation),
         "dialect": dialect,
         "request": observed,
         "response": {
@@ -862,6 +871,7 @@ def validate_capture_fixture(record: dict[str, object]) -> dict[str, object]:
         "request": record["request"],
         "response": record["response"],
         "executable_sha256": record["executable_sha256"],
+        "installation": record["installation"],
     }
 
 
@@ -1423,6 +1433,7 @@ def validate_receipts(
             "request": captured["request"],
             "response": captured["response"],
             "executable_sha256": captured["executable_sha256"],
+            "installation": captured["installation"],
         }
     else:
         endpoint_evidence = validate_capture_fixture(captured)
@@ -1433,6 +1444,7 @@ def validate_receipts(
             "version": installation["version"],
             "executable": installation["executable"],
             "executable_sha256": installation["executable_sha256"],
+            "installation": identity_evidence(installation),
             "installer": installation["installer"],
             "runtime": installation["runtime"],
         },
@@ -1507,6 +1519,67 @@ def require_fixture_removed(base: Path) -> None:
     raise RuntimeError("Cursor temporary fixture cleanup failed")
 
 
+def qwen_update_canary(
+    installation: dict[str, object], environment: dict[str, str], base: Path
+) -> Path:
+    """Place a valid managed update outside the pinned install as a negative control."""
+    value = installation["installation"]
+    entry = value["entrypoint"]
+    observed = subprocess.run(
+        [
+            value["node"]["path"],
+            "-e",
+            "console.log(require('node:fs').statSync(process.argv[1]).ctimeMs)",
+            entry,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=environment,
+    )
+    ctime = json.loads(observed.stdout)
+    root = (
+        Path(environment["QWEN_HOME"])
+        / "updates/npm"
+        / hashlib.sha256(entry.encode()).hexdigest()[:16]
+    )
+    package = root / "versions/999.0.0/node_modules/@qwen-code/qwen-code"
+    package.mkdir(parents=True)
+    marker = base / "unrecorded-qwen-update-selected"
+    write_json(
+        package / "package.json",
+        {"name": "@qwen-code/qwen-code", "version": "999.0.0", "type": "module"},
+    )
+    (package / "cli.js").write_text(
+        "import {writeFileSync} from 'node:fs'; writeFileSync("
+        + json.dumps(str(marker))
+        + ", 'selected'); process.exit(91);\n",
+        encoding="utf-8",
+    )
+    write_json(
+        root / "active.json",
+        {
+            "version": "999.0.0",
+            "bootstrap": entry,
+            "baseVersion": installation["version"],
+            "bootstrapCtimeMs": ctime,
+        },
+    )
+    unpinned = dict(environment)
+    unpinned.pop("QWEN_CODE_MANAGED_NPM_PIN", None)
+    control = subprocess.run(
+        installation_command(value) + ["--help"],
+        env=unpinned,
+        capture_output=True,
+        timeout=30,
+    )
+    if control.returncode != 91 or not marker.is_file():
+        raise RuntimeError("Qwen managed-update positive control did not execute")
+    marker.unlink()
+    return marker
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", required=True)
@@ -1520,6 +1593,14 @@ def main() -> int:
     parser.add_argument("--response-fault", choices=("none", "text"), default="none")
     parser.add_argument("--expect-incompatible-response", action="store_true")
     args = parser.parse_args()
+    try:
+        return run_session(args)
+    except VersionProbeError as error:
+        persist_probe_error(error, args.evidence)
+        raise SystemExit(str(error)) from None
+
+
+def run_session(args: argparse.Namespace) -> int:
     agent = next(item for item in MANIFEST["agents"] if item["id"] == args.agent)
     installation = inspect_receipt(
         json.loads(args.installation.read_text(encoding="utf-8")), agent, args.platform
@@ -1887,6 +1968,21 @@ def main() -> int:
                 environment.pop("MSYSTEM", None)
                 environment.pop("EXEPATH", None)
             executable = installation["executable"]
+            installed_code = installation.get("installation")
+            launch = (
+                installation_command(installed_code)
+                if installed_code is not None
+                else [executable]
+            )
+            if installed_code is not None:
+                environment = installation_environment(
+                    args.agent, installed_code, environment
+                )
+            update_canary = (
+                qwen_update_canary(installation, environment, base)
+                if args.agent == "qwen"
+                else None
+            )
             if host_controls_wsl:
                 wsl_environment = {
                     **extra_env,
@@ -1940,7 +2036,9 @@ def main() -> int:
                     "--prompt",
                     prompt,
                     "--exec",
-                    executable,
+                    launch[0],
+                    "--entrypoint",
+                    launch[1],
                     "--cwd",
                     str(project),
                     "--base-url",
@@ -1970,7 +2068,7 @@ def main() -> int:
                 command = (
                     [executable, "-p", prompt, *flags]
                     if args.agent in {"copilot", "kimi"}
-                    else [executable, *flags, prompt]
+                    else [*launch, *flags, prompt]
                 )
             verify_live_entrypoint(installation)
             try:
@@ -2003,6 +2101,10 @@ def main() -> int:
                 ) from error
             finally:
                 verify_live_entrypoint(installation)
+                if update_canary is not None and update_canary.exists():
+                    raise RuntimeError(
+                        "Qwen selected an update outside the recorded installation"
+                    )
             # GitHub's Windows Python console defaults to CP-1252 while several
             # released CLIs emit Unicode status glyphs. Emit UTF-8 bytes so the
             # reporting layer cannot fail after a successful agent session.

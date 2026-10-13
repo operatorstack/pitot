@@ -165,5 +165,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Verify native installation identity
+        run: python -m unittest discover -s tests -p test_installation_identity.py
       - name: Build and verify installed SDK artifacts
         run: python scripts/check_sdk_packages.py

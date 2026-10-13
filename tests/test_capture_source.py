@@ -212,9 +212,9 @@ class CaptureSourceTests(unittest.TestCase):
             output = Path(directory) / "accepted.json"
             self.promote(api, output)
             value = json.loads(output.read_text())
-        self.assertEqual(value["schema_version"], 4)
+        self.assertEqual(value["schema_version"], 5)
         self.assertEqual(value["source"]["producer_profile"], "capture-direct/v1")
-        self.assertEqual(len(value["source"]["producer_files"]), 41)
+        self.assertEqual(len(value["source"]["producer_files"]), 45)
         self.assertIn(
             "tests/cursor_transport.mjs",
             {item["path"] for item in value["source"]["producer_files"]},
@@ -375,6 +375,20 @@ class CaptureSourceTests(unittest.TestCase):
         historical = json.loads((ROOT / supervisor.ENDPOINT_PROVENANCE).read_text())
         # Derive only the original schema3 vocabulary, not a new-profile upgrade.
         historical["schema_version"] = 3
+        for cell in historical["cells"]:
+            cell.pop("installation", None)
+            core = {
+                key: value for key, value in cell.items() if key != "capture_sha256"
+            }
+            cell["capture_sha256"] = hashlib.sha256(
+                json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            for artifact in historical["source"]["artifacts"]:
+                if (
+                    artifact["agent"] == cell["agent"]
+                    and artifact["platform"] == cell["platform"]
+                ):
+                    artifact["capture_sha256"] = cell["capture_sha256"]
         historical["source"].pop("producer_files", None)
         historical["source"].pop("producer_profile", None)
         with tempfile.TemporaryDirectory() as directory:

@@ -121,25 +121,24 @@ name/export errors (E9, F821, F822, F823); formatting remains a separate gate.
 
 ## Refreshing agent endpoint provenance
 
-The installer selects its own release location or npm global launcher rather
-than rediscovering the agent on PATH. It records the raw version output only
-after the complete product banner matches the literal catalog pin and the
-entrypoint bytes stay unchanged across the version probe. An unexpected banner
-is a verification failure that needs investigation; mentioning the pin is
-insufficient.
+Codex, Qwen and DeepSeek install into fresh, owned npm prefixes. Their receipts
+bind the package tree (names, types, bytes and platform metadata), the selected
+Node binary and version, and the package's JavaScript entrypoint. Version probes
+and verification sessions invoke that absolute Node/JavaScript pair. Qwen's
+managed-update pin keeps execution in the recorded package; a seeded external
+update proves the selection test can detect an unpinned launch.
 
-Before creating runtime or fixture effects, the driver checks the receipt's
-schema, selected agent/platform/runtime/installer, owned absolute path, current
-file digest and freshly observed version output. It checks the file digest
-again immediately before and after the verification session. A failed or
-timed-out version probe, malformed receipt or changed file cannot produce a
-successful verification result.
+The driver validates the receipt before creating session fixtures and rechecks
+installation identity around execution. A changed package or Node binary,
+malformed receipt, unexpected version banner, or failed probe rejects admission.
+Bounded failed-probe streams remain local; public diagnostics contain only
+failure reasons, byte counts and digests. Other agents retain entrypoint-only
+identity checks.
 
-These are observations of the entrypoint and its self-reported version on a
-trusted runner. They do not authenticate a publisher, freeze the file against
-concurrent changes, or cover all programs and package files delegated to by an
-npm or Windows launcher. Historical endpoint captures retain their original
-scope; this check does not upgrade their identity evidence.
+These are observations on a trusted runner, not publisher authentication or an
+atomic filesystem snapshot. POSIX mode bits and Windows readonly attributes are
+recorded; Windows ACLs, operating-system libraries and changes between checks
+are outside the guarantee. Historical captures retain their original scope.
 
 Protocol documentation is not a verification authority. When a pinned agent
 version changes, dispatch the existing **Pitot E2E** workflow with
@@ -169,7 +168,8 @@ the selected current attempt; a partial rerun cannot borrow earlier cells.
 Local JSON files cannot authorize a capture refresh. Acquisition or validation
 failure preserves the accepted file; success replaces it atomically.
 
-The schema4 record keeps wire cells and their hash meaning, and adds the
+The schema5 record adds portable installation identity to the wire cells and
+retains the
 `capture-direct/v1` producer profile to the source run, job/check-run IDs and
 artifact digests. Its sorted file hashes cover the capture orchestration,
 proxies, witness and canary helpers, catalog-declared integrations, agent

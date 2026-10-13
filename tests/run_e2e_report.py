@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 
+from installation_identity import validate_identity_evidence
+
 
 LAB = Path(__file__).resolve().parent.parent
 ROOT = LAB
@@ -105,12 +107,23 @@ def load_evidence(path: Path | None, *, agent: str) -> dict[str, object] | None:
         "request",
         "response",
         "executable_sha256",
+        "installation",
     }
     if not isinstance(endpoint, dict) or set(endpoint) != endpoint_required:
         return None
     if endpoint.get("provenance") != "pinned_real_cli_capture" or not re.fullmatch(
         r"[0-9a-f]{64}", str(endpoint.get("fixture_sha256", ""))
     ):
+        return None
+    try:
+        identity = value.get("cli", {}).get("installation")
+        metadata = identity.get("metadata") if isinstance(identity, dict) else None
+        validate_identity_evidence(
+            agent, "windows" if metadata == "windows-readonly" else "ubuntu", identity
+        )
+        if endpoint["installation"] != identity:
+            return None
+    except ValueError:
         return None
     return value
 

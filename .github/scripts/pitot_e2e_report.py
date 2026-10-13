@@ -20,6 +20,7 @@ MARKER = "<!-- pitot-e2e-report -->"
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from pitot_adapter_supervisor import ContractError, validate_manifest
+from installation_identity import validate_identity_evidence
 
 
 MANIFEST = json.loads((ROOT / "adapter-verification.json").read_text(encoding="utf-8"))
@@ -126,6 +127,7 @@ def validate_result(
             "version",
             "executable",
             "executable_sha256",
+            "installation",
             "installer",
             "runtime",
         }:
@@ -137,9 +139,12 @@ def validate_result(
         ):
             raise ValueError("CLI receipt does not match supervised manifest")
         if not all(
-            isinstance(item, str) and item and "\0" not in item for item in cli.values()
+            isinstance(item, str) and item and "\0" not in item
+            for key, item in cli.items()
+            if key != "installation"
         ):
             raise ValueError("invalid CLI receipt values")
+        validate_identity_evidence(agent, platform, cli["installation"])
         cells = [
             cell
             for cell in ENDPOINT_PROVENANCE["cells"]
@@ -150,6 +155,8 @@ def validate_result(
         if len(cells) != 1:
             raise ValueError("missing supervised platform provenance")
         fixture = cells[0]
+        if cli["installation"] != fixture.get("installation"):
+            raise ValueError("installed-code identity does not match binary capture")
         if cli["executable_sha256"] != fixture["executable_sha256"]:
             raise ValueError("CLI executable digest does not match binary capture")
         if value["protocol"] != fixture["dialect"] or not re.fullmatch(
@@ -169,6 +176,7 @@ def validate_result(
             "request": fixture["request"],
             "response": fixture["response"],
             "executable_sha256": fixture["executable_sha256"],
+            "installation": fixture["installation"],
         }
         if value["endpoint"] != expected_endpoint:
             raise ValueError(

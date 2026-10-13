@@ -36,6 +36,10 @@ PRODUCER_FILES = (
     "tests/e2e_unified_runner.sh",
     "tests/install_real_agent.py",
     "tests/agent_identity.py",
+    "tests/installation_identity.py",
+    "cmd/pitot/deepseek_acp.go",
+    "internal/deepseekacp/version.go",
+    "internal/deepseekacp/client.go",
     "scripts/pitot_capture_source.py",
     "scripts/pitot_adapter_supervisor.py",
     ".github/scripts/pitot_e2e_report.py",
@@ -788,7 +792,7 @@ def collect(
         "local producer changed during collection",
     )
     value = {
-        "schema_version": 4,
+        "schema_version": 5,
         "capture_policy": "pinned_real_cli_capture",
         "cells": cells,
         "source": {

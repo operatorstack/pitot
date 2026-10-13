@@ -14,8 +14,20 @@ import subprocess
 import sys
 import tempfile
 
+from installation_identity import (
+    PRIORITY_AGENTS,
+    VersionProbeError,
+    installation_command,
+    installation_environment,
+    installation_prefix,
+    package_entrypoint,
+    verify_installation,
+)
+
 VERSION_TIMEOUT = 30
 MAX_VERSION_BYTES = 65536
+
+
 RECEIPT_FIELDS = {
     "schema_version",
     "agent",
@@ -140,13 +152,11 @@ def owned_entrypoint(agent: dict[str, object], platform: str, runtime: str) -> s
         raise RuntimeError("unsupported agent runtime")
     kind = agent["installer"]["kind"]
     executable = str(agent["executable"])
-    if agent["id"] == "deepseek":
+    if agent["id"] in PRIORITY_AGENTS:
         return str(
-            Path.home()
-            / ".local/share/pitot-deepseek"
-            / str(agent["version"])
+            installation_prefix(agent)
             / "node_modules/.bin"
-            / ("dsh.cmd" if platform == "windows" else "dsh")
+            / (f"{executable}.cmd" if platform == "windows" else executable)
         )
     if kind == "npm":
         result = subprocess.run(
@@ -345,13 +355,23 @@ def cursor_context(home: Path, data: Path) -> dict[str, str]:
     }
 
 
-def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[str, str]:
+def probe_version(
+    agent: dict[str, object],
+    path: str,
+    runtime: str,
+    installation: dict[str, object] | None = None,
+) -> tuple[str, str]:
     if agent["id"] == "kimi":
         require_kimi_ready(path, runtime)
     elif agent["id"] == "cursor":
         require_cursor_ready(path, runtime)
     before = entrypoint_digest(path, runtime)
-    command = [path, "--version"]
+    if installation is not None:
+        verify_installation(installation)
+    command = [
+        *(installation_command(installation) if installation is not None else [path]),
+        "--version",
+    ]
     if host_controls_wsl(runtime):
         command = ["wsl.exe", "--distribution", "Ubuntu", "--", *command]
     with ExitStack() as cleanup:
@@ -418,20 +438,73 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
                 }
             )
             options["env"] = environment
-        result = subprocess.run(
-            command,
-            check=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=VERSION_TIMEOUT,
-            **options,
-        )
+        if installation is not None:
+            options["env"] = installation_environment(
+                str(agent["id"]), installation, options.get("env", dict(os.environ))
+            )
+        probe_error = None
+        result = None
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=VERSION_TIMEOUT,
+                **options,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            if installation is None:
+                raise
+            probe_error = VersionProbeError(
+                "timed-out"
+                if isinstance(error, subprocess.TimeoutExpired)
+                else "nonzero-exit",
+                error.stdout,
+                error.stderr,
+                getattr(error, "returncode", None),
+            )
+        finally:
+            if installation is not None:
+                try:
+                    verify_installation(installation)
+                except RuntimeError:
+                    if probe_error is None:
+                        if result is None:
+                            raise
+                        probe_error = VersionProbeError(
+                            "identity-recheck-failed",
+                            result.stdout,
+                            result.stderr,
+                            result.returncode,
+                        )
+                    probe_error.diagnostic["identity_recheck"] = "failed"
+        if probe_error is not None:
+            raise probe_error from None
     if len(result.stdout) + len(result.stderr) > MAX_VERSION_BYTES:
+        if installation is not None:
+            raise VersionProbeError(
+                "output-limit", result.stdout, result.stderr, result.returncode
+            )
         raise RuntimeError("agent version output exceeds limit")
-    output = result.stdout.decode("utf-8", errors="strict")
-    error = result.stderr.decode("utf-8", errors="strict")
+    try:
+        output = result.stdout.decode("utf-8", errors="strict")
+        error = result.stderr.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        if installation is not None:
+            raise VersionProbeError(
+                "invalid-encoding", result.stdout, result.stderr, result.returncode
+            ) from None
+        raise
     if not stderr_matches(agent, error) or not version_matches(agent, output):
+        if installation is not None:
+            raise VersionProbeError(
+                "unexpected-banner-or-stderr",
+                result.stdout,
+                result.stderr,
+                result.returncode,
+            )
         raise RuntimeError(
             "agent did not report the exact supervised version; "
             f"stdout={output[:4096]!r}; stderr={error[:4096]!r}"
@@ -445,6 +518,8 @@ def probe_version(agent: dict[str, object], path: str, runtime: str) -> tuple[st
 
 
 def verify_live_entrypoint(receipt: dict[str, object]) -> None:
+    if receipt.get("agent") in PRIORITY_AGENTS:
+        verify_installation(receipt.get("installation"))
     if receipt.get("agent") == "kimi":
         require_kimi_ready(receipt["executable"], receipt["runtime"])
     elif receipt.get("agent") == "cursor":
@@ -460,9 +535,13 @@ def inspect_receipt(
     receipt: object, agent: dict[str, object], platform: str
 ) -> dict[str, object]:
     """Admit the selected cell before the driver creates runtime or fixture effects."""
-    if not isinstance(receipt, dict) or set(receipt) != RECEIPT_FIELDS:
+    priority = agent["id"] in PRIORITY_AGENTS
+    fields = RECEIPT_FIELDS | ({"installation"} if priority else set())
+    if not isinstance(receipt, dict) or set(receipt) != fields:
         raise RuntimeError("invalid installation receipt fields")
-    if type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1:
+    if type(receipt["schema_version"]) is not int or receipt["schema_version"] != (
+        2 if priority else 1
+    ):
         raise RuntimeError("unsupported installation receipt schema")
     for field in RECEIPT_FIELDS - {"schema_version"}:
         if (
@@ -486,8 +565,18 @@ def inspect_receipt(
         raise RuntimeError("installation receipt does not select the owned entrypoint")
     if not version_matches(agent, receipt["version_output"]):
         raise RuntimeError("installation receipt has an unexpected version banner")
+    if priority:
+        verify_installation(receipt["installation"])
+        if receipt["installation"]["prefix"] != str(
+            installation_prefix(agent)
+        ) or receipt["installation"]["entrypoint"] != str(
+            package_entrypoint(agent, installation_prefix(agent))
+        ):
+            raise RuntimeError("receipt does not select the owned package entrypoint")
     verify_live_entrypoint(receipt)
-    output, digest = probe_version(agent, receipt["executable"], receipt["runtime"])
+    output, digest = probe_version(
+        agent, receipt["executable"], receipt["runtime"], receipt.get("installation")
+    )
     if digest != receipt["executable_sha256"] or output != receipt["version_output"]:
         raise RuntimeError("agent identity changed since installation receipt")
     return receipt

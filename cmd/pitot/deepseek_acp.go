@@ -59,6 +59,11 @@ func runDeepSeekACP(ctx context.Context, args []string, stdout, stderr io.Writer
 			options.Prompt = value
 		case "--exec":
 			options.Executable = value
+		case "--entrypoint":
+			if len(options.Arguments) != 0 {
+				return errors.New("pitot: duplicate DeepSeek entrypoint")
+			}
+			options.Arguments = []string{value}
 		case "--cwd":
 			options.Cwd = value
 		case "--model":
