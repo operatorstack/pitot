@@ -938,12 +938,20 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		devinOptions.Runtime = runtimePath
 		runErr = runDevinACP(devCtx, *devinOptions)
 	} else {
-		cmd := exec.CommandContext(devCtx, program, programArgs...)
-		cmd.Env = append(os.Environ(), "PITOT_RUNTIME="+runtimePath)
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		cmd.Stdin = os.Stdin
-		runErr = cmd.Run()
+		var executable string
+		var argv []string
+		executable, argv, runErr = devCommand(host, program, programArgs)
+		if runErr == nil {
+			cmd := exec.CommandContext(devCtx, executable, argv...)
+			cmd.Env = append(os.Environ(), "PITOT_RUNTIME="+runtimePath)
+			cmd.Stdout = stdout
+			cmd.Stderr = stderr
+			cmd.Stdin = os.Stdin
+			// A descendant can retain captured output after the agent exits.
+			// Bound that wait and report incomplete output as an execution error.
+			cmd.WaitDelay = devWaitDelay
+			runErr = cmd.Run()
+		}
 	}
 
 	// Stop the runtime and reap its goroutine before returning.
