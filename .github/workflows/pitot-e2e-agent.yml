@@ -95,6 +95,14 @@ jobs:
             ${{ runner.temp }}/pitot-e2e/deepseek-native-session.zstd
           if-no-files-found: error
           retention-days: 14
+      - name: Upload safe installation diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitot-install-probe-${{ inputs.agent }}-${{ inputs.platform }}
+          path: ${{ runner.temp }}/pitot-e2e/install.probe.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload endpoint provenance candidate
         if: always() && inputs.capture
         uses: actions/upload-artifact@v4

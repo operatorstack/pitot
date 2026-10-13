@@ -18,7 +18,15 @@ import tempfile
 import urllib.request
 import zipfile
 
-from agent_identity import owned_entrypoint, probe_version
+from installation_identity import persist_probe_error
+from agent_identity import owned_entrypoint, probe_version, VersionProbeError
+from installation_identity import (
+    PRIORITY_AGENTS,
+    installation_prefix,
+    observe_installation,
+    node_environment,
+    prepare_installation,
+)
 
 
 LAB = Path(__file__).resolve().parent.parent
@@ -151,29 +159,55 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
         run([*wsl, "chmod", "0755", f"{release}/cursor-agent"])
         run([*wsl, "ln", "-sfn", f"{release}/cursor-agent", "/usr/local/bin/agent"])
         return f"{release}/cursor-agent"
-    if kind == "npm" and agent["id"] == "deepseek":
-        prefix = Path.home() / ".local/share/pitot-deepseek" / version
-        run(
-            [
-                npm_executable(),
-                "install",
-                "--prefix",
-                str(prefix),
-                "--ignore-scripts",
-                "--no-audit",
-                "--no-fund",
-                "--save-exact",
-                f"{package}@{version}",
-            ]
-        )
-        lock = json.loads((prefix / "package-lock.json").read_text(encoding="utf-8"))
-        selected = lock["packages"]["node_modules/@deepseek-ai/dsh"]
-        if (
-            selected["version"] != version
-            or selected["integrity"]
-            != "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
-        ):
-            raise RuntimeError("DeepSeek release integrity mismatch")
+    if kind == "npm" and agent["id"] in PRIORITY_AGENTS:
+        prefix = installation_prefix(agent)
+        prepare_installation(prefix)
+        with tempfile.TemporaryDirectory(prefix="pitot-npm-") as temporary:
+            owned = Path(temporary)
+            userconfig, globalconfig = owned / "user.npmrc", owned / "global.npmrc"
+            userconfig.write_text("", encoding="utf-8")
+            globalconfig.write_text("", encoding="utf-8")
+            environment = node_environment(
+                {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.lower().startswith("npm_config_")
+                }
+            )
+            run(
+                [
+                    npm_executable(),
+                    "install",
+                    "--prefix",
+                    str(prefix),
+                    "--userconfig",
+                    str(userconfig),
+                    "--globalconfig",
+                    str(globalconfig),
+                    "--cache",
+                    str(owned / "cache"),
+                    "--ignore-scripts"
+                    if agent["id"] == "deepseek"
+                    else "--ignore-scripts=false",
+                    "--no-audit",
+                    "--no-fund",
+                    "--save-exact",
+                    f"{package}@{version}",
+                ],
+                cwd=owned,
+                env=environment,
+            )
+        if agent["id"] == "deepseek":
+            lock = json.loads(
+                (prefix / "package-lock.json").read_text(encoding="utf-8")
+            )
+            selected = lock["packages"]["node_modules/@deepseek-ai/dsh"]
+            if (
+                selected["version"] != version
+                or selected["integrity"]
+                != "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
+            ):
+                raise RuntimeError("DeepSeek release integrity mismatch")
     elif kind == "npm":
         run(
             [
@@ -345,9 +379,13 @@ def executable_receipt(
     agent: dict[str, object], platform: str, runtime: str, path: str | None = None
 ) -> dict[str, object]:
     path = path if path is not None else owned_entrypoint(agent, platform, runtime)
-    output, digest = probe_version(agent, path, runtime)
+    installation = (
+        observe_installation(agent) if agent["id"] in PRIORITY_AGENTS else None
+    )
+    output, digest = probe_version(agent, path, runtime, installation)
     return {
-        "schema_version": 1,
+        **({"installation": installation} if installation is not None else {}),
+        "schema_version": 2 if installation is not None else 1,
         "agent": agent["id"],
         "version": agent["version"],
         "executable": path,
@@ -374,7 +412,11 @@ def main() -> int:
     if runtime is None:
         raise SystemExit(f"unsupported platform: {args.platform}")
     path = install(agent, args.platform, runtime)
-    receipt = executable_receipt(agent, args.platform, runtime, path)
+    try:
+        receipt = executable_receipt(agent, args.platform, runtime, path)
+    except VersionProbeError as error:
+        persist_probe_error(error, args.output)
+        raise SystemExit(str(error)) from None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"

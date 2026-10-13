@@ -1083,6 +1083,7 @@ class ModelControlProtocolTests(unittest.TestCase):
             item for item in driver.MANIFEST["agents"] if item["id"] == "claude"
         )
         installation = {
+            "agent": agent["id"],
             "version": agent["version"],
             "runtime": "native",
             "executable_sha256": "a" * 64,
@@ -1110,6 +1111,7 @@ class ModelControlProtocolTests(unittest.TestCase):
             item for item in driver.MANIFEST["agents"] if item["id"] == "cursor"
         )
         installation = {
+            "agent": agent["id"],
             "version": agent["version"],
             "runtime": "native",
             "executable_sha256": "a" * 64,

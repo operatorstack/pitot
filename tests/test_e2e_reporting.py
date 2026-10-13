@@ -34,6 +34,21 @@ supervisor = _load(
 )
 
 
+def _installation(agent, platform):
+    if agent not in {"codex", "qwen", "deepseek"}:
+        return {"scope": "entrypoint/v1"}
+    return {
+        "scope": "owned-prefix-and-node/v1",
+        "strategy": "absolute-node-js/v1",
+        "tree_profile": "owned-installation/v1",
+        "metadata": "windows-readonly" if platform == "windows" else "posix-mode",
+        "tree_sha256": "a" * 64,
+        "node_sha256": "b" * 64,
+        "node_version": "v22.0.0",
+        "entrypoint": "node_modules/fixture/cli.js",
+    }
+
+
 def _receipt(agent="claude", platform="ubuntu"):
     record = next(item for item in runner.MANIFEST["agents"] if item["id"] == agent)
     dialect = {
@@ -70,6 +85,7 @@ def _receipt(agent="claude", platform="ubuntu"):
         "runtime": record["runtime"][platform],
         "version": record["version"],
         "executable_sha256": "d" * 64,
+        "installation": _installation(agent, platform),
         "dialect": dialect,
         "request": request,
         "response": response,
@@ -94,6 +110,7 @@ def _receipt(agent="claude", platform="ubuntu"):
         "request": request,
         "response": response,
         "executable_sha256": fixture["executable_sha256"],
+        "installation": _installation(agent, platform),
     }
     return {
         "schema_version": 2,
@@ -102,6 +119,7 @@ def _receipt(agent="claude", platform="ubuntu"):
             "version": record["version"],
             "executable": f"/bin/{record['executable']}",
             "executable_sha256": fixture["executable_sha256"],
+            "installation": _installation(agent, platform),
             "installer": record["installer"]["kind"],
             "runtime": record["runtime"][platform],
         },
@@ -668,6 +686,36 @@ class ReporterContractTests(unittest.TestCase):
         value["cli"]["executable_sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "executable digest"):
             reporter.validate_result(value, agent="claude", platform="ubuntu")
+
+    def test_priority_installed_identity_cannot_be_dropped_or_replaced(self):
+        for agent in ("codex", "qwen", "deepseek"):
+            for change in ("missing", "legacy", "node", "tree", "extra", "absolute"):
+                with self.subTest(agent=agent, change=change):
+                    value = _result(agent=agent)
+                    if agent == "deepseek":
+                        value["controller"]["native_tool_results"] = {
+                            "session_id": "controlled-fixture-session",
+                            "call_ids": ["pitot_tool_allow", "pitot_tool_deny"],
+                            "is_error": [False, True],
+                            "denial_code": "PITOT_DENIED",
+                            "session_sha256": "a" * 64,
+                        }
+                    reporter.validate_result(value, agent=agent, platform="ubuntu")
+                    identity = value["cli"]["installation"]
+                    if change == "missing":
+                        del value["cli"]["installation"]
+                    elif change == "legacy":
+                        value["cli"]["installation"] = {"scope": "entrypoint/v1"}
+                    elif change == "node":
+                        identity["node_sha256"] = "c" * 64
+                    elif change == "tree":
+                        identity["tree_sha256"] = "c" * 64
+                    elif change == "extra":
+                        identity["node_path"] = "/private/runner/node"
+                    else:
+                        identity["entrypoint"] = "/private/runner/cli.js"
+                    with self.assertRaises(ValueError):
+                        reporter.validate_result(value, agent=agent, platform="ubuntu")
 
     def test_rejects_untrusted_commit_and_run_url(self):
         value = _result()
