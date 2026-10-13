@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
+import argparse
 import copy
 import base64
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import time
 import tomllib
 import unittest
@@ -1048,7 +1051,13 @@ class ModelControlProtocolTests(unittest.TestCase):
             },
             "openai_chat": {"messages": [{"role": "tool", "content": marker}]},
             "openai_responses": {
-                "input": [{"type": "function_call_output", "output": marker}]
+                "input": [
+                    {
+                        "type": "function_call_output",
+                        "call_id": "pitot_tool_allow",
+                        "output": marker,
+                    }
+                ]
             },
             "gemini_generate_content": {
                 "contents": [
@@ -1063,7 +1072,11 @@ class ModelControlProtocolTests(unittest.TestCase):
         }
         for dialect, body in bodies.items():
             with self.subTest(dialect):
-                self.assertTrue(proxy.tool_result_contains(dialect, body, marker))
+                self.assertTrue(
+                    proxy.tool_result_contains(
+                        dialect, body, marker, call_id="pitot_tool_allow"
+                    )
+                )
 
     def test_capture_record_binds_detected_dialect_and_executable(self):
         agent = next(
@@ -1165,6 +1178,173 @@ class ModelControlProtocolTests(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.communicate(timeout=5)
+
+
+class ResponsesCallCorrelationTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.args = argparse.Namespace(
+            agent="codex",
+            nonce="nonce",
+            receipt=str(Path(directory.name) / "receipt.json"),
+            canary_command="pitot-e2e-canary",
+            response_fault="none",
+        )
+        self.server = proxy.ThreadingHTTPServer(("127.0.0.1", 0), proxy.Handler)
+        self.server.state = proxy.State(self.args)
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        self.addCleanup(self.close_server)
+
+    def close_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+
+    def post(self, inputs):
+        body = {
+            "model": "pitot-control",
+            "tools": [{"type": "function", "name": "shell", "parameters": {}}],
+            "input": inputs,
+        }
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.server.server_port, timeout=5
+        )
+        try:
+            connection.request(
+                "POST",
+                "/v1/responses",
+                json.dumps(body),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            return response.status, response.read().decode()
+        finally:
+            connection.close()
+
+    @staticmethod
+    def result(phase, call_id):
+        marker = (
+            "PITOT_CANARY_RESULT PITOT_ALLOW nonce"
+            if phase == "allow"
+            else "PITOT_CONTROLLER_DENY nonce"
+        )
+        return {"type": "function_call_output", "call_id": call_id, "output": marker}
+
+    def start(self):
+        status, raw = self.post([{"role": "user", "content": "nonce"}])
+        self.assertEqual(status, 200)
+        completed = [
+            json.loads(line[6:])
+            for line in raw.splitlines()
+            if line.startswith("data: {")
+            and json.loads(line[6:]).get("type") == "response.completed"
+        ]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(
+            completed[0]["response"]["output"][0]["call_id"], "pitot_tool_allow"
+        )
+
+    def test_result_marker_requires_the_expected_native_call(self):
+        marker = "PITOT_CANARY_RESULT PITOT_ALLOW nonce"
+        for call_id in (None, "", 42, {}, "unrelated", "pitot_tool_deny"):
+            with self.subTest(call_id=call_id):
+                item = self.result("allow", call_id)
+                self.assertFalse(
+                    proxy.tool_result_contains(
+                        "openai_responses",
+                        {"input": [item]},
+                        marker,
+                        call_id="pitot_tool_allow",
+                    )
+                )
+        correct = self.result("allow", "pitot_tool_allow")
+        self.assertFalse(
+            proxy.tool_result_contains("openai_responses", {"input": [correct]}, marker)
+        )
+        self.assertFalse(
+            proxy.tool_result_contains(
+                "openai_responses",
+                {
+                    "input": [
+                        self.result("allow", "unrelated"),
+                        {**correct, "output": ""},
+                    ]
+                },
+                marker,
+                call_id="pitot_tool_allow",
+            )
+        )
+
+    def test_http_rejects_uncorrelated_results_and_preserves_full_history(self):
+        self.start()
+        bad_results = [
+            self.result("allow", value)
+            for value in (None, "", 42, {}, "wrong", "pitot_tool_deny")
+        ]
+        bad_results.append(
+            {
+                "type": "function_call_output",
+                "output": "PITOT_CANARY_RESULT PITOT_ALLOW nonce",
+            }
+        )
+        bad_results.append(
+            {
+                "type": "function_call",
+                "call_id": "pitot_tool_allow",
+                "arguments": "PITOT_CANARY_RESULT PITOT_ALLOW nonce",
+            }
+        )
+        bad_results.append(
+            {
+                **self.result("allow", "pitot_tool_allow"),
+                "output": "PITOT_CANARY_RESULT PITOT_ALLOW another_nonce",
+            }
+        )
+        for item in bad_results:
+            with self.subTest(item=item):
+                self.assertEqual(self.post([item])[0], 409)
+                self.assertFalse(
+                    self.server.state.receipt["allow_tool_result_observed"]
+                )
+                self.assertFalse(
+                    self.server.state.receipt["deny_tool_call_response_emitted"]
+                )
+        allow = self.result("allow", "pitot_tool_allow")
+        history = [self.result("allow", "unrelated"), allow]
+        self.assertEqual(self.post(history)[0], 200)
+        self.assertTrue(self.server.state.receipt["deny_tool_call_response_emitted"])
+        self.assertEqual(self.post([allow])[0], 409)
+        self.assertEqual(self.post([self.result("deny", "pitot_tool_allow")])[0], 409)
+        self.assertFalse(self.server.state.receipt["denied_result_observed"])
+        self.assertEqual(
+            self.post([*history, self.result("deny", "pitot_tool_deny")])[0], 200
+        )
+        self.assertTrue(self.server.state.receipt["final_response_emitted"])
+
+    def test_text_only_response_cannot_admit_an_unissued_call_result(self):
+        for agent in ("codex", "opencode"):
+            with self.subTest(agent=agent):
+                self.args.agent = agent
+                self.args.response_fault = "text"
+                self.server.state = proxy.State(self.args)
+                self.assertEqual(
+                    self.post([{"role": "user", "content": "nonce"}])[0], 200
+                )
+                self.assertFalse(
+                    self.server.state.receipt["allow_tool_call_response_emitted"]
+                )
+                self.assertEqual(
+                    self.post([self.result("allow", "pitot_tool_allow")])[0], 409
+                )
+                self.assertFalse(
+                    self.server.state.receipt["allow_tool_result_observed"]
+                )
+                self.assertFalse(
+                    self.server.state.receipt["deny_tool_call_response_emitted"]
+                )
 
 
 class CursorFixtureIdentityTests(unittest.TestCase):
