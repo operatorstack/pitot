@@ -141,11 +141,7 @@ func (m *Manager) deliverEvent(ctx context.Context, event schema.Event, explicit
 	if event.Type != schema.TypeActionRequested {
 		return nil, errors.New("pitot: unsupported runtime event type")
 	}
-	for _, consumer := range m.consumers {
-		if err := consumer.offer(event); err != nil {
-			fmt.Fprintf(m.stderr, "pitot: consumer %q delivery fault: %v\n", consumer.id, err)
-		}
-	}
+	m.offerConsumers(event)
 	if event.Action == nil {
 		return nil, errors.New("pitot: controllable event requires an action")
 	}
@@ -180,6 +176,75 @@ func (m *Manager) deliverEvent(ctx context.Context, event schema.Event, explicit
 	}
 	m.reportDecision(event.Action.Kind, &response)
 	return &response, resolveErr
+}
+
+// offerConsumers reuses projection work only among subscribers to this event.
+// Queued Content values and full-content bytes remain independently owned.
+func (m *Manager) offerConsumers(event schema.Event) {
+	if len(m.consumers) < 2 {
+		for _, consumer := range m.consumers {
+			m.reportConsumerOffer(consumer, consumer.offer(event))
+		}
+		return
+	}
+	var counts [3]int
+	for _, consumer := range m.consumers {
+		if _, subscribed := consumer.events[event.Type]; subscribed {
+			if slot := projectionSlot(consumer.projection); slot >= 0 {
+				counts[slot]++
+			}
+		}
+	}
+	var cached [3]struct {
+		ready bool
+		event schema.Event
+		err   error
+	}
+	for _, consumer := range m.consumers {
+		if _, subscribed := consumer.events[event.Type]; !subscribed {
+			continue
+		}
+		slot := projectionSlot(consumer.projection)
+		if slot < 0 || counts[slot] < 2 {
+			m.reportConsumerOffer(consumer, consumer.offer(event))
+			continue
+		}
+		result := &cached[slot]
+		if !result.ready {
+			result.event, result.err = projectEvent(event, consumer.projection)
+			result.ready = true
+		}
+		err := result.err
+		if err == nil {
+			projected := result.event
+			if projected.Content != nil {
+				content := *projected.Content
+				content.Full = append(json.RawMessage(nil), content.Full...)
+				projected.Content = &content
+			}
+			err = consumer.enqueue(projected)
+		}
+		m.reportConsumerOffer(consumer, err)
+	}
+}
+
+func (m *Manager) reportConsumerOffer(consumer *consumerWorker, err error) {
+	if err != nil {
+		fmt.Fprintf(m.stderr, "pitot: consumer %q delivery fault: %v\n", consumer.id, err)
+	}
+}
+
+func projectionSlot(mode projection.Mode) int {
+	switch mode {
+	case projection.Full:
+		return 0
+	case projection.SHA256:
+		return 1
+	case projection.Omit:
+		return 2
+	default:
+		return -1
+	}
 }
 
 // Request routes an explicit request through the same Controller worker used by hooks.
@@ -503,6 +568,10 @@ func (w *consumerWorker) offer(event schema.Event) error {
 	if err != nil {
 		return err
 	}
+	return w.enqueue(projected)
+}
+
+func (w *consumerWorker) enqueue(projected schema.Event) error {
 	w.stateMu.Lock()
 	defer w.stateMu.Unlock()
 	select {
