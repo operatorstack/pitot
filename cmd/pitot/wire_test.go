@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"strings"
 	"testing"
@@ -180,6 +181,42 @@ func TestWireHostGuidanceAndFlagRules(t *testing.T) {
 	}
 	if err := doctor([]string{"--fix"}, &buf, &buf); err == nil || !strings.Contains(err.Error(), "--fix requires --host") {
 		t.Fatalf("doctor --fix without --host must be rejected, got %v", err)
+	}
+}
+
+func TestWireQwenGuidanceSelectsRuntimeShellTool(t *testing.T) {
+	t.Chdir(t.TempDir())
+	out, err := runInitHost(t, "qwen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry struct {
+		Matcher string `json:"matcher"`
+		Hooks   []struct {
+			Type    string `json:"type"`
+			Command string `json:"command"`
+		} `json:"hooks"`
+	}
+	found := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			if err := json.Unmarshal([]byte(line), &entry); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+		}
+	}
+	if !found || entry.Matcher != "^run_shell_command$" || len(entry.Hooks) != 1 || entry.Hooks[0].Type != "command" || !strings.Contains(entry.Hooks[0].Command, "integrations/qwen/PreToolUse") {
+		t.Fatalf("invalid Qwen shell hook guidance: %s", out)
+	}
+	matcher := regexp.MustCompile(entry.Matcher)
+	for tool, want := range map[string]bool{"run_shell_command": true, "read_file": false, "monitor": false, "run_shell_command_extra": false} {
+		if got := matcher.MatchString(tool); got != want {
+			t.Errorf("matcher %q selects %q: got %v, want %v", entry.Matcher, tool, got, want)
+		}
+	}
+	if entries, err := os.ReadDir("."); err != nil || len(entries) != 0 {
+		t.Fatalf("user-level guidance wrote files: %v (error: %v)", entries, err)
 	}
 }
 

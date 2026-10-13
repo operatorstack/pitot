@@ -594,12 +594,16 @@ Node-based `PreToolUse.cjs` bridge on Windows), then add this command hook to
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "^Bash$",
+      "matcher": "^run_shell_command$",
       "hooks": [{"type": "command", "command": "/path/to/PreToolUse"}]
     }]
   }
 }
 ```
+
+The matcher uses Qwen's runtime shell tool ID. Compatibility aliases such as
+`Bash` match exactly; anchoring that alias as `^Bash$` does not select the shell
+tool.
 
 Qwen sends the native JSON payload on standard input. The bridge returns its
 native structured allow or deny decision and preserves the Controller reason.

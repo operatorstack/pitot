@@ -691,7 +691,7 @@ def configure(
                 f'"{target}" "{witness_command}" "{pitot_command}" '
                 f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
             )
-        settings = hook_group("PreToolUse", "^(Bash|run_shell_command)$", hook_command)
+        settings = hook_group("PreToolUse", "^run_shell_command$", hook_command)
         settings["modelProviders"] = {
             "openai": {
                 "protocol": "openai",

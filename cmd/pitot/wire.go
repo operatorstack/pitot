@@ -117,7 +117,7 @@ func printWiringGuidance(host string, stdout io.Writer) error {
 	guidance := map[string]string{
 		"devin":    "no hook configuration is required. Run:\n\n  pitot dev --host devin -- devin -p \"<prompt>\"\n\nFor a separately managed runtime, use:\n\n  pitot acp devin --runtime \"$PITOT_RUNTIME\" --prompt \"<prompt>\"",
 		"kimi":     "add to ~/.kimi-code/config.toml (or $KIMI_CODE_HOME/config.toml):\n\n  [[hooks]]\n  event = \"PreToolUse\"\n  matcher = \"Bash\"\n  command = \"pitot hook kimi\"",
-		"qwen":     "add to ~/.qwen/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"^Bash$\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/qwen/PreToolUse>\"}]}",
+		"qwen":     "add to ~/.qwen/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"^run_shell_command$\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/qwen/PreToolUse>\"}]}",
 		"copilot":  "add to ~/.copilot/settings.json under hooks.PreToolUse:\n\n  {\"matcher\": \"Bash\", \"hooks\": [{\"type\": \"command\", \"command\": \"<path to integrations/copilot/PreToolUse>\"}]}",
 		"opencode": "register the OpenCode 2 plugin directory in ~/.config/opencode/opencode.json:\n\n  {\"plugins\": [\"file:///<path to integrations/opencode>\"]}",
 		"pi":       "copy integrations/pi/pitot.ts into ~/.pi/agent/extensions/ (or the repo's .pi/extensions/)",
