@@ -164,6 +164,23 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
     if kind == "npm" and agent["id"] in PRIORITY_AGENTS:
         prefix = installation_prefix(agent)
         prepare_installation(prefix)
+        if agent["id"] == "deepseek":
+            locked = ROOT / "tests/agent-locks/deepseek"
+            declared = json.loads((locked / "package.json").read_text(encoding="utf-8"))
+            lock = json.loads(
+                (locked / "package-lock.json").read_text(encoding="utf-8")
+            )
+            expected = {package: version}
+            if (
+                declared.get("dependencies") != expected
+                or lock.get("lockfileVersion") != 3
+                or lock.get("packages", {}).get("", {}).get("dependencies") != expected
+            ):
+                raise RuntimeError(
+                    "DeepSeek dependency lock does not match supervised pin"
+                )
+            for name in ("package.json", "package-lock.json"):
+                shutil.copyfile(locked / name, prefix / name)
         with tempfile.TemporaryDirectory(prefix="pitot-npm-") as temporary:
             owned = Path(temporary)
             userconfig, globalconfig = owned / "user.npmrc", owned / "global.npmrc"
@@ -179,7 +196,7 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
             run(
                 [
                     npm_executable(),
-                    "install",
+                    "ci" if agent["id"] == "deepseek" else "install",
                     "--prefix",
                     str(prefix),
                     "--userconfig",
@@ -193,8 +210,11 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
                     else "--ignore-scripts=false",
                     "--no-audit",
                     "--no-fund",
-                    "--save-exact",
-                    f"{package}@{version}",
+                    *(
+                        []
+                        if agent["id"] == "deepseek"
+                        else ["--save-exact", f"{package}@{version}"]
+                    ),
                 ],
                 cwd=owned,
                 env=environment,

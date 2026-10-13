@@ -35,6 +35,8 @@ PRODUCER_FILES = (
     "tests/real_agent_driver.py",
     "tests/e2e_unified_runner.sh",
     "tests/install_real_agent.py",
+    "tests/agent-locks/deepseek/package.json",
+    "tests/agent-locks/deepseek/package-lock.json",
     "tests/agent_identity.py",
     "tests/installation_identity.py",
     "cmd/pitot/deepseek_acp.go",

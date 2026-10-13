@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import threading
 import time
@@ -285,7 +286,75 @@ def content_shapes(body: dict[str, object]) -> list[dict[str, object]]:
     return shapes
 
 
-def message_shapes(body: dict[str, object]) -> list[dict[str, object]]:
+def qwen_shell_summary(content: object) -> dict[str, object]:
+    """Observe bounded native shell labels, without publishing their contents."""
+    result: dict[str, object] = {"shell_summary_present": False}
+    if isinstance(content, list):
+        if (
+            len(content) != 1
+            or not isinstance(content[0], dict)
+            or content[0].get("type") != "text"
+        ):
+            return result
+        content = content[0].get("text")
+    if not isinstance(content, str) or len(content) > 16384:
+        return result
+    labels = (
+        "Directory",
+        "Output",
+        "Error",
+        "Exit Code",
+        "Signal",
+        "Process Group PGID",
+    )
+    found = list(
+        re.finditer(
+            r"^(Directory|Output|Error|Exit Code|Signal|Process Group PGID): ?",
+            content,
+            re.MULTILINE,
+        )
+    )
+    if tuple(match.group(1) for match in found) != labels:
+        return result
+    values = {
+        match.group(1): content[
+            match.end() : found[index + 1].start()
+            if index + 1 < len(found)
+            else len(content)
+        ].strip()
+        for index, match in enumerate(found)
+    }
+    code = values["Exit Code"]
+    result.update(
+        shell_summary_present=True,
+        error_none=values["Error"] == "(none)",
+        output_empty=values["Output"] == "(empty)",
+        exit_code_state="invalid",
+    )
+    if code == "(none)":
+        result["exit_code_state"] = "none"
+    elif re.fullmatch(r"-?[0-9]{1,10}", code) and -(2**31) <= int(code) < 2**31:
+        result.update(exit_code_state="integer", exit_code=int(code))
+    result["errno"] = [
+        code
+        for code in (
+            "ENOENT",
+            "EACCES",
+            "EPERM",
+            "ENOEXEC",
+            "EAGAIN",
+            "EMFILE",
+            "ENFILE",
+            "ENOMEM",
+            "EIO",
+            "ETXTBSY",
+        )
+        if re.search(r"\b" + code + r"\b", values["Error"])
+    ]
+    return result
+
+
+def message_shapes(body: dict[str, object], agent: str = "") -> list[dict[str, object]]:
     shapes: list[dict[str, object]] = []
     for message in body.get("messages", []):
         if not isinstance(message, dict):
@@ -334,6 +403,8 @@ def message_shapes(body: dict[str, object]) -> list[dict[str, object]]:
                 "markers": [marker for marker in markers if marker in serialized],
             }
         )
+        if agent == "qwen" and message.get("role") == "tool":
+            shapes[-1]["shell_summary"] = qwen_shell_summary(content)
     return shapes
 
 
@@ -661,7 +732,7 @@ class Handler(BaseHTTPRequestHandler):
                     "denied_result_present": denied_result,
                     "function_responses": function_response_shapes(body),
                     "contents": content_shapes(body),
-                    "messages": message_shapes(body),
+                    "messages": message_shapes(body, state.args.agent),
                 }
                 state.save()
                 self.send_error(

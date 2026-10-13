@@ -39,6 +39,110 @@ assert devin_spec and devin_spec.loader
 devin_spec.loader.exec_module(devin_proxy)
 
 
+class FailureDiagnosticTests(unittest.TestCase):
+    def test_capture_differences_reject_without_values_or_unknown_keys(self):
+        expected = copy.deepcopy(driver.ENDPOINT_PROVENANCE["cells"][0])
+        expected.update(agent="qwen", platform="ubuntu")
+        changed = copy.deepcopy(expected)
+        changed["installation"]["tree_sha256"] = "SECRET_HASH"
+        changed["request"]["path"] = "/SECRET_PATH"
+        changed["request"]["SECRET_KEY"] = "secret"
+        changed["request"]["request_shape"]["tool_names"] = ["SECRET_TOOL"]
+        with mock.patch.object(driver, "ENDPOINT_PROVENANCE", {"cells": [expected]}):
+            with self.assertRaises(RuntimeError) as caught:
+                driver.validate_capture_fixture(changed)
+        text = str(caught.exception)
+        self.assertIn("installation.tree_sha256", text)
+        self.assertIn("request.path", text)
+        self.assertIn("request.request_shape.tool_names", text)
+        self.assertNotIn("SECRET", text)
+        self.assertIn("request", driver.capture_difference_fields(expected, changed))
+        for cells in ([], [expected, expected]):
+            with mock.patch.object(driver, "ENDPOINT_PROVENANCE", {"cells": cells}):
+                with self.assertRaisesRegex(RuntimeError, "fixture_matches="):
+                    driver.validate_capture_fixture(expected)
+
+    def test_capture_missing_types_arrays_and_equal_success(self):
+        record = copy.deepcopy(driver.ENDPOINT_PROVENANCE["cells"][0])
+        with mock.patch.object(driver, "ENDPOINT_PROVENANCE", {"cells": [record]}):
+            result = driver.validate_capture_fixture(record)
+        self.assertEqual(result["fixture_sha256"], record["capture_sha256"])
+        for changed in (
+            {},
+            {**record, "request": None},
+            {**record, "response": "SECRET"},
+        ):
+            self.assertTrue(driver.capture_difference_fields(record, changed))
+            self.assertNotIn(
+                "SECRET", str(driver.capture_difference_fields(record, changed))
+            )
+        left = {"request": {"request_shape": {"tool_names": ["a", "b"]}}}
+        right = {"request": {"request_shape": {"tool_names": ["b", "a"]}}}
+        self.assertEqual(
+            driver.capture_difference_fields(left, right),
+            ["request.request_shape.tool_names"],
+        )
+
+    def shell(self, code="0", error="(none)", output="(empty)"):
+        return f"Command: SECRET_COMMAND\nDirectory: /SECRET_PATH\nOutput: {output}\nError: {error}\nExit Code: {code}\nSignal: (none)\nProcess Group PGID: 12345"
+
+    def test_qwen_summary_is_bounded_and_diagnostic_only(self):
+        for content in (self.shell(), [{"type": "text", "text": self.shell()}]):
+            observed = proxy.message_shapes(
+                {"messages": [{"role": "tool", "content": content}]}, "qwen"
+            )[0]["shell_summary"]
+            self.assertEqual(
+                observed,
+                {
+                    "shell_summary_present": True,
+                    "error_none": True,
+                    "output_empty": True,
+                    "exit_code_state": "integer",
+                    "exit_code": 0,
+                    "errno": [],
+                },
+            )
+        observed = proxy.qwen_shell_summary(
+            self.shell("127", "spawn SECRET ENOENT", "SECRET_OUTPUT")
+        )
+        self.assertEqual(observed["exit_code"], 127)
+        self.assertEqual(observed["errno"], ["ENOENT"])
+        self.assertNotIn("SECRET", json.dumps(observed))
+        self.assertNotIn("12345", json.dumps(observed))
+        for code, state in (
+            ("(none)", "none"),
+            ("x", "invalid"),
+            ("99999999999999", "invalid"),
+            ("2147483648", "invalid"),
+        ):
+            observed = proxy.qwen_shell_summary(self.shell(code))
+            self.assertEqual(observed["exit_code_state"], state)
+            self.assertNotIn("exit_code", observed)
+        for content in (
+            self.shell() + "\nExit Code: 0",
+            "x" * 16385,
+            {},
+            [{"type": "image", "text": self.shell()}],
+            [self.shell()],
+            self.shell().replace("Exit Code:", "Unknown:"),
+        ):
+            self.assertEqual(
+                proxy.qwen_shell_summary(content), {"shell_summary_present": False}
+            )
+        for agent, role in (
+            ("deepseek", "tool"),
+            ("qwen", "system"),
+            ("qwen", "user"),
+            ("qwen", "assistant"),
+        ):
+            self.assertNotIn(
+                "shell_summary",
+                proxy.message_shapes(
+                    {"messages": [{"role": role, "content": self.shell()}]}, agent
+                )[0],
+            )
+
+
 class ModelControlProtocolTests(unittest.TestCase):
     def test_deepseek_native_results_read_all_compressed_frames(self):
         with tempfile.TemporaryDirectory() as directory:

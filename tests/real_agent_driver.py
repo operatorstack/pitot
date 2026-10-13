@@ -852,6 +852,66 @@ def capture_record(
     }
 
 
+def capture_difference_fields(expected: object, observed: object) -> list[str]:
+    """Report schema locations only; never print values or unknown field names."""
+    shape = {
+        **dict.fromkeys(
+            (
+                "agent",
+                "platform",
+                "runtime",
+                "version",
+                "executable_sha256",
+                "dialect",
+                "provenance",
+                "capture_sha256",
+            )
+        ),
+        "installation": dict.fromkeys(
+            (
+                "scope",
+                "strategy",
+                "tree_profile",
+                "metadata",
+                "tree_sha256",
+                "node_sha256",
+                "node_version",
+                "entrypoint",
+            )
+        ),
+        "request": {
+            **dict.fromkeys(("transport", "method", "path", "media_type", "framing")),
+            "request_shape": dict.fromkeys(
+                ("has_tools", "stream", "tool_names", "top_level_keys")
+            ),
+        },
+        "response": dict.fromkeys(("encoder", "framing", "tool_call", "acceptance")),
+    }
+    changes = []
+
+    def compare(left: object, right: object, fields: object, path: str) -> None:
+        if left == right:
+            return
+        if (
+            not isinstance(fields, dict)
+            or not isinstance(left, dict)
+            or not isinstance(right, dict)
+        ):
+            changes.append(path or "record")
+            return
+        if (set(left) | set(right)) - set(fields):
+            changes.append(path or "record")
+        for key, children in fields.items():
+            location = f"{path}.{key}" if path else key
+            if (key in left) != (key in right):
+                changes.append(location)
+            elif key in left:
+                compare(left[key], right[key], children, location)
+
+    compare(expected, observed, shape, "")
+    return sorted(set(changes))
+
+
 def validate_capture_fixture(record: dict[str, object]) -> dict[str, object]:
     matches = [
         item
@@ -860,8 +920,12 @@ def validate_capture_fixture(record: dict[str, object]) -> dict[str, object]:
         and item.get("platform") == record["platform"]
     ]
     if len(matches) != 1 or matches[0] != record:
+        fields = (
+            capture_difference_fields(matches[0], record) if len(matches) == 1 else []
+        )
         raise RuntimeError(
-            "binary-observed contract drifted from its supervised platform fixture"
+            "binary-observed contract drifted from its supervised platform fixture; "
+            f"fixture_matches={len(matches)}; fields={','.join(fields)}"
         )
     return {
         "fixture": f"tests/endpoint-provenance.json#{record['agent']}/{record['platform']}",

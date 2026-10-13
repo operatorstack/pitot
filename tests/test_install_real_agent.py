@@ -34,6 +34,66 @@ def devin_archive(payload: bytes = b"released-devin") -> bytes:
     return output.getvalue()
 
 
+class DeepSeekLockedInstallationTests(unittest.TestCase):
+    def test_ci_uses_owned_locked_graph_and_checks_supervised_pin(self):
+        agent = next(
+            a
+            for a in json.loads((ROOT / "adapter-verification.json").read_text())[
+                "agents"
+            ]
+            if a["id"] == "deepseek"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory).resolve() / "owned" / agent["version"]
+            with (
+                mock.patch.object(
+                    installer, "installation_prefix", return_value=prefix
+                ),
+                mock.patch.object(installer, "run") as run,
+            ):
+                installer.install(agent, "ubuntu", "native")
+            command = run.call_args.args[0]
+            self.assertEqual(command[1], "ci")
+            self.assertIn("--ignore-scripts", command)
+            self.assertNotIn("--save-exact", command)
+            self.assertNotIn("@deepseek-ai/dsh@" + agent["version"], command)
+            for name in ("package.json", "package-lock.json"):
+                self.assertEqual(
+                    (prefix / name).read_bytes(),
+                    (ROOT / "tests/agent-locks/deepseek" / name).read_bytes(),
+                )
+            changed = {**agent, "version": "0.0.0"}
+            with (
+                mock.patch.object(
+                    installer,
+                    "installation_prefix",
+                    return_value=Path(directory).resolve() / "wrong",
+                ),
+                mock.patch.object(installer, "run") as run,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "lock does not match"):
+                    installer.install(changed, "ubuntu", "native")
+                run.assert_not_called()
+
+    def test_lock_retains_integrity_and_cross_platform_optional_packages(self):
+        lock = json.loads(
+            (ROOT / "tests/agent-locks/deepseek/package-lock.json").read_text()
+        )
+        systems = set()
+        cpus = set()
+        for name, package in lock["packages"].items():
+            if not name:
+                continue
+            self.assertTrue(
+                package["resolved"].startswith("https://registry.npmjs.org/")
+            )
+            self.assertTrue(package["integrity"].startswith("sha512-"))
+            systems.update(package.get("os", []))
+            cpus.update(package.get("cpu", []))
+        self.assertTrue({"darwin", "linux", "win32"} <= systems)
+        self.assertTrue({"arm64", "x64"} <= cpus)
+
+
 class Response:
     def __init__(self, payload: bytes):
         self.payload = payload
