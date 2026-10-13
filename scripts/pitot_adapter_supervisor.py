@@ -464,15 +464,13 @@ def readme_block(manifest: dict[str, object]) -> str:
     return "\n".join(
         [
             README_START,
-            '<p align="center">',
-            '  <a href="https://github.com/operatorstack/pitot/actions/workflows/pitot-e2e.yml"><img alt="Pitot agent E2E" src="https://github.com/operatorstack/pitot/actions/workflows/pitot-e2e.yml/badge.svg?branch=main"></a>',
-            "</p>",
+            "[Agent checks on main](https://github.com/operatorstack/pitot/actions/workflows/pitot-e2e.yml?query=branch%3Amain)",
             "",
-            '<p align="center"><sub>Every supervised adapter must pass a binary-observed prompt → real action boundary → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.</sub></p>',
+            "Every supervised adapter must pass a binary-observed prompt → real action boundary → projected Consumer → Controller allow/deny → tool-result loop on Ubuntu, macOS, and Windows.",
             "",
-            f'<p align="center"><sub>Supervised adapters: {labels}</sub></p>',
+            f"Supervised adapters: {labels}",
             "",
-            '<p align="center"><sub>Supervised runtime capabilities: action control · Consumer delivery · explicit request</sub></p>',
+            "Supervised runtime capabilities: action control · Consumer delivery · explicit request",
             README_END,
         ]
     )

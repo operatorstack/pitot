@@ -5,21 +5,32 @@ pre-execute middleware. The supported release is `@deepseek-ai/dsh@0.2.0-rc.2`,
 a developer preview. It requires Node.js 22.19 or newer in the 22 series, or
 Node.js 24 or newer.
 
-Install that release and initialize the integration in your project:
+Install that release, then create and register a sample shell Controller in your
+project before wiring the host:
 
 ```sh
 npm install --global @deepseek-ai/dsh@0.2.0-rc.2
+pitot init --template shell-policy --language go --dir shell-policy
 pitot init --host deepseek
 pitot doctor --host deepseek
 ```
 
-Start a prompt with your Pitot configuration:
+The template requires Go and writes its Controller registration under
+`.pitot/conf.d/`. Its demonstration policy denies commands containing
+`PITOT_DENY_ME`; replace it with your application policy. Host initialization
+alone does not register a Controller. See [runtime configuration](runtime.md)
+for the tenant fragment format.
+
+With provider credentials configured, start a prompt:
 
 ```sh
 pitot dev --host deepseek --prompt "Inspect this project" -- dsh
 ```
 
-Configure a shell Controller in `pitot.json`. Shell execution requires an
+This command can contact the configured model provider. For real CLI processes
+without real model calls, use the [local supervisory-control replay](../examples/supervisory-control/README.md).
+
+Shell execution requires an
 explicit, matching Controller reply. A missing runtime, unavailable Controller,
 timeout, malformed reply, or mismatched identity blocks execution, including
 when the runtime's ordinary fallback policy permits an action. An explicit
