@@ -16,7 +16,13 @@ def contains(value: object, needle: str) -> bool:
     return needle in json.dumps(value, separators=(",", ":"), ensure_ascii=True)
 
 
-def tool_result_contains(protocol: str, body: dict[str, object], needle: str) -> bool:
+def tool_result_contains(
+    protocol: str,
+    body: dict[str, object],
+    needle: str,
+    *,
+    call_id: str | None = None,
+) -> bool:
     """Search only native tool-result fields, never echoed tool-call arguments."""
     if protocol == "gemini_generate_content":
         values = []
@@ -45,10 +51,14 @@ def tool_result_contains(protocol: str, body: dict[str, object], needle: str) ->
                     values.append(item.get("content"))
         return any(contains(value, needle) for value in values)
     if protocol == "openai_responses":
+        if not call_id:
+            return False
         values = [
             item.get("output")
             for item in body.get("input", [])
-            if isinstance(item, dict) and item.get("type") == "function_call_output"
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+            and item.get("call_id") == call_id
         ]
         return any(contains(value, needle) for value in values)
     return False
@@ -584,10 +594,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(payload, stream=bool(body.get("stream")), protocol=protocol)
                 return
             allow_result = tool_result_contains(
-                protocol, body, f"PITOT_CANARY_RESULT PITOT_ALLOW {nonce}"
+                protocol,
+                body,
+                f"PITOT_CANARY_RESULT PITOT_ALLOW {nonce}",
+                call_id="pitot_tool_allow",
             )
             denied_result = tool_result_contains(
-                protocol, body, f"PITOT_CONTROLLER_DENY {nonce}"
+                protocol,
+                body,
+                f"PITOT_CONTROLLER_DENY {nonce}",
+                call_id="pitot_tool_deny",
             )
             opencode_allow = opencode_deny = None
             if state.args.agent == "opencode":
@@ -595,6 +611,13 @@ class Handler(BaseHTTPRequestHandler):
                 opencode_deny = opencode_tool_result(protocol, body, "deny", nonce)
                 allow_result = opencode_allow is not None
                 denied_result = opencode_deny is not None
+            if protocol == "openai_responses":
+                allow_result = (
+                    allow_result and state.receipt["allow_tool_call_response_emitted"]
+                )
+                denied_result = (
+                    denied_result and state.receipt["deny_tool_call_response_emitted"]
+                )
             phase = "allow"
             final = False
             if not state.receipt["initial_prompt_observed"]:
