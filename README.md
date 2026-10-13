@@ -311,6 +311,15 @@ The runtime descriptor lives in a per-invocation
 temporary path and is removed on exit, so concurrent `pitot dev` sessions never
 collide.
 
+On Windows, `pitot dev` recognizes standard npm Node launchers for Codex and
+Qwen, preserving their package entrypoint and arguments without invoking a
+command shell. Custom `.cmd` wrappers are rejected with guidance to use
+`-- node ABSOLUTE_ENTRYPOINT ARGS`. Prefer `-- COMMAND ARGS` for paths or
+arguments containing spaces; `--exec` splits its value on whitespace.
+When output is captured, an agent descendant that keeps an output pipe open
+can cause an incomplete-output error after a two-second drain limit. This
+releases the dev runtime; it does not terminate arbitrary descendant processes.
+
 **3. Swap the agent.** The same project — the same Controller and the same
 fragment — works with any other supported host whose hook is wired. Change only
 `--host` and the agent command:

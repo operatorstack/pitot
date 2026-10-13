@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	goruntime "runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // decisionLine models one entry from `pitot dev`'s decision timeline.
@@ -62,57 +65,45 @@ func writeFragment(t *testing.T, root, name, body string) {
 	}
 }
 
-// devAgentScript writes a POSIX agent stand-in that records the runtime it was
-// handed and its own argv, then drives one allow and one deny decision through
-// the running runtime via `pitot hook kimi`. It stands in for a real coding
-// agent so the dev harness can be exercised deterministically.
-func devAgentScript(t *testing.T, seenDir string) string {
+// buildDevAgent compiles a shell-free helper before the test changes directory.
+func buildDevAgent(t *testing.T) string {
 	t.Helper()
-	allowPayload := `{"hook_event_name":"PreToolUse","session_id":"dev","tool_name":"Bash","tool_input":{"command":"echo ok"}}`
-	denyPayload := `{"hook_event_name":"PreToolUse","session_id":"dev","tool_name":"Bash","tool_input":{"command":"PITOT_DENY_ME=1 echo no"}}`
-	script := fmt.Sprintf(`#!/bin/sh
-printf '%%s' "$PITOT_RUNTIME" > %q
-printf '%%s' "$#" > %q
-printf '%%s' "$*" > %q
-printf '%s' | "$PITOT_BIN" hook kimi --runtime "$PITOT_RUNTIME"
-printf '%s' | "$PITOT_BIN" hook kimi --runtime "$PITOT_RUNTIME" || true
-`,
-		filepath.Join(seenDir, "runtime.txt"),
-		filepath.Join(seenDir, "argc.txt"),
-		filepath.Join(seenDir, "args.txt"),
-		allowPayload, denyPayload)
-	path := filepath.Join(seenDir, "agent.sh")
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	name := "dev-agent"
+	if goruntime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	if out, err := exec.Command("go", "build", "-o", path, "./testdata/dev-agent").CombinedOutput(); err != nil {
+		t.Fatalf("build dev agent: %v\n%s", err, out)
 	}
 	return path
 }
 
 // TestDevRunsAgentBehindShellController is the end-to-end proof of the dev
 // harness: it starts the runtime + the compiled shell-policy controller, launches
-// a scripted agent, and verifies the decision timeline, PITOT_RUNTIME
+// a native agent stand-in, and verifies the decision timeline, PITOT_RUNTIME
 // propagation, argv preservation, and runtime-dir teardown.
 func TestDevRunsAgentBehindShellController(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("dev agent stand-in is a POSIX shell script")
-	}
 	// Build inputs before we chdir into the project directory.
 	pitotBin := buildPitotBinary(t)
+	agent := buildDevAgent(t)
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
 	writeFragment(t, proj, "shell-policy", configBody)
 	seenDir := t.TempDir()
-	agent := devAgentScript(t, seenDir)
+	t.Setenv("PITOT_TEST_SEEN", seenDir)
 
+	t.Setenv("PATH", filepath.Dir(agent)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("PITOT_BIN", pitotBin)
-	t.Setenv("PITOT_RUNTIME", "")
+	t.Setenv("PITOT_RUNTIME", "stale-descriptor")
 	t.Chdir(proj)
 
+	wantedArgs := []string{"", "alpha beta", `say "hi"`, `C:\a\`, "你好", "&|<>^%!()"}
 	var stdout lockedBuffer
 	var stderr lockedBuffer
-	// `-- sh AGENT a b` exercises the explicit argv form (args after --).
-	if err := runDev(context.Background(), []string{"--host", "kimi", "--", "sh", agent, "alpha", "beta"}, &stdout, &stderr); err != nil {
+	// The explicit argv form must preserve arguments without shell interpolation.
+	if err := runDev(context.Background(), append([]string{"--host", "qwen", "--", agent}, wantedArgs...), &stdout, &stderr); err != nil {
 		t.Fatalf("pitot dev: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
@@ -143,12 +134,12 @@ func TestDevRunsAgentBehindShellController(t *testing.T) {
 	if !strings.Contains(runtimeSeen, "pitot-dev-") {
 		t.Errorf("agent PITOT_RUNTIME = %q, want a per-invocation dev runtime path", runtimeSeen)
 	}
-	// argv after `--` is preserved verbatim: two positional args, joined "alpha beta".
-	if argc := readFileString(t, filepath.Join(seenDir, "argc.txt")); argc != "2" {
-		t.Errorf("agent argc = %q, want 2", argc)
+	var gotArgs []string
+	if err := json.Unmarshal([]byte(readFileString(t, filepath.Join(seenDir, "args.json"))), &gotArgs); err != nil {
+		t.Fatal(err)
 	}
-	if args := readFileString(t, filepath.Join(seenDir, "args.txt")); args != "alpha beta" {
-		t.Errorf("agent args = %q, want \"alpha beta\"", args)
+	if !reflect.DeepEqual(gotArgs, wantedArgs) {
+		t.Errorf("argv = %#v, want %#v", gotArgs, wantedArgs)
 	}
 	// The per-invocation runtime directory must be removed once dev exits.
 	if _, err := os.Stat(filepath.Dir(runtimeSeen)); !os.IsNotExist(err) {
@@ -159,24 +150,23 @@ func TestDevRunsAgentBehindShellController(t *testing.T) {
 // TestDevRuntimePathsAreUniquePerRun confirms concurrent-safe isolation: two dev
 // runs of the same project hand the agent two different runtime descriptors.
 func TestDevRuntimePathsAreUniquePerRun(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("dev agent stand-in is a POSIX shell script")
-	}
 	pitotBin := buildPitotBinary(t)
+	agent := buildDevAgent(t)
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
 	writeFragment(t, proj, "shell-policy", configBody)
+	t.Setenv("PATH", filepath.Dir(agent)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("PITOT_BIN", pitotBin)
-	t.Setenv("PITOT_RUNTIME", "")
+	t.Setenv("PITOT_RUNTIME", "stale-descriptor")
 	t.Chdir(proj)
 
 	run := func() string {
 		seenDir := t.TempDir()
-		agent := devAgentScript(t, seenDir)
+		t.Setenv("PITOT_TEST_SEEN", seenDir)
 		var stdout lockedBuffer
 		var stderr lockedBuffer
-		if err := runDev(context.Background(), []string{"--host", "kimi", "--", "sh", agent}, &stdout, &stderr); err != nil {
+		if err := runDev(context.Background(), []string{"--host", "qwen", "--", agent}, &stdout, &stderr); err != nil {
 			t.Fatalf("pitot dev: %v\n%s", err, stderr.String())
 		}
 		return readFileString(t, filepath.Join(seenDir, "runtime.txt"))
@@ -190,25 +180,24 @@ func TestDevRuntimePathsAreUniquePerRun(t *testing.T) {
 // TestDevExecSplitsWhereArgvDoesNot pins the distinct semantics of the two agent
 // forms: --exec field-splits its string, while `-- CMD ARGS` preserves argv.
 func TestDevExecSplitsWhereArgvDoesNot(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("dev agent stand-in is a POSIX shell script")
-	}
 	pitotBin := buildPitotBinary(t)
+	agent := buildDevAgent(t)
 	_, configBody := buildGeneratedShellPolicy(t)
 
 	proj := t.TempDir()
 	writeFragment(t, proj, "shell-policy", configBody)
+	t.Setenv("PATH", filepath.Dir(agent)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("PITOT_BIN", pitotBin)
-	t.Setenv("PITOT_RUNTIME", "")
+	t.Setenv("PITOT_RUNTIME", "stale-descriptor")
 	t.Chdir(proj)
 
 	argc := func(devArgs []string) string {
 		seenDir := t.TempDir()
-		agent := devAgentScript(t, seenDir)
+		t.Setenv("PITOT_TEST_SEEN", seenDir)
 		// Substitute the agent path into the caller's arg template.
 		filled := make([]string, len(devArgs))
 		for i, a := range devArgs {
-			filled[i] = strings.ReplaceAll(a, "{AGENT}", agent)
+			filled[i] = strings.ReplaceAll(a, "{AGENT}", filepath.Base(agent))
 		}
 		var stdout lockedBuffer
 		var stderr lockedBuffer
@@ -218,12 +207,12 @@ func TestDevExecSplitsWhereArgvDoesNot(t *testing.T) {
 		return readFileString(t, filepath.Join(seenDir, "argc.txt"))
 	}
 
-	// --exec "sh AGENT a b" splits on whitespace -> sh sees 2 positional args.
-	if got := argc([]string{"--host", "kimi", "--exec", "sh {AGENT} a b"}); got != "2" {
+	// --exec splits on whitespace.
+	if got := argc([]string{"--host", "qwen", "--exec", "{AGENT} a b"}); got != "2" {
 		t.Errorf("--exec field-split argc = %q, want 2", got)
 	}
-	// -- sh AGENT "a b" preserves argv -> sh sees 1 positional arg.
-	if got := argc([]string{"--host", "kimi", "--", "sh", "{AGENT}", "a b"}); got != "1" {
+	// The explicit form preserves one argument containing a space.
+	if got := argc([]string{"--host", "qwen", "--", "{AGENT}", "a b"}); got != "1" {
 		t.Errorf("-- argv-preserving argc = %q, want 1", got)
 	}
 }
@@ -235,4 +224,82 @@ func readFileString(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func TestDevFailureCleanup(t *testing.T) {
+	agent := buildDevAgent(t)
+	_, configBody := buildGeneratedShellPolicy(t)
+	proj := t.TempDir()
+	writeFragment(t, proj, "shell-policy", configBody)
+	t.Chdir(proj)
+	for _, mode := range []string{"missing", "fail", "cancel", "pipe", "record"} {
+		t.Run(mode, func(t *testing.T) {
+			seen := t.TempDir()
+			tempRoot := t.TempDir()
+			for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+				t.Setenv(name, tempRoot)
+			}
+			t.Setenv("PITOT_TEST_SEEN", seen)
+			helperMode := mode
+			if mode == "cancel" {
+				helperMode = "wait"
+			}
+			t.Setenv("PITOT_TEST_MODE", helperMode)
+			program := agent
+			if mode == "missing" {
+				program = filepath.Join(seen, "missing-agent")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			canceled := make(chan struct{})
+			if mode == "cancel" {
+				go func() {
+					defer close(canceled)
+					ticker := time.NewTicker(10 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							if _, err := os.Stat(filepath.Join(seen, "ready")); err == nil {
+								cancel()
+								return
+							}
+						}
+					}
+				}()
+			}
+			var stdout, stderr lockedBuffer
+			started := time.Now()
+			err := runDev(ctx, []string{"--host", "qwen", "--", program}, &stdout, &stderr)
+			elapsed := time.Since(started)
+			if mode == "cancel" {
+				<-canceled
+			}
+			if mode == "record" {
+				if err != nil {
+					t.Fatalf("normal exit: %v", err)
+				}
+			} else {
+				if err == nil || strings.Contains(stdout.String(), "Agent finished.") {
+					t.Fatalf("false success: %v\n%s", err, stdout.String())
+				}
+			}
+			if mode == "pipe" {
+				if !errors.Is(err, exec.ErrWaitDelay) {
+					t.Fatalf("expected incomplete output: %v", err)
+				}
+				if elapsed >= 4*time.Second {
+					t.Errorf("output drain was not bounded: %s", elapsed)
+				}
+				// The helper descendant self-exits; WaitDelay does not claim to kill it.
+				time.Sleep(4*time.Second - elapsed + 100*time.Millisecond)
+			}
+			entries, readErr := os.ReadDir(tempRoot)
+			if readErr != nil || len(entries) != 0 {
+				t.Errorf("runtime cleanup: entries=%v err=%v", entries, readErr)
+			}
+		})
+	}
 }
