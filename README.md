@@ -468,6 +468,22 @@ FOUND, MISSING, or DRIFTED against that witness; `pitot doctor --host HOST
 --fix` restores a drifted entry (Pitot's own entries only — that is the single
 mutation doctor ever performs, and only on request).
 
+For Codex, Qwen and DeepSeek, doctor also checks the executable and the
+integration's static setup on macOS, Linux and Windows. It reports independent
+problems together. A `static setup: PASS` is scoped to the inspected files and
+dependencies; `live enforcement: UNVERIFIED` means no agent action or Controller
+decision was exercised. Codex session trust and normalized hook hashes still
+require inspection in `/hooks`; stored trust that doctor cannot compare returns
+a nonzero result. Unsupported command forms, conflicting Qwen hook definitions
+and additional Codex configuration layers also require native inspection.
+
+With `PITOT_RUNTIME` unset, hooks remain observe-only. With it set, doctor checks
+the selected runtime's identity through its local health endpoint. It does not
+follow redirects, use an HTTP proxy, contact remote endpoints or submit a test
+action. A healthy runtime does not establish that a Controller is available.
+Plain doctor does not modify settings or grant trust; `--fix` performs the
+supported wiring step, then runs the diagnostic checks separately.
+
 Hosts configured at **user level** (Kimi, Copilot, Qwen) or via **plugin
 files** (OpenCode, Pi) keep the one-time manual edit below — Pitot does not
 edit files outside the repository; `pitot init --host kimi` prints the exact

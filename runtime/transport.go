@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/operatorstack/pitot/bridge"
@@ -246,6 +247,33 @@ func (c *Client) Health(ctx context.Context) error {
 		return errors.New("pitot: runtime descriptor identity mismatch")
 	}
 	return nil
+}
+
+// LocalHealth checks runtime identity without allowing a descriptor to send its
+// capability to a remote address, proxy, or redirect. It does not check whether
+// a Controller is registered or whether a host hook reaches that Controller.
+func (c *Client) LocalHealth(ctx context.Context) error {
+	endpoint, err := url.Parse(c.descriptor.Endpoint)
+	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" || endpoint.Opaque != "" {
+		return errors.New("pitot: runtime health requires a literal loopback endpoint")
+	}
+	host, port, err := net.SplitHostPort(endpoint.Host)
+	if err != nil || host != "127.0.0.1" || port == "" {
+		return errors.New("pitot: runtime health requires a literal loopback endpoint")
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return errors.New("pitot: runtime health requires a valid port")
+	}
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	probe := &Client{descriptor: c.descriptor, http: &http.Client{
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}}
+	return probe.Health(ctx)
 }
 
 // DeliverEvent returns nil when no Controller is registered for the action kind.
