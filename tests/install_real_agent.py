@@ -25,6 +25,8 @@ from installation_identity import (
     installation_prefix,
     observe_installation,
     node_environment,
+    node_probe,
+    node_output,
     prepare_installation,
 )
 
@@ -197,6 +199,24 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
                 cwd=owned,
                 env=environment,
             )
+        if agent["id"] == "qwen":
+            node = shutil.which("node.exe" if os.name == "nt" else "node")
+            if node is None:
+                raise RuntimeError("Node runtime is unavailable")
+            target = json.loads(
+                node_output(
+                    node_probe(
+                        [node, "-p", "JSON.stringify([process.platform, process.arch])"]
+                    )
+                )
+            )
+            if (
+                not isinstance(target, list)
+                or len(target) != 2
+                or not all(isinstance(item, str) for item in target)
+            ):
+                raise RuntimeError("Node did not identify its installation platform")
+            initialize_qwen_ripgrep(prefix, *target)
         if agent["id"] == "deepseek":
             lock = json.loads(
                 (prefix / "package-lock.json").read_text(encoding="utf-8")
@@ -375,6 +395,30 @@ def install(agent: dict[str, object], platform: str, runtime: str) -> str:
     return owned_entrypoint(agent, platform, runtime)
 
 
+def initialize_qwen_ripgrep(
+    prefix: Path, node_platform: str, architecture: str
+) -> None:
+    """Finish the pinned CLI's first-use executable setup before observing it."""
+    if node_platform == "win32":
+        return
+    if node_platform not in {"darwin", "linux"} or architecture not in {"arm64", "x64"}:
+        raise RuntimeError("unsupported Qwen bundled ripgrep platform")
+    binary = (
+        prefix
+        / "node_modules/@qwen-code/qwen-code/vendor/ripgrep"
+        / f"{architecture}-{node_platform}"
+        / "rg"
+    )
+    info = binary.lstat()
+    if not stat.S_ISREG(info.st_mode) or not binary.resolve(strict=True).is_relative_to(
+        prefix.resolve(strict=True)
+    ):
+        raise RuntimeError("Qwen bundled ripgrep must be a regular owned file")
+    # Qwen's first search applies exactly this repair when all execute bits are absent.
+    if info.st_mode & 0o111 == 0:
+        binary.chmod(0o755)
+
+
 def executable_receipt(
     agent: dict[str, object], platform: str, runtime: str, path: str | None = None
 ) -> dict[str, object]:
@@ -411,8 +455,8 @@ def main() -> int:
     runtime = agent["runtime"].get(args.platform)
     if runtime is None:
         raise SystemExit(f"unsupported platform: {args.platform}")
-    path = install(agent, args.platform, runtime)
     try:
+        path = install(agent, args.platform, runtime)
         receipt = executable_receipt(agent, args.platform, runtime, path)
     except VersionProbeError as error:
         persist_probe_error(error, args.output)

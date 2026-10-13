@@ -22,6 +22,36 @@ from installation_identity import (
 
 
 class InstallationTreeTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX executable mode initialization")
+    def test_qwen_ripgrep_initialized_before_snapshot_without_byte_change(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix = Path(d).resolve()
+            binary = (
+                prefix
+                / "node_modules/@qwen-code/qwen-code/vendor/ripgrep/arm64-darwin/rg"
+            )
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"owned bundled executable")
+            binary.chmod(0o644)
+            before = tree_digest(prefix)
+            install_real_agent.initialize_qwen_ripgrep(prefix, "darwin", "arm64")
+            self.assertEqual(stat.S_IMODE(binary.stat().st_mode), 0o755)
+            self.assertEqual(binary.read_bytes(), b"owned bundled executable")
+            initialized = tree_digest(prefix)
+            self.assertNotEqual(before, initialized)
+            install_real_agent.initialize_qwen_ripgrep(prefix, "darwin", "arm64")
+            self.assertEqual(tree_digest(prefix), initialized)
+            binary.chmod(0o744)
+            install_real_agent.initialize_qwen_ripgrep(prefix, "darwin", "arm64")
+            self.assertEqual(stat.S_IMODE(binary.stat().st_mode), 0o744)
+
+    def test_qwen_windows_initialization_has_no_filesystem_effect(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix = Path(d).resolve()
+            before = tree_digest(prefix)
+            install_real_agent.initialize_qwen_ripgrep(prefix, "win32", "x64")
+            self.assertEqual(tree_digest(prefix), before)
+
     def test_executable_extensions_are_stable_regular_files(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
