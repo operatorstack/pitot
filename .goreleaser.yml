@@ -1,7 +1,7 @@
 # GoReleaser builds the prebuilt Pitot binaries for each release tag. Pitot is
 # pure Go / CGO-free, so cross-compiling the five supported targets is a plain
-# matrix build. The release workflow (works-rendered release.yml installed in
-# the public repo) tags a version, runs `goreleaser release --clean`, attests
+# matrix build. The repository release workflow validates the tag and source
+# versions, runs `goreleaser release --clean`, attests
 # provenance, then uploads the archives + checksums.txt to the GCP Artifact
 # Registry generic `dist` repo fronted by get.operatorstack.systems — which is
 # exactly where the repo shim (.pitot/bin/pitot) and `pitot upgrade` hydrate
@@ -47,8 +47,7 @@ archives:
       - goos: windows
         formats:
           - zip
-    # README.md and LICENSE live at the public repo root (projected from
-    # public-readme-preview).
+    # Include the repository documentation and license in each binary archive.
     files:
       - README.md
       - LICENSE
