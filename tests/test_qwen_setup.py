@@ -13,10 +13,10 @@ import real_agent_driver as driver
 class QwenSetupTests(unittest.TestCase):
     def test_native_fixture_uses_documented_runtime_shell_matcher(self):
         section = (
-            (driver.LAB / "README.md")
+            (driver.LAB / "docs/hosts.md")
             .read_text(encoding="utf-8")
-            .split("### Qwen Code\n", 1)[1]
-            .split("\n### ", 1)[0]
+            .split("## Qwen Code\n", 1)[1]
+            .split("\n## ", 1)[0]
         )
         documented = json.loads(section.split("```json\n", 1)[1].split("```", 1)[0])
         expected = documented["hooks"]["PreToolUse"][0]["matcher"]
