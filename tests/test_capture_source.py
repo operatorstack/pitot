@@ -214,7 +214,11 @@ class CaptureSourceTests(unittest.TestCase):
             value = json.loads(output.read_text())
         self.assertEqual(value["schema_version"], 4)
         self.assertEqual(value["source"]["producer_profile"], "capture-direct/v1")
-        self.assertEqual(len(value["source"]["producer_files"]), 40)
+        self.assertEqual(len(value["source"]["producer_files"]), 41)
+        self.assertIn(
+            "tests/cursor_transport.mjs",
+            {item["path"] for item in value["source"]["producer_files"]},
+        )
         self.assertIn(
             "integrations/cursor/beforeShellExecution.ps1",
             [item["path"] for item in value["source"]["producer_files"]],

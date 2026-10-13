@@ -9,6 +9,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { routeClient } from "./cursor_transport.mjs";
 
 function parseArgs(argv) {
   const values = {};
@@ -1245,40 +1246,37 @@ http1Server.on("clientError", (error, socket) => {
 });
 http1Server.on("error", (error) => recordTransportError("http1_server", error));
 
-const frontServer = net.createServer((client) => {
+const frontServer = net.createServer({ allowHalfOpen: true }, (client) => {
   const id = ++connectionSequence;
   client.on("error", (error) =>
     recordTransportError("front_client", error, { connection_id: id }),
   );
-  client.once("data", (first) => {
-    const isHttp2 = first.subarray(0, 14).toString() === "PRI * HTTP/2.0";
-    const signature = Buffer.from("PRI * HTTP/2.0");
-    receipt.front_connections.push({
-      connection_id: id,
-      first_data_bytes: first.length,
-      signature_partial_match: first
-        .subarray(0, Math.min(first.length, 14))
-        .equals(signature.subarray(0, Math.min(first.length, 14))),
-      routed_protocol: isHttp2 ? "http2" : "http1",
-      event_sequence: ++eventSequence,
-    });
-    receipt.front_connections = receipt.front_connections.slice(-20);
-    save();
-    const target = isHttp2
-      ? h2Server.address().port
-      : http1Server.address().port;
-    let backendPort;
-    const backend = net.connect(target, "127.0.0.1", () => {
+  let backendPort;
+  routeClient(client, {
+    onDecision: (decision) => {
+      receipt.front_connections.push({
+        connection_id: id,
+        ...decision,
+        event_sequence: ++eventSequence,
+      });
+      receipt.front_connections = receipt.front_connections.slice(-20);
+      save();
+    },
+    connectBackend: (protocol) =>
+      net.connect(
+        protocol === "http2"
+          ? h2Server.address().port
+          : http1Server.address().port,
+        "127.0.0.1",
+      ),
+    onConnect: (backend) => {
       backendPort = backend.localPort;
       backendConnections.set(backendPort, id);
-      backend.write(first);
-    });
-    backend.on("close", () => backendConnections.delete(backendPort));
-    backend.on("error", (error) => {
+    },
+    onClose: () => backendConnections.delete(backendPort),
+    onError: (error) => {
       recordTransportError("front_backend", error, { connection_id: id });
-      client.destroy();
-    });
-    client.pipe(backend).pipe(client);
+    },
   });
 });
 frontServer.on("error", (error) => recordTransportError("front_server", error));

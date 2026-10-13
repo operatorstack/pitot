@@ -41,6 +41,7 @@ PRODUCER_FILES = (
     ".github/scripts/pitot_e2e_report.py",
     "tests/model_control_proxy.py",
     "tests/cursor_control_proxy.mjs",
+    "tests/cursor_transport.mjs",
     "tests/devin_control_proxy.py",
     "tests/witness/main.go",
     "internal/testrole/main.go",
