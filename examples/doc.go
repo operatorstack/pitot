@@ -1,10 +1,12 @@
-// Package examples documents the two reference programs that demonstrate the
-// Consumer/Controller distinction, mirroring the public README:
+// Package examples includes two small JSON-Lines reference programs:
 //
-//	token-meter    a passive Consumer that counts tokens without recording prompts
+//	token-meter    a passive Consumer for application-supplied model.usage events
 //	local-approval a Controller that returns one correlated response per request
 //
-// Each is a standalone main package under this directory so it can be built and
-// run without a Pitot SDK. A Consumer reads JSON Lines from standard input; a
-// Controller returns one schema-valid response on its output channel.
+// The shipped runtime delivers action.requested events, not model token usage.
+// Connecting token-meter to it therefore does not collect token counts. Each
+// example is a standalone main package and reads one JSON record per line from
+// standard input. Controller responses must use the wire framing and match the
+// pending action and registered Controller; schema validity alone is insufficient.
+// The supervisory-control directory contains a larger offline delivery example.
 package examples

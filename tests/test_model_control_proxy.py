@@ -999,6 +999,15 @@ class ModelControlProtocolTests(unittest.TestCase):
         self.assertIn("D:/a/temp/canary.jsonl", command)
         self.assertNotIn("\\", command)
 
+    def test_terminal_canary_flag_precedes_positional_markers(self):
+        for windows in (False, True):
+            command = driver.render_canary_command("canary", "receipt", windows, True)
+            self.assertTrue(command.endswith("--require-terminal"))
+            self.assertNotIn(
+                "--require-terminal",
+                driver.render_canary_command("canary", "receipt", windows),
+            )
+
     def test_anthropic_messages_emits_native_shell_tool(self):
         value = proxy.anthropic("Bash", "pitot-e2e-canary nonce", False)
         self.assertEqual(value["content"][0]["type"], "tool_use")

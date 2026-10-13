@@ -216,6 +216,36 @@ class ValidateReceiptsNegativeBranches(unittest.TestCase):
                 "prompt",
             )
         self.assertIn("agent loop incomplete", str(caught.exception))
+        self.assertIn(
+            "canary_counts={'available': True, 'present': True, 'total': 1, 'allow': 1, 'deny': 0}",
+            str(caught.exception),
+        )
+
+    def test_failed_canary_observation_does_not_disclose_invalid_receipts(self):
+        for raw in (
+            b"secret-sentinel",
+            b"\xff",
+            b"x" * 65537,
+            (f"PITOT_ALLOW {NONCE}\n" * 1001).encode(),
+        ):
+            with self.subTest(size=len(raw)):
+                self.fixture.canary.write_bytes(raw)
+                self.assertEqual(
+                    driver.failed_canary_counts(self.fixture.canary, NONCE),
+                    {"available": False},
+                )
+
+    def test_failed_canary_observation_distinguishes_missing_and_empty(self):
+        self.fixture.canary.unlink(missing_ok=True)
+        self.assertEqual(
+            driver.failed_canary_counts(self.fixture.canary, NONCE),
+            {"available": True, "present": False, "total": 0, "allow": 0, "deny": 0},
+        )
+        self.fixture.canary.write_bytes(b"")
+        self.assertEqual(
+            driver.failed_canary_counts(self.fixture.canary, NONCE),
+            {"available": True, "present": True, "total": 0, "allow": 0, "deny": 0},
+        )
 
 
 class ValidateReceiptsACPBranches(unittest.TestCase):

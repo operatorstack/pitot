@@ -1,6 +1,7 @@
-// Command token-meter is a passive Consumer: it sums token usage from the Pitot
-// event stream without ever recording prompts. It needs no Pitot SDK — it only
-// reads newline-delimited JSON from standard input.
+// Command token-meter sums application-supplied model.usage events without
+// recording prompts. The shipped Pitot runtime delivers action.requested events,
+// not model usage, so registering this Consumer does not collect token counts.
+// This example reads one JSON record per line from standard input.
 package main
 
 import (

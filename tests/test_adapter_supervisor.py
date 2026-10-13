@@ -527,6 +527,24 @@ class AdapterSupervisorTests(unittest.TestCase):
                 )
             )
 
+    def test_readme_status_is_plain_and_tracks_catalog(self):
+        manifest = _manifest()
+        manifest["agents"][0]["label"] = "Renamed adapter"
+        block = supervisor.readme_block(manifest)
+        self.assertNotIn(
+            "<",
+            block.replace(supervisor.README_START, "").replace(
+                supervisor.README_END, ""
+            ),
+        )
+        self.assertNotIn("![", block)
+        self.assertIn("?query=branch%3Amain)", block)
+        labels = " · ".join(agent["label"] for agent in manifest["agents"])
+        self.assertIn(f"Supervised adapters: {labels}", block)
+        self.assertIn("Ubuntu, macOS, and Windows", block)
+        self.assertTrue(block.startswith(supervisor.README_START))
+        self.assertTrue(block.endswith(supervisor.README_END))
+
     def test_readme_and_workflow_drift_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
