@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,11 +10,10 @@ import (
 	"testing"
 )
 
-// labRoot resolves labs/15-pitot from the package working directory
-// (cmd/pitot -> module root -> lab root), where the local SDK sources live.
-func labRoot(t *testing.T) string {
+// sdkRoot resolves the current repository from the package working directory.
+func sdkRoot(t *testing.T) string {
 	t.Helper()
-	p, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	p, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +65,9 @@ func TestBuildGeneratedPythonImports(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	sdk := filepath.Join(labRoot(t), "pitot-distribution", "sdk", "python")
+	sdk := filepath.Join(sdkRoot(t), "sdk", "python")
 	if _, err := os.Stat(filepath.Join(sdk, "pitot", "runner.py")); err != nil {
-		t.Skipf("local python SDK not present at %s", sdk)
+		t.Fatalf("local python SDK not present at %s", sdk)
 	}
 	proj := initInto(t, "python")
 
@@ -90,9 +90,9 @@ func TestTypeCheckGeneratedTypeScript(t *testing.T) {
 	if err != nil {
 		t.Skip("node not available")
 	}
-	sdk := filepath.Join(labRoot(t), "pitot-distribution", "sdk", "typescript")
+	sdk := filepath.Join(sdkRoot(t), "sdk", "typescript")
 	if _, err := os.Stat(filepath.Join(sdk, "package.json")); err != nil {
-		t.Skipf("local typescript SDK not present at %s", sdk)
+		t.Fatalf("local typescript SDK not present at %s", sdk)
 	}
 	proj := initInto(t, "typescript")
 
@@ -124,26 +124,25 @@ func TestTypeCheckGeneratedTypeScript(t *testing.T) {
 }
 
 // TestCargoCheckGeneratedRust type-checks the generated Rust controller against
-// the local SDK via a path dependency. It skips when cargo or the local SDK is
-// unavailable.
+// the local SDK via a path dependency. It skips only when cargo is unavailable.
 func TestCargoCheckGeneratedRust(t *testing.T) {
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo not available")
 	}
-	sdk := filepath.Join(labRoot(t), "pitot-distribution", "sdk", "rust")
+	sdk := filepath.Join(sdkRoot(t), "sdk", "rust")
 	if _, err := os.Stat(filepath.Join(sdk, "Cargo.toml")); err != nil {
-		t.Skipf("local rust SDK not present at %s", sdk)
+		t.Fatalf("local rust SDK not present at %s", sdk)
 	}
 	proj := initInto(t, "rust")
 
-	// Repoint the crates.io dependency at the local SDK by path.
+	// Repoint the release-tag dependency at the local SDK by path.
 	manifestPath := filepath.Join(proj, "Cargo.toml")
 	manifest, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	patched := strings.Replace(string(manifest),
-		`pitot = "0.1.0"`,
+		fmt.Sprintf(`pitot = { git = "https://github.com/operatorstack/pitot", tag = "v%s" }`, pitotPackageVersion),
 		`pitot = { path = `+quoteToml(sdk)+` }`, 1)
 	if patched == string(manifest) {
 		t.Fatalf("could not repoint rust SDK dependency in:\n%s", manifest)

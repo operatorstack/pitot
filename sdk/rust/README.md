@@ -8,13 +8,17 @@ every other Pitot SDK — proven identical by the cross-language conformance sui
 
 ## Add the dependency
 
-The crate is `pitot`. During local development, depend on it by path; a released
-version installs from the project registry pinned to the CLI's version.
+The crate is `pitot`, distributed from this repository through a Git dependency.
+`pitot init --language rust` pins the tag to the CLI release version. Cargo finds
+the crate under `sdk/rust`; no separate Cargo registry is required.
 
 ```toml
 [dependencies]
-pitot = { path = "path/to/sdk/rust" }   # or the pinned registry version
+pitot = { git = "https://github.com/operatorstack/pitot", tag = "v0.1.0" }
 ```
+
+Use the tag matching `pitot version`. For a development checkout, use
+`pitot = { path = "path/to/pitot/sdk/rust" }` instead.
 
 ## Build a Controller
 
@@ -56,5 +60,5 @@ fn main() {
 }
 ```
 
-See the repository [README](../../../public-readme-preview/README.md) for the full
+See the repository [README](../../README.md) for the full
 runtime, host-hook wiring, and the enforcement boundary.
