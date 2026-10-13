@@ -55,6 +55,20 @@ positive vector for every new adapter behavior and a negative control for every
 boundary fault. The sensor package must never import the bridge package —
 measurement stays innocent of control.
 
+Runtime benchmarks cover 1 KiB, 64 KiB and 1 MiB content under each projection
+policy, with one, four and sixteen consumers:
+
+```bash
+go test ./runtime -run '^$' -bench 'Benchmark(ProjectEvent|DeliverEvent)' -benchmem -count 3
+```
+
+Compare revisions with the same Go version, machine, workload and benchmark
+settings. Delivery benchmarks measure validation and successful queue admission;
+controller cases also include a real supervised subprocess round trip. They do
+not measure Consumer application processing, HTTP transport or child-process
+allocations. Retain regressions alongside gains; timing is diagnostic rather
+than a portable CI pass threshold.
+
 ## Formatting
 
 Formatting is checked in CI. Install the Go toolchain from `go.mod`, Python
