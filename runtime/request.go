@@ -50,7 +50,9 @@ func NewControlRequest(kind string, payload any) (schema.ControlRequested, error
 // the correlated response. It is the typed convenience over Request: the caller
 // supplies a structured payload rather than a pre-framed envelope with raw JSON.
 // All of Request's guarantees still apply — correlation, the client deadline, and
-// the runtime's fail-closed unavailable/timeout defaults.
+// the runtime's configured unavailable/timeout defaults, which may allow or deny.
+// An application-issued request does not require a live Controller reply;
+// DeliverControlledEvent provides that separate behavior for action events.
 func (c *Client) RequestTyped(ctx context.Context, kind string, payload any) (schema.ControlResponse, error) {
 	req, err := NewControlRequest(kind, payload)
 	if err != nil {

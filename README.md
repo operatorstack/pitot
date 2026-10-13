@@ -22,10 +22,10 @@
   One language-neutral boundary for the coding agents your team already uses.
 </p>
 
-Your coding agent runs shell commands, edits files, and calls tools. Pitot lets
-you put your own code in the loop at that boundary — to allow, deny, or record
-each action — without forking the agent or rewriting a host integration for
-every tool.
+Pitot puts your own code at a coding agent's wired action boundary, so it can
+allow, deny, or observe a proposed action. The shipped Codex, Qwen, and DeepSeek
+integrations supervise shell tools; they do not mediate every file edit or tool
+call. Applications can also issue explicit requests for their own action kinds.
 
 Pitot reports what happened. Your code decides what it means.
 
@@ -419,6 +419,7 @@ deny control path end to end.
 | Claude | `PreToolUse` | native settings hook | Ubuntu · macOS · Windows | decoder + E2E |
 | Cursor | `beforeShellExecution` | bridge (`integrations/cursor`) | Ubuntu · macOS · native Windows with PowerShell 7 | decoder + E2E |
 | Codex | `PreToolUse` | bridge (`integrations/codex`) | Ubuntu · macOS · Windows | decoder + E2E |
+| DeepSeek Harness | `tools/pre-execute` / `bash`, `pwsh` | native middleware ([setup](docs/deepseek-adapter.md)) | Ubuntu · macOS · Windows | decoder + E2E |
 | Devin | `session/request_permission` (ACP) | stateful ACP transport | Ubuntu · macOS · Windows | decoder + E2E |
 | GitHub Copilot CLI | `PreToolUse` | bridge (`integrations/copilot`) | Ubuntu · macOS · Windows | decoder + E2E |
 | Gemini | `BeforeTool` | bridge (`integrations/gemini`) | Ubuntu · macOS · Windows | decoder + E2E |
@@ -792,6 +793,13 @@ native integer range. The runtime continues to deliver only
 
 ## Controller guarantees
 
+For Go applications, `runtime.Start` validates the protocol and all process
+registrations before launching any child. Empty embedded runtimes remain valid;
+file configuration still requires at least one registration. An explicit request
+can use any configured nonempty kind, and its unavailable/timeout defaults may
+allow or deny. `DeliverControlledEvent` separately requires a live Controller
+reply for an action event.
+
 Synchronous hooks are control channels: the host is blocked waiting for an
 answer. Pitot makes that privilege explicit.
 
@@ -865,6 +873,12 @@ a slow operator diagnostic sink can still block existing delivery diagnostics.
 
 ## What can you build?
 
+The reference runtime delivers `action.requested` to Consumers and routes
+application-issued control requests to registered Controllers. The SDKs can
+represent `model.usage`, but the shipped runtime does not collect or deliver
+usage events. Token accounting and cross-agent memory need additional data
+sources supplied by your application.
+
 - selective cross-agent memory;
 - session and decision reports;
 - token and cost attribution;
@@ -897,6 +911,10 @@ that boundary ends is part of using it correctly.
   that is wired but has no runtime. Once a runtime is explicitly selected,
   transport or authentication failure blocks the controllable action rather
   than falling open.
+- **DeepSeek requires a live Controller reply.** Its native shell middleware
+  blocks execution without a selected runtime or an explicit matching reply,
+  even if ordinary runtime fallback defaults allow. This differs from the
+  observation-only behavior of command hooks with no runtime selected.
 - **Hosts retain their own bypass options.** Some hosts expose persistent or
   bypass permissions (for example Devin's ACP `allow_always` and switch-bypass
   modes). Pitot never selects them — it uses only the one-shot `allow_once` /
@@ -916,6 +934,13 @@ that boundary ends is part of using it correctly.
   output. That host behavior is separate from a Controller's decision; a
   passing allow/deny test does not guarantee that hook execution failures block
   tools. Untrusted or changed hooks can also be skipped until reviewed.
+
+- **Qwen hook failures can leave an action unsupervised.** The pinned Qwen
+  release treats some hook startup errors, timeouts, and invalid output as
+  nonblocking. A functioning bridge can return a denial, but that does not
+  guarantee an action is blocked when the bridge itself fails. Valid structured
+  denial output and the host's blocking exit status are separate from these
+  nonblocking failure paths.
 
 None of these change the core contract: within the boundary Pitot mediates,
 every pending action receives exactly one terminal resolution. **Pitot reports.
