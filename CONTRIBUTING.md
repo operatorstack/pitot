@@ -225,3 +225,28 @@ python3 -m unittest discover -s sdk/tests -p 'test_*.py'
 The Verify workflow installs the Go, Python, Node, and Rust toolchains for these
 checks. Pitot E2E verifies real pinned agents across the supported platforms.
 The release workflow continues using the existing repository variables.
+
+### Release identity and package checks
+
+Before creating a stable `vMAJOR.MINOR.PATCH` release tag, update the version in
+`sdk/python/pyproject.toml`, `sdk/typescript/package.json`, `sdk/rust/Cargo.toml`
+and `pitotPackageVersion` in `cmd/pitot/workbench.go` together. The release workflow
+requires those versions, the tag, and the checked-out commit to agree before it
+authenticates or uploads anything. Manual dispatch must also select a release
+tag. Prereleases are not supported by the current binary installer. Major versions
+2 and above require a Go module path migration before release and are rejected.
+
+A released CLI generates exact matching SDK dependencies. An unstamped `dev`
+build uses the source fallback above; when developing against unreleased SDK
+changes, use local path/module overrides. Rust uses the matching repository Git
+tag, with the crate under `sdk/rust`; Python and npm use the existing registries.
+
+`python scripts/check_sdk_packages.py` builds Python wheel/sdist, npm and Rust
+artifacts, installs them into temporary consumers, and checks generated Rust
+programs without model calls. It requires Python, Node/npm, Go and Rust, and may
+fetch build dependencies. The three native CI runners execute this check.
+The release workflow retains those checked artifacts with `--output` and publishes
+the same npm/Python files, without rebuilding them during upload. A later registry
+upload can still fail after an earlier upload succeeds; cross-registry publication
+is not atomic. Resolve the upload failure and inspect existing version contents
+before retrying. The package check itself never publishes.

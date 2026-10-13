@@ -167,5 +167,9 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Verify native installation identity
         run: python -m unittest discover -s tests -p test_installation_identity.py
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - uses: dtolnay/rust-toolchain@stable
       - name: Build and verify installed SDK artifacts
         run: python scripts/check_sdk_packages.py

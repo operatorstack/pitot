@@ -19,7 +19,7 @@ import (
 	"github.com/operatorstack/pitot/runtime"
 )
 
-// pitotPackageVersion is the published SDK version wired into generated
+// pitotPackageVersion is the source SDK fallback version wired into generated
 // manifests so a freshly initialized project can resolve its dependency.
 const pitotPackageVersion = "0.1.0"
 
@@ -325,6 +325,10 @@ func defaultRoleID(template string) string {
 // separately as a tenant fragment under .pitot/conf.d/.
 func projectFiles(lang, template string) (map[string]string, error) {
 	files := map[string]string{}
+	sdkVersion := releaseVersion()
+	if sdkVersion == "dev" {
+		sdkVersion = pitotPackageVersion
+	}
 
 	src, err := sourceTemplate(lang, template)
 	if err != nil {
@@ -333,18 +337,18 @@ func projectFiles(lang, template string) (map[string]string, error) {
 	switch lang {
 	case "python":
 		files["main.py"] = src
-		files["requirements.txt"] = fmt.Sprintf("%s>=%s\n", pitotPythonDistribution, pitotPackageVersion)
-		files["pyproject.toml"] = pythonProjectManifest
+		files["requirements.txt"] = fmt.Sprintf("%s==%s\n", pitotPythonDistribution, sdkVersion)
+		files["pyproject.toml"] = fmt.Sprintf(pythonProjectManifest, sdkVersion)
 	case "typescript":
 		files["main.ts"] = src
-		files["package.json"] = tsProjectManifest
+		files["package.json"] = fmt.Sprintf(tsProjectManifest, sdkVersion)
 		files["tsconfig.json"] = tsProjectTSConfig
 	case "go":
 		files["main.go"] = src
-		files["go.mod"] = goProjectManifest
+		files["go.mod"] = fmt.Sprintf(goProjectManifest, sdkVersion)
 	case "rust":
 		files["main.rs"] = src
-		files["Cargo.toml"] = rustProjectManifest
+		files["Cargo.toml"] = fmt.Sprintf(rustProjectManifest, sdkVersion)
 	default:
 		return nil, fmt.Errorf("pitot init: unsupported language %q", lang)
 	}
@@ -552,7 +556,7 @@ name = "pitot-project"
 version = "0.1.0"
 requires-python = ">=3.10"
 # The PyPI distribution is operatorstack-pitot; the import package is "pitot".
-dependencies = ["operatorstack-pitot>=0.1.0"]
+dependencies = ["operatorstack-pitot==%s"]
 `
 
 const tsControllerTemplate = `import { runController, allow, ControlRequested } from '@operatorstack/pitot';
@@ -577,7 +581,7 @@ const tsProjectManifest = `{
     "dev": "tsx main.ts"
   },
   "dependencies": {
-    "@operatorstack/pitot": "^0.1.0"
+    "@operatorstack/pitot": "%s"
   },
   "devDependencies": {
     "tsx": "^4.7.0",
@@ -634,7 +638,7 @@ const goProjectManifest = `module pitot-project
 
 go 1.22
 
-require github.com/operatorstack/pitot v0.1.0
+require github.com/operatorstack/pitot v%s
 `
 
 const rustControllerTemplate = `use pitot::{run_controller, allow, ControlRequested, Outcome};
@@ -651,7 +655,7 @@ fn main() {
 const rustConsumerTemplate = `use pitot::{run_consumer, Event};
 
 fn handler(event: Event) {
-    eprintln!("Consumed event: {}", event.type_field);
+    eprintln!("Consumed event: {}", event.event_type);
 }
 
 fn main() {
@@ -669,7 +673,7 @@ name = "pitot-project"
 path = "main.rs"
 
 [dependencies]
-pitot = "0.1.0"
+pitot = { git = "https://github.com/operatorstack/pitot", tag = "v%s" }
 serde_json = "1"
 `
 

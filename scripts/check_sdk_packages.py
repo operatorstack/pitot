@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import argparse
+import email
 import json
 import os
 from pathlib import Path
@@ -12,12 +14,22 @@ import sys
 import tarfile
 import tempfile
 import venv
+import zipfile
+
+from check_release import source_version
+from check_rust_package import check_rust_package
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output", type=Path, help="retain verified packages for publication"
+    )
+    args = parser.parse_args()
+    version = source_version()
     npm = shutil.which("npm")
     node = shutil.which("node")
     if not npm or not node:
@@ -55,7 +67,7 @@ def main() -> None:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                timeout=180,
+                timeout=300,
             )
             if (result.returncode == 0) == expected_failure:
                 print(result.stdout, file=sys.stderr)
@@ -66,7 +78,8 @@ def main() -> None:
         # Copy tracked source bytes, including current edits, without caches,
         # untracked configuration or an existing dist that could hide a bad pack.
         sources = subprocess.check_output(
-            ["git", "ls-files", "-z", "sdk/python", "sdk/typescript"], cwd=ROOT
+            ["git", "ls-files", "-z", "sdk/python", "sdk/typescript", "sdk/rust"],
+            cwd=ROOT,
         ).decode()
         for relative in sources.split("\0"):
             if relative:
@@ -85,6 +98,11 @@ def main() -> None:
             raise RuntimeError("Packing must produce exactly one tarball")
         with tarfile.open(tarballs[0]) as package:
             metadata = json.load(package.extractfile("package/package.json"))
+            if (
+                metadata["name"] != "@operatorstack/pitot"
+                or metadata["version"] != version
+            ):
+                raise RuntimeError("npm package identity differs from release source")
             names = set(package.getnames())
             for entry in (metadata["main"], metadata["types"]):
                 if "package/" + entry.removeprefix("./") not in names:
@@ -165,19 +183,61 @@ def main() -> None:
                 python_at(build_environment),
                 "-m",
                 "pip",
-                "wheel",
-                "--no-deps",
+                "install",
                 "--index-url",
                 "https://pypi.org/simple",
-                "--wheel-dir",
+                "build",
+            ],
+            work,
+        )
+        # build creates the wheel from the sdist, checking both distribution paths.
+        run(
+            [
+                python_at(build_environment),
+                "-m",
+                "build",
+                "--outdir",
                 str(wheels),
                 str(work / "sdk/python"),
             ],
             work,
         )
         wheel_files = list(wheels.glob("*.whl"))
-        if len(wheel_files) != 1:
-            raise RuntimeError("Build must produce exactly one wheel")
+        sdists = list(wheels.glob("*.tar.gz"))
+        if len(wheel_files) != 1 or len(sdists) != 1:
+            raise RuntimeError("Build must produce exactly one wheel and one sdist")
+        with zipfile.ZipFile(wheel_files[0]) as wheel:
+            metadata_paths = [
+                name
+                for name in wheel.namelist()
+                if name.endswith(".dist-info/METADATA")
+            ]
+            if len(metadata_paths) != 1:
+                raise RuntimeError("Wheel metadata missing or ambiguous")
+            metadata = email.message_from_bytes(wheel.read(metadata_paths[0]))
+            if (
+                metadata["Name"] != "operatorstack-pitot"
+                or metadata["Version"] != version
+            ):
+                raise RuntimeError("Wheel identity differs from release source")
+        with tarfile.open(sdists[0]) as sdist:
+            metadata_paths = [
+                name
+                for name in sdist.getnames()
+                if name.count("/") == 1 and name.endswith("/PKG-INFO")
+            ]
+            if len(metadata_paths) != 1:
+                raise RuntimeError("Source distribution metadata missing or ambiguous")
+            metadata = email.message_from_bytes(
+                sdist.extractfile(metadata_paths[0]).read()
+            )
+            if (
+                metadata["Name"] != "operatorstack-pitot"
+                or metadata["Version"] != version
+            ):
+                raise RuntimeError(
+                    "Source distribution identity differs from release source"
+                )
         python = python_at(installed_environment)
         run([python, "-m", "pip", "install", "--no-deps", str(wheel_files[0])], work)
         run(
@@ -246,6 +306,8 @@ def main() -> None:
             if result.stdout.strip() != "observed" or result.stderr:
                 raise RuntimeError("Installed Consumer roundtrip differs")
 
+        crate = check_rust_package(work, ROOT, run, env, version)
+
         # A failed compiler must stop packaging instead of publishing partial JS.
         (typescript / "src/index.ts").write_text(
             "export const broken: = 1;\n", encoding="utf-8"
@@ -259,8 +321,12 @@ def main() -> None:
         )
         if list(rejected.glob("*.tgz")):
             raise RuntimeError("Failed build produced a tarball")
+        if args.output:
+            args.output.mkdir(parents=True, exist_ok=False)
+            for artifact in [*tarballs, *wheel_files, *sdists, crate]:
+                shutil.copyfile(artifact, args.output / artifact.name)
         print(
-            "PASS: installed Python/TypeScript artifacts, public types, stdio and failed-build rejection"
+            "PASS: installed Python/TypeScript/Rust artifacts, generated Rust projects, identities, stdio and failed-build rejection"
         )
 
 
