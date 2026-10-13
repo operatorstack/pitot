@@ -274,6 +274,18 @@ func (c Config) Validate() error {
 	if len(c.Consumers) == 0 && len(c.Controllers) == 0 {
 		return errors.New("pitot: config requires at least one consumer or controller")
 	}
+	return c.validate(false)
+}
+
+// ValidateRuntime checks the protocol and every process registration before a
+// runtime starts. Unlike file configuration, an embedded runtime may have no
+// registrations; its observation-only or strict behavior still applies.
+// Runtime working directories may already be resolved to absolute paths.
+func (c Config) ValidateRuntime() error {
+	return c.validate(true)
+}
+
+func (c Config) validate(runtime bool) error {
 	if c.RequiresProtocol != "" && c.RequiresProtocol != schema.Version {
 		return fmt.Errorf("pitot: config requires protocol %q but this pitot speaks protocol %q", c.RequiresProtocol, schema.Version)
 	}
@@ -289,8 +301,10 @@ func (c Config) Validate() error {
 		if err := validateCommand("consumer "+consumer.ID, consumer.Command); err != nil {
 			return err
 		}
-		if err := validateDir("consumer "+consumer.ID, consumer.Dir); err != nil {
-			return err
+		if !runtime {
+			if err := validateDir("consumer "+consumer.ID, consumer.Dir); err != nil {
+				return err
+			}
 		}
 		if len(consumer.Events) == 0 {
 			return fmt.Errorf("pitot: consumer %q requires at least one event", consumer.ID)
@@ -325,8 +339,10 @@ func (c Config) Validate() error {
 		if err := validateCommand("controller "+controller.ID, controller.Command); err != nil {
 			return err
 		}
-		if err := validateDir("controller "+controller.ID, controller.Dir); err != nil {
-			return err
+		if !runtime {
+			if err := validateDir("controller "+controller.ID, controller.Dir); err != nil {
+				return err
+			}
 		}
 		if controller.DeadlineMS <= 0 {
 			return fmt.Errorf("pitot: controller %q requires a positive deadline_ms", controller.ID)

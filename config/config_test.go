@@ -56,3 +56,16 @@ func TestConfigRejectsUnknownAndAmbiguousRoles(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRuntimeAllowsResolvedDirectories(t *testing.T) {
+	cfg := Config{
+		Consumers:   []ConsumerConfig{{ID: "audit", Command: []string{"consumer"}, Dir: t.TempDir(), Events: []string{"action.requested"}, Projection: ProjectionConfig{Content: "omit"}}},
+		Controllers: map[string]ControllerConfig{"custom.approval": {ID: "policy", Command: []string{"controller"}, Dir: t.TempDir(), DeadlineMS: 1000, OnTimeout: "deny", OnUnavailable: "allow"}},
+	}
+	if err := cfg.ValidateRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("file configuration accepted absolute working directories")
+	}
+}

@@ -58,22 +58,20 @@ type ParserConfig struct {
 	ActionKinds    map[string]string // hook event name -> normalized action kind ("shell", "mcp")
 }
 
-// ControlPartition declares the physics of the host's hook boundaries.
-// In supervisory control theory (supervisory-control.md), this defines the
-// control partition (Σ = Σ_c ∪ Σ_u).
+// ControlPartition declares which host events can accept a permission response
+// and which are observations. Host failure behavior must be verified separately.
 type ControlPartition struct {
-	// Controllable (Σ_c): Synchronous, blocking hook events where the host
-	// pauses execution and waits for a permission response. The supervisor
-	// can safely disable these.
+	// Controllable: Synchronous events where a functioning boundary waits for
+	// a permission response. This does not promise fail-closed hook failures.
 	Controllable []string
 
-	// Uncontrollable (Σ_u): Asynchronous, fire-and-forget hook events where
+	// Uncontrollable: Asynchronous, fire-and-forget hook events where
 	// the host reports behavior but cannot be prevented or paused. These are
 	// observation-only.
 	Uncontrollable []string
 }
 
-// HostConfig unites the regular parser with the mathematical plant physics.
+// HostConfig pairs payload parsing with the declared host boundary.
 type HostConfig struct {
 	MainEventName string
 	Parser        ParserConfig
@@ -263,8 +261,8 @@ func preToolUseHost() HostConfig {
 	}
 }
 
-// RegisterHost registers a custom host with its configuration, enforcing
-// that it complies with the required supervisory control laws.
+// RegisterHost validates and registers a custom host's boundary declarations.
+// It does not verify that the host actually implements those declarations.
 func RegisterHost(h Host, config HostConfig) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
@@ -291,9 +289,8 @@ func RegisterHost(h Host, config HostConfig) error {
 		return fmt.Errorf("pitot: host %q declares unsupported transport %q", h, config.Transport)
 	}
 
-	// --- Control Laws Verification ---
-	// To safely supervise a host (maintain nonblocking control under K),
-	// the host MUST provide at least one controllable (synchronous, blocking) shell hook.
+	// Custom adapters must declare a controllable shell boundary. This checks
+	// registration structure, not host failure behavior or progress guarantees.
 	hasControllableShell := false
 	for _, eventName := range config.Partition.Controllable {
 		if config.Parser.ActionKinds[eventName] == "shell" {

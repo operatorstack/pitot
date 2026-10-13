@@ -71,6 +71,9 @@ func (m *Manager) reportDecision(kind string, response *schema.ControlResponse) 
 // Start creates the complete configured process boundary. A child that cannot
 // start remains unavailable so the declared default can resolve requests.
 func Start(parent context.Context, cfg config.Config, stderr io.Writer) (*Manager, error) {
+	if err := cfg.ValidateRuntime(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(parent)
 	manager := &Manager{
 		ctx:               ctx,
