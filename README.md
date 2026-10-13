@@ -56,9 +56,12 @@ This creates a runnable Controller and registers it under `.pitot/conf.d/`.
 The sample allows shell commands except those containing `PITOT_DENY_ME`.
 It is a demonstration policy, not a general shell-security control.
 
-`pitot init` also writes a repository version pin and launch shims. Commit those
-files so clones use the same release. First use can download that release;
-cache-only and offline failures are described in [runtime setup](docs/runtime.md).
+A released CLI also writes a repository version pin and launch shims during
+`pitot init`. Commit those files so clones use the same release. Source builds
+without an injected release version, including ordinary `go install` builds,
+skip a missing pin and print a notice; their shims need a released version pin
+before use. Cache-only and offline behavior is described in
+[runtime setup](docs/runtime.md).
 
 ## Connect Codex, Qwen or DeepSeek
 

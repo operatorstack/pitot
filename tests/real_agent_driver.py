@@ -333,14 +333,18 @@ def windows_host() -> bool:
     return os.name == "nt"
 
 
-def render_canary_command(executable: str, receipt: str, native_windows: bool) -> str:
+def render_canary_command(
+    executable: str, receipt: str, native_windows: bool, require_terminal: bool = False
+) -> str:
     if native_windows:
         executable = executable.replace("\\", "/")
         receipt = receipt.replace("\\", "/")
-        return subprocess.list2cmdline(
-            [executable, "--role", "canary", "--receipt", receipt]
-        )
-    return shlex.join([executable, "--role", "canary", "--receipt", receipt])
+    arguments = [executable, "--role", "canary", "--receipt", receipt]
+    if require_terminal:
+        arguments.append("--require-terminal")
+    return (
+        subprocess.list2cmdline(arguments) if native_windows else shlex.join(arguments)
+    )
 
 
 def cursor_powershell() -> str:
@@ -700,6 +704,8 @@ def configure(
                 f'"{witness_receipt}" "{nonce}" "{runtime_path}"'
             )
         settings = hook_group("PreToolUse", "^run_shell_command$", hook_command)
+        # Use the host's terminal output drain; the canary rejects pipe fallback.
+        settings["tools"] = {"shell": {"enableInteractiveShell": True}}
         settings["modelProviders"] = {
             "openai": {
                 "protocol": "openai",
@@ -1291,6 +1297,33 @@ def validate_deepseek_native_results(
     }
 
 
+def failed_canary_counts(path: Path, nonce: str) -> dict[str, object]:
+    unavailable = {"available": False}
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(65537)
+    except FileNotFoundError:
+        return {"available": True, "present": False, "total": 0, "allow": 0, "deny": 0}
+    except OSError:
+        return unavailable
+    if len(raw) > 65536:
+        return unavailable
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return unavailable
+    allow, deny = f"PITOT_ALLOW {nonce}", f"PITOT_DENY {nonce}"
+    if len(lines) > 1000 or any(line not in (allow, deny) for line in lines):
+        return unavailable
+    return {
+        "available": True,
+        "present": True,
+        "total": len(lines),
+        "allow": lines.count(allow),
+        "deny": lines.count(deny),
+    }
+
+
 def validate_receipts(
     agent: dict[str, object],
     platform: str,
@@ -1319,11 +1352,6 @@ def validate_receipts(
     witnesses = json_lines(witness_path)
     controller = json_lines(controller_path)
     consumers = json_lines(consumer_path)
-    canary = (
-        canary_path.read_text(encoding="utf-8").splitlines()
-        if canary_path.is_file()
-        else []
-    )
     proxy_flags = (
         "initial_prompt_observed",
         "allow_tool_call_response_emitted",
@@ -1339,9 +1367,15 @@ def validate_receipts(
         or final_marker not in output
         or not all(proxy.get(flag) is True for flag in proxy_flags)
     ):
+        canary_counts = failed_canary_counts(canary_path, nonce)
         raise RuntimeError(
-            f"agent loop incomplete (exit={exit_code}, proxy={proxy}, witnesses={witnesses})\n{output[-4000:]}"
+            f"agent loop incomplete (exit={exit_code}, canary_counts={canary_counts}, proxy={proxy}, witnesses={witnesses})\n{output[-4000:]}"
         )
+    canary = (
+        canary_path.read_text(encoding="utf-8").splitlines()
+        if canary_path.is_file()
+        else []
+    )
     if proxy.get("nonce") != nonce:
         raise RuntimeError("proxy receipt escaped the nonce-bound real-agent session")
     if agent["id"] == "opencode":
@@ -1756,6 +1790,7 @@ def run_session(args: argparse.Namespace) -> int:
             str(canary_executable),
             receipt_argument,
             windows_host() and not host_controls_wsl,
+            require_terminal=args.agent == "qwen",
         )
         if (
             args.agent in {"cursor", "deepseek"}

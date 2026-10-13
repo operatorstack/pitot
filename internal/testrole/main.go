@@ -19,8 +19,15 @@ func main() {
 	receipt := flag.String("receipt", "", "append-only receipt path")
 	nonce := flag.String("nonce", "", "E2E nonce")
 	mode := flag.String("mode", "route", "route, timeout, malformed, mismatch, allow, or deny")
+	requireTerminal := flag.Bool("require-terminal", false, "require terminal output for the canary")
 	flag.Parse()
 	if *role == "canary" {
+		if *requireTerminal {
+			if err := checkTerminal(os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		}
 		if err := canary(*receipt, flag.Args()); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
@@ -36,6 +43,14 @@ func main() {
 		os.Exit(2)
 	}
 	controller(*id, *receipt, *nonce, *mode)
+}
+
+func checkTerminal(output *os.File) error {
+	info, err := output.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return fmt.Errorf("testrole: canary requires terminal output")
+	}
+	return nil
 }
 
 func canary(receipt string, args []string) error {

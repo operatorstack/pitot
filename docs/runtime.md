@@ -2,14 +2,20 @@
 
 ## Install
 
-The repository pins the CLI release. `pitot init`
-writes two substrate files alongside your tenant fragments:
+A released CLI can pin its release in the repository. `pitot init` creates the
+following files alongside your tenant fragments, leaving existing files intact:
 
 - `.pitot/version` — one committed semver line, the only version authority
 - `.pitot/bin/pitot` (+ `pitot.ps1`) — a committed shim that reads the pin,
   hydrates exactly that release into a per-user cache
   (SHA-256 verified against the published `checksums.txt` during download),
   and executes it
+
+Source builds without an injected release version, including ordinary
+`go install` builds, still write the shims but skip a missing `.pitot/version`
+and print a notice. Use a released CLI to initialize the pin, or explicitly pin
+a published release before using the shims. A source build can run directly
+without a repository pin.
 
 On macOS and Linux, the default cache slot is
 `~/.cache/pitot/<version>/<os>-<arch>/`. `XDG_CACHE_HOME` changes the cache base;
