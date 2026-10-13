@@ -157,12 +157,17 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 			fmt.Fprintf(stdout, "  config file: ABSENT (%v)\n", readErr)
 			problems = append(problems, "config file absent")
 		default:
-			text := string(data)
-			hasEvent := strings.Contains(text, `event = "`+probe.hookEvent+`"`)
-			hasHookCmd := strings.Contains(text, "pitot "+hookCmd) || strings.Contains(text, hookCmd)
-			if hasEvent && hasHookCmd {
-				fmt.Fprintf(stdout, "  %s hook: FOUND invoking `pitot %s`\n", probe.hookEvent, hookCmd)
-			} else {
+			status := currentKimiHookStatus(data)
+			switch status {
+			case kimiHookConfigured:
+				fmt.Fprintf(stdout, "  %s hook: FOUND declaring `pitot %s` for %s\n", probe.hookEvent, hookCmd, probe.matcher)
+			case kimiHookInvalid:
+				fmt.Fprintln(stdout, "  PreToolUse hook: INVALID — check TOML syntax and hook field names, types, events and timeout")
+				problems = append(problems, "hook configuration invalid")
+			case kimiHookUnverified:
+				fmt.Fprintln(stdout, "  PreToolUse hook: UNVERIFIED — manually verify the matcher and command; wrappers, expansions and unsupported syntax cannot establish readiness")
+				problems = append(problems, "hook routing unverified")
+			default:
 				fmt.Fprintf(stdout, "  %s hook: MISSING — add a [[hooks]] entry (event = %q, matcher = %q, command = \"pitot %s\")\n",
 					probe.hookEvent, probe.hookEvent, probe.matcher, hookCmd)
 				problems = append(problems, "hook not configured")
@@ -193,7 +198,7 @@ func doctorHost(host adapters.Host, stdout, stderr io.Writer) error {
 	if len(problems) > 0 {
 		return fmt.Errorf("pitot doctor: %s host check found %d issue(s): %s", host, len(problems), strings.Join(problems, "; "))
 	}
-	fmt.Fprintf(stdout, "  ready: %s can route its shell boundary to Pitot\n", host)
+	fmt.Fprintf(stdout, "  ready: %s declares a shell hook to Pitot; hook execution and controller connection are not checked\n", host)
 	return nil
 }
 
